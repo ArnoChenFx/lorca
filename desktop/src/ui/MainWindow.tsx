@@ -35,6 +35,7 @@ import {
   goForward,
   inspectorWidth,
   open,
+  paneLayout,
   renameChat,
   restoreSelection,
   select,
@@ -47,6 +48,7 @@ import {
   sidebarActions,
   sidebarCollapsed,
   sidebarWidth,
+  squeezesContent,
   togglePinChat,
   toggleInspector,
   toggleSidebar,
@@ -59,6 +61,21 @@ import { setupWindow } from "./window";
 
 /** The narrowest the content gets before the side panes give way. */
 const contentMinWidth = 460;
+
+/** The side panes' widths in a window `available` wide, each with its divider's pixel, as they give
+ * way to the content down to their own minimums, the inspector first; `fits` is whether the
+ * content keeps its own. */
+function fitPanes(available: number, sidebar: number, inspector: number) {
+  let short = contentMinWidth - (available - sidebar - inspector);
+  const giveWay = (width: number, low: number) => {
+    const taken = Math.max(0, Math.min(short, width - low));
+    short -= taken;
+    return width - taken;
+  };
+  if (inspector) inspector = giveWay(inspector, 268 + 1);
+  if (sidebar) sidebar = giveWay(sidebar, 232 + 1);
+  return { sidebar, inspector, fits: short <= 0 };
+}
 
 /** The relay turned this build away. Said once per launch, since every sync attempt gets the same
  * answer until Lorca is updated. */
@@ -99,31 +116,69 @@ export function MainWindow(props: RouteSectionProps) {
   // inspector first; past that the inspector steps aside until there is room again, as AppKit's
   // split view collapses it.
   const [windowWidth, setWindowWidth] = createSignal(window.innerWidth);
+  /** Side panes waiting on the window to widen for them: they open as the page takes the width. */
+  let waiting: (() => void)[] = [];
   onSettled(() => {
-    const onResize = () => setWindowWidth(window.innerWidth);
+    let width = window.innerWidth;
+    const onResize = () => {
+      if (window.innerWidth < width) squeezesContent.set(false);
+      width = window.innerWidth;
+      setWindowWidth(width);
+      const opens = waiting;
+      waiting = [];
+      for (const open of opens) open();
+    };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   });
   const panes = createMemo(() => {
-    const available = windowWidth();
-    // Widths count the pane's divider, a pixel.
-    const fit = (sidebar: number, inspector: number) => {
-      let short = contentMinWidth - (available - sidebar - inspector);
-      const giveWay = (width: number, low: number) => {
-        const taken = Math.max(0, Math.min(short, width - low));
-        short -= taken;
-        return width - taken;
-      };
-      if (inspector) inspector = giveWay(inspector, 268 + 1);
-      if (sidebar) sidebar = giveWay(sidebar, 232 + 1);
-      return { sidebar, inspector, fits: short <= 0 };
-    };
     const sidebar = sidebarCollapsed.read() ? 0 : sidebarWidth.read() + 1;
     const inspector = showsInspector() ? inspectorWidth.read() + 1 : 0;
-    let layout = fit(sidebar, inspector);
+    let layout = fitPanes(windowWidth(), sidebar, inspector);
     // With the inspector aside, the sidebar has its own width back where there is room.
-    if (!layout.fits && inspector) layout = fit(sidebar, 0);
+    if (!layout.fits && inspector && !squeezesContent.read()) layout = fitPanes(windowWidth(), sidebar, 0);
     return { sidebar: Math.max(0, layout.sidebar - 1), inspector: Math.max(0, layout.inspector - 1) };
+  });
+  paneLayout.showsInspector = () => panes().inspector > 0;
+  // A side pane the user opens where there is no room widens the window by the pane, so the content
+  // keeps its width, as AppKit's split view does. The pane opens as the page takes the new width,
+  // in one layout, so nothing on screen moves twice. Where the window cannot widen enough
+  // (maximized, full screen, the screen's edges), the content narrows past its minimum instead.
+  paneLayout.open = (pane, show) => {
+    const sidebar = pane === "sidebar" || panes().sidebar > 0 ? sidebarWidth.get() + 1 : 0;
+    const inspector = pane === "inspector" || panes().inspector > 0 ? inspectorWidth.get() + 1 : 0;
+    if (fitPanes(windowWidth(), sidebar, inspector).fits) {
+      show();
+      return;
+    }
+    const width = pane === "sidebar" ? sidebar : inspector;
+    void host
+      .windowRoom()
+      .catch(() => 0)
+      .then((room) => {
+        const by = Math.min(width, room);
+        const open = () => {
+          if (by < width - 1) squeezesContent.set(true);
+          show();
+        };
+        if (by < 1) {
+          open();
+          return;
+        }
+        waiting.push(open);
+        // A window manager can turn the new size down; the pane opens anyway, the content narrowing.
+        setTimeout(() => {
+          if (!waiting.includes(open)) return;
+          waiting = waiting.filter((each) => each !== open);
+          squeezesContent.set(true);
+          show();
+        }, 500);
+        void host.widenWindow(by);
+      });
+  };
+  onCleanup(() => {
+    paneLayout.showsInspector = undefined;
+    paneLayout.open = undefined;
   });
 
   // The window's title: the chat's, the pane's, or the app's.

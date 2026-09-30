@@ -211,10 +211,10 @@ body.resizing * {
   background: var(--sidebar);
 }
 
+/* The main window's layout keeps it 460 wide where there is room. */
 .content-pane {
   position: relative;
   flex: 1;
-  min-width: 460px;
   background: var(--content);
 }
 

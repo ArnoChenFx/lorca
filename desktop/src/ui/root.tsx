@@ -34,6 +34,9 @@ const paneIndex = box(0);
 /** Whether the user wants the inspector beside a chat. */
 export const userWantsInspector = box(true);
 export const sidebarCollapsed = box(false);
+/** The user opened a side pane the window could not widen enough for: the content narrows past its
+ * minimum rather than the inspector stepping aside, until the window narrows. */
+export const squeezesContent = box(false);
 export const sidebarWidth = box(260);
 export const inspectorWidth = box(280);
 /** A setting a search picked, for its pane to scroll to and flash. */
@@ -55,6 +58,18 @@ export const sidebarActions: {
   focusSettingsSearch?: () => void;
   focusSettingsList?: () => void;
 } = {};
+
+/** What the main window registers: whether the inspector is on screen, which it is not while it
+ * steps aside for room, and how a side pane opens, once the window has widened for it. */
+export const paneLayout: {
+  showsInspector?: () => boolean;
+  open?: (pane: "sidebar" | "inspector", show: () => void) => void;
+} = {};
+
+function openPane(pane: "sidebar" | "inspector", show: () => void): void {
+  if (paneLayout.open) paneLayout.open(pane, show);
+  else show();
+}
 
 export function loadWindowState(): void {
   const prefs = preferences();
@@ -214,17 +229,23 @@ export function setSidebarCollapsed(collapsed: boolean): void {
 }
 
 export function toggleSidebar(): void {
-  setSidebarCollapsed(!sidebarCollapsed.get());
+  if (sidebarCollapsed.get()) openPane("sidebar", () => setSidebarCollapsed(false));
+  else setSidebarCollapsed(true);
 }
 
+/** The toggle goes by what is on screen, as the Mac app's split view's does: an inspector that
+ * stepped aside for room comes back. */
 export function toggleInspector(): void {
   if (selection.get()?.kind !== "chat" || !store.isConnected) {
     void host.beep();
     return;
   }
-  const wants = !userWantsInspector.get();
-  userWantsInspector.set(wants);
-  void setPreferences({ showsInspector: wants });
+  const show = (wants: boolean) => {
+    userWantsInspector.set(wants);
+    void setPreferences({ showsInspector: wants });
+  };
+  if (paneLayout.showsInspector?.() ?? userWantsInspector.get()) show(false);
+  else openPane("inspector", () => show(true));
 }
 
 export function open(chatID: string): void {

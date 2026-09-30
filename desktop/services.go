@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json/jsontext"
 	"fmt"
+	"math"
 	"net/url"
 	"runtime"
 	"strconv"
@@ -95,6 +96,59 @@ func (Host) ToggleFullScreen(ctx context.Context) {
 	if win := mygo.CallerWindow(ctx); win != nil {
 		win.ToggleFullScreen()
 	}
+}
+
+// WindowRoom returns how much wider the calling page's window can get on its display, in the
+// page's pixels, of which it is `pageWidth` wide (the page's zoom scales them from the window's).
+// A maximized or full-screen window has none.
+func (Host) WindowRoom(ctx context.Context, pageWidth float64) float64 {
+	win, scale := widenable(ctx, pageWidth)
+	if win == nil {
+		return 0
+	}
+	bounds := win.Bounds()
+	return float64(widened(bounds, workArea(bounds), math.MaxInt32).Width-bounds.Width) / scale
+}
+
+// WidenWindow makes the calling page's window `by` of the page's pixels wider, for a side pane the
+// user opens: to the right where its display has room, and to the left past that. The right edge
+// moves first because the page's frame stays anchored at the left until the page lays out again,
+// so a moving left edge would slide the whole page over for a moment.
+func (Host) WidenWindow(ctx context.Context, by, pageWidth float64) {
+	win, scale := widenable(ctx, pageWidth)
+	if win == nil {
+		return
+	}
+	bounds := win.Bounds()
+	if next := widened(bounds, workArea(bounds), int(math.Round(by*scale))); next != bounds {
+		win.SetBounds(next)
+	}
+}
+
+// widenable is the calling page's window unless it is maximized or in full screen, with how many
+// of the window's pixels make one of the page's, which is `pageWidth` wide.
+func widenable(ctx context.Context, pageWidth float64) (*mygo.Window, float64) {
+	win := mygo.CallerWindow(ctx)
+	if win == nil || pageWidth <= 0 || win.IsMaximized() || win.IsFullScreen() {
+		return nil, 0
+	}
+	width, _ := win.ContentSize()
+	if width <= 0 {
+		return nil, 0
+	}
+	return win, float64(width) / pageWidth
+}
+
+func workArea(r mygo.Rectangle) mygo.Rectangle {
+	return mygo.Screen.DisplayMatching(r).WorkArea
+}
+
+// widened is r made `by` wider within area: to the right where the area has room, then to the
+// left, and past both by less. It never shrinks r or moves it back into the area.
+func widened(r, area mygo.Rectangle, by int) mygo.Rectangle {
+	right := min(by, max(0, area.X+area.Width-(r.X+r.Width)))
+	left := min(by-right, max(0, r.X-area.X))
+	return mygo.Rectangle{X: r.X - left, Y: r.Y, Width: r.Width + left + right, Height: r.Height}
 }
 
 // SetBadge shows the chats' unread count where the system has a place for it: the launcher
