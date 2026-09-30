@@ -51,9 +51,15 @@ Mac app's in the root `package.json`.
    [`desktop/CHANGELOG.md`](../desktop/CHANGELOG.md): the section becomes the notes of the release
    and of the update window, and the release stops without it.
 2. Tag the commit `desktop-v<version>` and push the tag, or run **Release desktop** by hand from
-   the Actions tab on the branch to release (`gh workflow run release-desktop.yml --ref main`),
-   which drafts the release on its commit; publishing the draft makes the tag. A run on a commit
-   other than the one an existing `desktop-v<version>` tag names is refused.
+   the Actions tab with any commit, branch, or tag as its **ref** (the branch the run uses when
+   empty):
+
+   ```sh
+   gh workflow run release-desktop.yml -f ref=<commit, branch, or tag>
+   ```
+
+   A run by hand drafts the release on that commit, and publishing the draft makes the tag. It is
+   refused when an existing `desktop-v<version>` tag names another commit.
 3. When the workflow is done, check the draft `desktop-v<version>` and publish it without making
    it the latest release:
 

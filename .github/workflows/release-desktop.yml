@@ -3,8 +3,9 @@
 # install-cli.ps1 download, and the apps find the newest desktop-v release through the GitHub API.
 # A tag desktop-vX.Y.Z, naming the version in desktop/package.json, drafts the release with the
 # version's section of desktop/CHANGELOG.md as its notes, then builds Windows x64, Linux x64 and
-# Linux arm64 side by side. A run by hand does the same for the commit it runs on, naming the
-# release after desktop/package.json; the tag appears when the draft is published. Each build runs
+# Linux arm64 side by side. A run by hand does the same for any commit, branch or tag (its "ref",
+# else the branch it runs on), naming the release after that commit's desktop/package.json; the tag
+# appears when the draft is published. Each build runs
 # `bun run release-desktop <platform>`: the CLI with cargo-zigbuild, then `mygo build -upload`,
 # which builds the app and its installer, signs the update archive and deltas, and uploads them to
 # the draft. Publishing the draft, without making it the latest release, once every platform is
@@ -15,6 +16,10 @@ on:
   push:
     tags: ["desktop-v*"]
   workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit, branch, or tag to release (default the branch the run uses)
+        required: false
 
 permissions:
   contents: read
@@ -32,27 +37,47 @@ jobs:
     outputs:
       version: ${{ steps.package.outputs.version }}
       tag: ${{ steps.package.outputs.tag }}
+      sha: ${{ steps.package.outputs.sha }}
     steps:
+      # The commit to release, which every job checks out: a pushed tag's, or a run's ref, a
+      # branch, tag, or (short) SHA.
+      - id: commit
+        name: Find the commit to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF: ${{ inputs.ref || github.sha }}
+        run: |
+          if ! sha=$(gh api "repos/$GITHUB_REPOSITORY/commits/$REF" --jq .sha); then
+            echo "::error::$REF is not a commit, branch, or tag of $GITHUB_REPOSITORY"
+            exit 1
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.commit.outputs.sha }}
       - id: package
         name: Name the release after desktop/package.json
         env:
           GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.commit.outputs.sha }}
         run: |
+          sha=$SHA
           version=$(jq -r .version desktop/package.json)
           tag=desktop-v$version
-          # A pushed tag, or a run by hand on one, has to name the version the app says it is.
-          if [[ $GITHUB_REF_TYPE == tag && $GITHUB_REF_NAME != "$tag" ]]; then
+          # A pushed tag has to name the version the app says it is.
+          if [[ $GITHUB_EVENT_NAME == push && $GITHUB_REF_NAME != "$tag" ]]; then
             echo "::error::$GITHUB_REF_NAME does not match version $version in desktop/package.json: set \"version\" there to ${GITHUB_REF_NAME#desktop-v} and tag that commit"
             exit 1
           fi
           # A release takes the tag that exists, so the builds have to come from its commit.
-          if tagged=$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha 2>/dev/null) && [[ $tagged != "$GITHUB_SHA" ]]; then
-            echo "::error::$tag already tags $tagged: run this on that commit, or bump \"version\" in desktop/package.json"
+          if tagged=$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha 2>/dev/null) && [[ $tagged != "$sha" ]]; then
+            echo "::error::$tag already tags $tagged: release that commit, or bump \"version\" in desktop/package.json"
             exit 1
           fi
+          echo "::notice::releasing $tag from $sha"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
   # The builds upload into one draft, which this job makes first; each would make its own.
   draft:
@@ -62,12 +87,15 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.version.outputs.sha }}
       - uses: oven-sh/setup-bun@v2
       - name: Draft ${{ needs.version.outputs.tag }}
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.version.outputs.tag }}
           VERSION: ${{ needs.version.outputs.version }}
+          SHA: ${{ needs.version.outputs.sha }}
         run: |
           if ! state=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null); then
             state=none
@@ -80,7 +108,7 @@ jobs:
             draft)
               # An earlier run's draft takes these builds, from this commit.
               echo "::notice::the draft $TAG takes these builds"
-              gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA"
+              gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --target "$SHA"
               ;;
             none)
               bun -e '
@@ -92,15 +120,15 @@ jobs:
                 }
                 await Bun.write("notes.md", notes + "\n")
               '
-              # Not the latest release, which stays the CLI's. On the tag's commit, or on the commit a
-              # run by hand builds, where publishing the draft makes the tag.
-              gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --latest=false --target "$GITHUB_SHA" --title "Lorca for Windows and Linux $VERSION" --notes-file notes.md
+              # Not the latest release, which stays the CLI's. On the commit the builds come from,
+              # where publishing the draft makes the tag when it is not there yet.
+              gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --latest=false --target "$SHA" --title "Lorca for Windows and Linux $VERSION" --notes-file notes.md
               ;;
           esac
 
   build:
     name: build ${{ matrix.platform }}
-    needs: draft
+    needs: [version, draft]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -116,6 +144,8 @@ jobs:
           - { platform: linux/arm64, target: aarch64-unknown-linux-musl }
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.version.outputs.sha }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
