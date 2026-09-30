@@ -1,22 +1,16 @@
 # Releases the Windows and Linux app (desktop/) to https://releases.lorca.app, the R2 bucket
-# lorca-releases, where installed apps look for updates. Run by hand, it releases the version in the
-# root package.json, whose section in CHANGELOG.md becomes the notes of the update window:
-# `bun run release-desktop` builds the CLI for each platform with cargo-zigbuild, then
-# `mygo build -upload` builds the apps and installers, signs the update archives and deltas, and
-# uploads them, the manifests last. A version that is already published is left alone unless
-# "force" is ticked. docs/releasing-desktop.md has the steps and the secrets.
+# lorca-releases, where installed apps look for updates. A tag desktop-vX.Y.Z, naming the version in
+# the root package.json, builds Windows x64, Linux x64 and Linux arm64 side by side. Each build
+# runs `bun run release-desktop <platform>`: the CLI with cargo-zigbuild, then `mygo build -upload`,
+# which builds the app and its installer, signs the update archive and deltas, and uploads them,
+# the platform's manifest last. The version's section of CHANGELOG.md becomes the notes of the
+# update window, and a platform already published at that version is left alone.
+# docs/releasing-desktop.md has the steps and the secrets.
 name: Release desktop
 
 on:
-  workflow_dispatch:
-    inputs:
-      platforms:
-        description: MyGo platforms, comma separated
-        default: linux/amd64,windows/amd64
-      force:
-        description: Replace the version if it is already published
-        type: boolean
-        default: false
+  push:
+    tags: ["desktop-v*"]
 
 permissions:
   contents: read
@@ -29,15 +23,37 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  release:
+  version:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      # The CLI inside each app: static (musl) for Linux and x86_64-pc-windows-gnu for Windows, as
-      # the CLI releases build them.
+      - name: Match the tag with package.json
+        run: |
+          version=$(jq -r .version package.json)
+          if [[ $GITHUB_REF_NAME != "desktop-v$version" ]]; then
+            echo "::error::$GITHUB_REF_NAME does not match version $version in package.json: set \"version\" to ${GITHUB_REF_NAME#desktop-v} and tag that commit"
+            exit 1
+          fi
+
+  build:
+    name: build ${{ matrix.platform }}
+    needs: version
+    runs-on: ubuntu-latest
+    strategy:
+      # A platform that fails leaves the others to finish their uploads.
+      fail-fast: false
+      matrix:
+        include:
+          # MyGo builds every platform from Linux without cgo, and zig, through cargo-zigbuild,
+          # builds the CLI inside each app as the CLI releases do: static (musl) for Linux.
+          - { platform: windows/amd64, target: x86_64-pc-windows-gnu }
+          - { platform: linux/amd64, target: x86_64-unknown-linux-musl }
+          - { platform: linux/arm64, target: aarch64-unknown-linux-musl }
+    steps:
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl,x86_64-pc-windows-gnu
+          targets: ${{ matrix.target }}
       - uses: mlugg/setup-zig@v2
         with:
           version: 0.16.0
@@ -46,7 +62,7 @@ jobs:
           tool: cargo-zigbuild
       - uses: Swatinem/rust-cache@v2
         with:
-          key: release-desktop
+          key: ${{ matrix.target }}
       - uses: actions/setup-go@v6
         with:
           go-version-file: desktop/go.mod
@@ -54,16 +70,16 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       # makensis, which mygo build needs for the Windows installer on Linux.
       - name: Install NSIS
+        if: startsWith(matrix.platform, 'windows/')
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends nsis
       - run: bun install --frozen-lockfile
       - name: Build and upload
         env:
-          PLATFORMS: ${{ inputs.platforms }}
-          FORCE: ${{ inputs.force && '1' || '' }}
+          PLATFORM: ${{ matrix.platform }}
           MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: bun run release-desktop "$PLATFORMS"
+        run: bun run release-desktop "$PLATFORM"

@@ -6,11 +6,11 @@ R2 bucket `lorca-releases`, served at `https://releases.lorca.app`: for each pla
 (`lorca-<version>-windows-amd64.tar.gz`), delta updates from the last three versions, the Linux
 `install.sh`, and `update-<platform>.json`, the manifest the app checks. Installed apps accept only
 archives and deltas signed with the update key, whose public half is `updates.publicKey` in
-[`desktop/mygo.config.ts`](../desktop/mygo.config.ts). One command builds and publishes, and the
-**Release desktop** workflow runs it on GitHub Actions:
+[`desktop/mygo.config.ts`](../desktop/mygo.config.ts). A tag releases Windows x64, Linux x64, and
+Linux arm64 on GitHub Actions:
 
 ```sh
-bun run release-desktop
+git tag desktop-v1.0.8 && git push origin desktop-v1.0.8
 ```
 
 - Updater: [`desktop/updater.go`](../desktop/updater.go). **Check for Updates…** in File and Help,
@@ -63,17 +63,17 @@ The version is `"version"` in the root [`package.json`](../package.json), the Ma
 1. Make sure [`CHANGELOG.md`](../CHANGELOG.md) has a `## [<version>]` section: it becomes the
    release notes of the update window (`updates.changelog`), and `release-desktop` stops before
    building without it. A version the Mac app released already has one.
-2. Run **Release desktop** from the repository's Actions tab on the commit to release (it takes
-   `main` unless you pick another branch), or run it here:
+2. Tag the commit `desktop-v<version>` and push the tag.
 
-   ```sh
-   bun run release-desktop [platforms]
-   ```
+The **Release desktop** workflow checks that the tag names the version in `package.json`, then
+builds `windows/amd64`, `linux/amd64`, and `linux/arm64` side by side on Ubuntu, one
+`bun run release-desktop <platform>` each: cargo-zigbuild builds the CLIs, and NSIS the Windows
+installer. A platform that fails leaves the others to finish; re-run the failed jobs alone, since
+a platform already published at the version is refused rather than replaced.
 
-Platforms are MyGo's, comma separated. The workflow's default is `linux/amd64,windows/amd64`,
-built on Ubuntu with cargo-zigbuild for the CLIs and NSIS for the Windows installer, and its box
-**Replace the version if it is already published** sets `FORCE=1`. Here the default is this computer's, or `linux/amd64` and
-`windows/amd64` from a Mac. The script:
+`bun run release-desktop [platforms]` releases from this computer too. Platforms are MyGo's, comma
+separated; the default is this computer's, or `linux/amd64` and `windows/amd64` from a Mac. The
+script:
 
 1. refuses a version already published for any of the platforms, unless `FORCE=1`;
 2. builds the CLI for each platform into `desktop/resources/<goos>-<goarch>/bin`, as
