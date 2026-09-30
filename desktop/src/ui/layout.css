@@ -2527,10 +2527,23 @@ body.resizing * {
 
 /* MARK: Onboarding */
 
+/* The whole window, its title bar hidden: white in the light appearance, as macOS 26 draws a
+   window's background, and it drags the window by its background, as the Mac app's does. The
+   content starts below the window controls. */
 .onboarding {
+  --app-region: drag;
   height: 100%;
   padding: 28px 44px 36px;
-  background: var(--window);
+  background: var(--onboarding-bg, var(--window));
+}
+
+:root:not([data-dark]) .onboarding {
+  --onboarding-bg: #ffffff;
+}
+
+/* The backup phrase's words select instead. */
+.onboarding .selectable {
+  --app-region: no-drag;
 }
 
 .onboarding-center,

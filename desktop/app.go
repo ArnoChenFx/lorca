@@ -370,8 +370,13 @@ func (a *appDelegate) presentOnboarding() {
 		Height:          560,
 		UseContentSize:  true,
 		DisableResize:   true,
+		DisableMinimize: true,
 		DisableMaximize: true,
-		BackgroundColor: "light-dark(#f5f5f5, #262626)",
+		BackgroundColor: "light-dark(#ffffff, #262628)",
+		// As the Mac app's: the page fills the window, under the window controls (the close
+		// button alone on Windows, as a window that can neither minimize nor maximize has), and
+		// its background drags the window.
+		TitleBarStyle: mygo.TitleBarHidden,
 	})
 	win.OnClose(func(e *mygo.CloseEvent) {
 		if a.quitting || a.onboarding == nil || win.ID() != a.onboarding.ID() {
