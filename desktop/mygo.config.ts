@@ -15,17 +15,14 @@ export default defineConfig(({ command }) => ({
   frontendDist: "dist",
   bindings: "src/mygo.ts",
   out: "build",
-  // Release builds update themselves from https://releases.lorca.app, the R2 bucket lorca-releases,
-  // and install only what the key of `mygo keygen` signed. `bun run release-desktop` uploads a
-  // release with R2_ACCOUNT_ID and the bucket's token: docs/releasing-desktop.md. The version's
-  // section of CHANGELOG.md here is the update's release notes.
+  // Release builds update themselves from the latest release of egoist/lorca-releases, tagged
+  // desktop-v<version>, and install only what the key of `mygo keygen` signed. `bun run
+  // release-desktop` uploads a release as a draft: docs/releasing-desktop.md. The version's section
+  // of CHANGELOG.md here is the update's release notes.
   updates: {
     publicKey: "WzJsOGNIuf6mcEqo5ff8jub+NoQQOEk4JXreLPYjgyQ=",
-    url: "https://releases.lorca.app",
-    s3: {
-      bucket: "lorca-releases",
-      endpoint: `https://${process.env.R2_ACCOUNT_ID ?? "account-id"}.r2.cloudflarestorage.com`,
-    },
+    github: "egoist/lorca-releases",
+    tagPrefix: "desktop-v",
   },
   linux: {
     comment: "Chat with your bots, which run on computers you own",

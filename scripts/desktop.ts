@@ -11,8 +11,10 @@
 //                                         Mac. The Linux CLIs are static (musl) and, like other
 //                                         computers' CLIs, build with cargo-zigbuild.
 //   bun run release-desktop [platforms]   desktop:build signed with the update key and uploaded to
-//                                         the R2 bucket behind https://releases.lorca.app
-//                                         (`mygo build -upload`): docs/releasing-desktop.md.
+//                                         the draft release desktop-v<version> of
+//                                         egoist/lorca-releases (`mygo build -upload`), which
+//                                         the apps see once it is published:
+//                                         docs/releasing-desktop.md.
 
 import { copyFileSync, chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
@@ -22,8 +24,10 @@ import { extractReleaseNotes } from "./changelog.ts"
 
 const DESKTOP = join(ROOT, "desktop")
 const MYGO = join(DESKTOP, "node_modules", ".bin", process.platform === "win32" ? "mygo.exe" : "mygo")
-/** The `updates.url` of desktop/mygo.config.ts, where installed apps look. */
-const RELEASES_URL = "https://releases.lorca.app"
+/** `updates.github` and `updates.tagPrefix` of desktop/mygo.config.ts: the latest release of the
+ * repository is where installed apps look. */
+const RELEASES_REPO = "egoist/lorca-releases"
+const TAG_PREFIX = "desktop-v"
 
 /** The Rust target of the CLI each MyGo platform ships, static builds for Linux. */
 const RUST_TARGETS: Record<string, string> = {
@@ -104,7 +108,8 @@ function keygenDirectory(): string {
 }
 
 /** What an upload needs besides the build: the update signing key, from MYGO_UPDATER_PRIVATE_KEY or
- * where `mygo keygen` put it, and the R2 account and token. Null when something is missing. */
+ * where `mygo keygen` put it, and the GitHub CLI with access to the releases repository (its
+ * login, or GH_TOKEN). Null when something is missing. */
 function releaseEnv(): Record<string, string> | null {
   const missing: string[] = []
   let key = process.env.MYGO_UPDATER_PRIVATE_KEY ?? ""
@@ -113,41 +118,36 @@ function releaseEnv(): Record<string, string> | null {
     if (existsSync(file)) key = readFileSync(file, "utf8").trim()
     else missing.push(`the update signing key: MYGO_UPDATER_PRIVATE_KEY, or ${file}`)
   }
-  for (const name of ["R2_ACCOUNT_ID", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]) {
-    if (!process.env[name]) missing.push(name)
+  if (!Bun.which("gh")) missing.push("the GitHub CLI, gh")
+  else if (Bun.spawnSync(["gh", "release", "list", "--repo", RELEASES_REPO, "--limit", "1"]).exitCode !== 0) {
+    missing.push(`access to ${RELEASES_REPO}: gh auth login, or GH_TOKEN`)
   }
   for (const thing of missing) log(color.red(`missing ${thing}`))
   return missing.length === 0 ? { MYGO_UPDATER_PRIVATE_KEY: key } : null
 }
 
-/** The platforms whose published update is already `version`, which an upload would replace. */
-async function published(platforms: string[], version: string): Promise<string[]> {
-  const found: string[] = []
-  for (const platform of platforms) {
-    const response = await fetch(`${RELEASES_URL}/update-${platform.replace("/", "-")}.json`).catch(() => null)
-    if (!response?.ok) continue
-    const manifest = (await response.json().catch(() => null)) as { version?: string } | null
-    if (manifest?.version === version) found.push(platform)
-  }
-  return found
+/** Whether the release `tag` of the releases repository is a draft, published, or not there. */
+function releaseState(tag: string): "draft" | "published" | "none" {
+  const view = Bun.spawnSync(["gh", "release", "view", tag, "--repo", RELEASES_REPO, "--json", "isDraft", "--jq", ".isDraft"])
+  if (view.exitCode !== 0) return "none"
+  return view.stdout.toString().trim() === "true" ? "draft" : "published"
 }
 
 async function build(platforms: string[], options: { upload?: boolean } = {}): Promise<number> {
   let env: Record<string, string> = {}
+  // The desktop app's own version, apart from the Mac app's.
+  const version = (await Bun.file(join(DESKTOP, "package.json")).json()).version as string
   if (options.upload) {
     const release = releaseEnv()
     if (!release) return 1
     env = release
-    // The desktop app's own version, apart from the Mac app's.
-    const version = (await Bun.file(join(DESKTOP, "package.json")).json()).version as string
     // mygo build reads the notes too, but only once the apps are built.
     if (!extractReleaseNotes(await Bun.file(join(DESKTOP, "CHANGELOG.md")).text(), version)) {
       log(color.red(`desktop/CHANGELOG.md has no "## [${version}]" section: add the notes of the update window`))
       return 1
     }
-    const again = await published(platforms, version)
-    if (again.length > 0 && process.env.FORCE !== "1") {
-      log(color.red(`${version} is already published for ${again.join(", ")}: bump "version" in desktop/package.json, or FORCE=1 to replace it`))
+    if (releaseState(TAG_PREFIX + version) === "published" && process.env.FORCE !== "1") {
+      log(color.red(`${TAG_PREFIX}${version} is already published: bump "version" in desktop/package.json, or FORCE=1 to replace its files`))
       return 1
     }
   }
@@ -160,7 +160,8 @@ async function build(platforms: string[], options: { upload?: boolean } = {}): P
   log(`${color.bold("building")} ${color.dim(`the app for ${platforms.join(", ")}`)}`)
   const command = [MYGO, "build", "-platform", platforms.join(","), ...(options.upload ? ["-upload"] : [])]
   const status = await run(command, { cwd: DESKTOP, env })
-  if (status === 0) log(`${color.green(options.upload ? "published" : "built")} ${color.dim(options.upload ? RELEASES_URL : join(DESKTOP, "build"))}`)
+  if (status === 0 && options.upload) log(`${color.green("uploaded")} ${color.dim(`to the release ${TAG_PREFIX}${version} of ${RELEASES_REPO}`)}`)
+  else if (status === 0) log(`${color.green("built")} ${color.dim(join(DESKTOP, "build"))}`)
   return status
 }
 

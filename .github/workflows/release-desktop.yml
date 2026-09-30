@@ -1,11 +1,11 @@
-# Releases the Windows and Linux app (desktop/) to https://releases.lorca.app, the R2 bucket
-# lorca-releases, where installed apps look for updates. A tag desktop-vX.Y.Z, naming the version in
-# desktop/package.json, builds Windows x64, Linux x64 and Linux arm64 side by side. Each build
-# runs `bun run release-desktop <platform>`: the CLI with cargo-zigbuild, then `mygo build -upload`,
-# which builds the app and its installer, signs the update archive and deltas, and uploads them,
-# the platform's manifest last. The version's section of desktop/CHANGELOG.md becomes the notes of
-# the update window, and a platform already published at that version is left alone.
-# docs/releasing-desktop.md has the steps and the secrets.
+# Releases the Windows and Linux app (desktop/) in egoist/lorca-releases, whose latest release is
+# where installed apps look for updates. A tag desktop-vX.Y.Z, naming the version in
+# desktop/package.json, drafts the release desktop-vX.Y.Z there with the version's section of
+# desktop/CHANGELOG.md as its notes, then builds Windows x64, Linux x64 and Linux arm64 side by
+# side. Each build runs `bun run release-desktop <platform>`: the CLI with cargo-zigbuild, then
+# `mygo build -upload`, which builds the app and its installer, signs the update archive and
+# deltas, and uploads them to the draft. Publishing the draft once every platform is there makes it
+# the update apps see. docs/releasing-desktop.md has the steps and the secrets.
 name: Release desktop
 
 on:
@@ -15,29 +15,72 @@ on:
 permissions:
   contents: read
 
-# One run at a time, so two runs never upload the same version.
+# One run at a time, so two runs never upload to the same release.
 concurrency:
   group: release-desktop
 
 env:
   CARGO_TERM_COLOR: always
+  RELEASES_REPO: egoist/lorca-releases
 
 jobs:
   version:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.package.outputs.version }}
     steps:
       - uses: actions/checkout@v7
-      - name: Match the tag with desktop/package.json
+      - id: package
+        name: Match the tag with desktop/package.json
         run: |
           version=$(jq -r .version desktop/package.json)
           if [[ $GITHUB_REF_NAME != "desktop-v$version" ]]; then
             echo "::error::$GITHUB_REF_NAME does not match version $version in desktop/package.json: set \"version\" there to ${GITHUB_REF_NAME#desktop-v} and tag that commit"
             exit 1
           fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  # The builds upload into one draft, which this job makes first; each would make its own.
+  draft:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - name: Draft ${{ github.ref_name }} in ${{ env.RELEASES_REPO }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          if ! state=$(gh release view "$TAG" --repo "$RELEASES_REPO" --json isDraft --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null); then
+            state=none
+          fi
+          case $state in
+            published)
+              echo "::error::$TAG is already published in $RELEASES_REPO: bump \"version\" in desktop/package.json"
+              exit 1
+              ;;
+            draft)
+              echo "::notice::the draft $TAG in $RELEASES_REPO takes these builds"
+              ;;
+            none)
+              bun -e '
+                import { extractReleaseNotes } from "./scripts/changelog.ts"
+                const notes = extractReleaseNotes(await Bun.file("desktop/CHANGELOG.md").text(), process.env.VERSION)
+                if (!notes) {
+                  console.error(`::error::desktop/CHANGELOG.md has no "## [${process.env.VERSION}]" section`)
+                  process.exit(1)
+                }
+                await Bun.write("notes.md", notes + "\n")
+              '
+              gh release create "$TAG" --repo "$RELEASES_REPO" --draft --title "Lorca for Windows and Linux $VERSION" --notes-file notes.md
+              ;;
+          esac
 
   build:
     name: build ${{ matrix.platform }}
-    needs: version
+    needs: draft
     runs-on: ubuntu-latest
     strategy:
       # A platform that fails leaves the others to finish their uploads.
@@ -78,8 +121,6 @@ jobs:
       - name: Build and upload
         env:
           PLATFORM: ${{ matrix.platform }}
+          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
           MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: bun run release-desktop "$PLATFORM"
