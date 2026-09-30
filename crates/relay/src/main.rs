@@ -294,12 +294,18 @@ async fn main() -> anyhow::Result<()> {
     }
     // A deploy stops the process with SIGTERM. The sockets close, so the Devices connect to
     // the process that replaces this one, and with Postgres this one's presence rows go.
+    // Windows has no SIGTERM: a relay there stops on Ctrl-C.
     let serve = axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).with_graceful_shutdown(async move {
-        let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).expect("a SIGTERM handler");
-        tokio::select! {
-            _ = terminate.recv() => {}
-            _ = tokio::signal::ctrl_c() => {}
+        #[cfg(unix)]
+        {
+            let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).expect("a SIGTERM handler");
+            tokio::select! {
+                _ = terminate.recv() => {}
+                _ = tokio::signal::ctrl_c() => {}
+            }
         }
+        #[cfg(not(unix))]
+        let _ = tokio::signal::ctrl_c().await;
         tracing::info!("stopping");
         stopping.cancel();
     });

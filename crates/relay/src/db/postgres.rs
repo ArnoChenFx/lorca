@@ -186,6 +186,7 @@ impl Postgres {
         let config: tokio_postgres::Config = url.parse()?;
         let host = match config.get_hosts().first() {
             Some(tokio_postgres::config::Host::Tcp(name)) => name.clone(),
+            #[cfg(unix)]
             Some(tokio_postgres::config::Host::Unix(path)) => path.display().to_string(),
             None => String::new(),
         };
