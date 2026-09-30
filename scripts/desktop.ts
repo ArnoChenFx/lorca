@@ -138,15 +138,16 @@ async function build(platforms: string[], options: { upload?: boolean } = {}): P
     const release = releaseEnv()
     if (!release) return 1
     env = release
-    const version = (await Bun.file(join(ROOT, "package.json")).json()).version as string
-    // mygo build reads the notes too (updates.changelog), but only once the apps are built.
-    if (!extractReleaseNotes(await Bun.file(join(ROOT, "CHANGELOG.md")).text(), version)) {
-      log(color.red(`CHANGELOG.md has no "## [${version}]" section: add the notes of the update window`))
+    // The desktop app's own version, apart from the Mac app's.
+    const version = (await Bun.file(join(DESKTOP, "package.json")).json()).version as string
+    // mygo build reads the notes too, but only once the apps are built.
+    if (!extractReleaseNotes(await Bun.file(join(DESKTOP, "CHANGELOG.md")).text(), version)) {
+      log(color.red(`desktop/CHANGELOG.md has no "## [${version}]" section: add the notes of the update window`))
       return 1
     }
     const again = await published(platforms, version)
     if (again.length > 0 && process.env.FORCE !== "1") {
-      log(color.red(`${version} is already published for ${again.join(", ")}: bump "version" in package.json, or FORCE=1 to replace it`))
+      log(color.red(`${version} is already published for ${again.join(", ")}: bump "version" in desktop/package.json, or FORCE=1 to replace it`))
       return 1
     }
   }

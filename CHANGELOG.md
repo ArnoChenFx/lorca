@@ -1,8 +1,8 @@
 # Changelog
 
-The apps' release notes. `bun run release-mac` and `bun run release-desktop` attach a version's
-section to its update, and the update window (Sparkle's on the Mac, MyGo's on Windows and Linux)
-shows it.
+The Mac app's release notes. `bun run release-mac` attaches a version's section to its update, and
+Sparkle shows it in the update window. The Windows and Linux app's are in
+[desktop/CHANGELOG.md](desktop/CHANGELOG.md).
 
 ## [Unreleased]
 

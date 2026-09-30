@@ -10,7 +10,7 @@ archives and deltas signed with the update key, whose public half is `updates.pu
 Linux arm64 on GitHub Actions:
 
 ```sh
-git tag desktop-v1.0.8 && git push origin desktop-v1.0.8
+git tag desktop-v0.1.0 && git push origin desktop-v0.1.0
 ```
 
 - Updater: [`desktop/updater.go`](../desktop/updater.go). **Check for Updates…** in File and Help,
@@ -58,14 +58,15 @@ Actions): `MYGO_UPDATER_PRIVATE_KEY` (the contents of `mygo-update.key`), `R2_AC
 
 ## Cutting a release
 
-The version is `"version"` in the root [`package.json`](../package.json), the Mac app's too.
+The version is `"version"` in [`desktop/package.json`](../desktop/package.json), apart from the
+Mac app's in the root `package.json`.
 
-1. Make sure [`CHANGELOG.md`](../CHANGELOG.md) has a `## [<version>]` section: it becomes the
-   release notes of the update window (`updates.changelog`), and `release-desktop` stops before
-   building without it. A version the Mac app released already has one.
+1. Set the version, and give it a `## [<version>]` section in
+   [`desktop/CHANGELOG.md`](../desktop/CHANGELOG.md): the section becomes the release notes of the
+   update window, and `release-desktop` stops before building without it.
 2. Tag the commit `desktop-v<version>` and push the tag.
 
-The **Release desktop** workflow checks that the tag names the version in `package.json`, then
+The **Release desktop** workflow checks that the tag names the version in `desktop/package.json`, then
 builds `windows/amd64`, `linux/amd64`, and `linux/arm64` side by side on Ubuntu, one
 `bun run release-desktop <platform>` each: cargo-zigbuild builds the CLIs, and NSIS the Windows
 installer. A platform that fails leaves the others to finish; re-run the failed jobs alone, since

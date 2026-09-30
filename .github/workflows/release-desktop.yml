@@ -1,10 +1,10 @@
 # Releases the Windows and Linux app (desktop/) to https://releases.lorca.app, the R2 bucket
 # lorca-releases, where installed apps look for updates. A tag desktop-vX.Y.Z, naming the version in
-# the root package.json, builds Windows x64, Linux x64 and Linux arm64 side by side. Each build
+# desktop/package.json, builds Windows x64, Linux x64 and Linux arm64 side by side. Each build
 # runs `bun run release-desktop <platform>`: the CLI with cargo-zigbuild, then `mygo build -upload`,
 # which builds the app and its installer, signs the update archive and deltas, and uploads them,
-# the platform's manifest last. The version's section of CHANGELOG.md becomes the notes of the
-# update window, and a platform already published at that version is left alone.
+# the platform's manifest last. The version's section of desktop/CHANGELOG.md becomes the notes of
+# the update window, and a platform already published at that version is left alone.
 # docs/releasing-desktop.md has the steps and the secrets.
 name: Release desktop
 
@@ -27,11 +27,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Match the tag with package.json
+      - name: Match the tag with desktop/package.json
         run: |
-          version=$(jq -r .version package.json)
+          version=$(jq -r .version desktop/package.json)
           if [[ $GITHUB_REF_NAME != "desktop-v$version" ]]; then
-            echo "::error::$GITHUB_REF_NAME does not match version $version in package.json: set \"version\" to ${GITHUB_REF_NAME#desktop-v} and tag that commit"
+            echo "::error::$GITHUB_REF_NAME does not match version $version in desktop/package.json: set \"version\" there to ${GITHUB_REF_NAME#desktop-v} and tag that commit"
             exit 1
           fi
 
