@@ -3,16 +3,18 @@
 # install-cli.ps1 download, and the apps find the newest desktop-v release through the GitHub API.
 # A tag desktop-vX.Y.Z, naming the version in desktop/package.json, drafts the release with the
 # version's section of desktop/CHANGELOG.md as its notes, then builds Windows x64, Linux x64 and
-# Linux arm64 side by side. Each build runs `bun run release-desktop <platform>`: the CLI with
-# cargo-zigbuild, then `mygo build -upload`, which builds the app and its installer, signs the
-# update archive and deltas, and uploads them to the draft. Publishing the draft, without making it
-# the latest release, once every platform is there makes it the update apps see.
-# docs/releasing-desktop.md has the steps.
+# Linux arm64 side by side. A run by hand does the same for the commit it runs on, naming the
+# release after desktop/package.json; the tag appears when the draft is published. Each build runs
+# `bun run release-desktop <platform>`: the CLI with cargo-zigbuild, then `mygo build -upload`,
+# which builds the app and its installer, signs the update archive and deltas, and uploads them to
+# the draft. Publishing the draft, without making it the latest release, once every platform is
+# there makes it the update apps see. docs/releasing-desktop.md has the steps.
 name: Release desktop
 
 on:
   push:
     tags: ["desktop-v*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -29,17 +31,28 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.package.outputs.version }}
+      tag: ${{ steps.package.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
       - id: package
-        name: Match the tag with desktop/package.json
+        name: Name the release after desktop/package.json
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           version=$(jq -r .version desktop/package.json)
-          if [[ $GITHUB_REF_NAME != "desktop-v$version" ]]; then
+          tag=desktop-v$version
+          # A pushed tag, or a run by hand on one, has to name the version the app says it is.
+          if [[ $GITHUB_REF_TYPE == tag && $GITHUB_REF_NAME != "$tag" ]]; then
             echo "::error::$GITHUB_REF_NAME does not match version $version in desktop/package.json: set \"version\" there to ${GITHUB_REF_NAME#desktop-v} and tag that commit"
             exit 1
           fi
+          # A release takes the tag that exists, so the builds have to come from its commit.
+          if tagged=$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha 2>/dev/null) && [[ $tagged != "$GITHUB_SHA" ]]; then
+            echo "::error::$tag already tags $tagged: run this on that commit, or bump \"version\" in desktop/package.json"
+            exit 1
+          fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
   # The builds upload into one draft, which this job makes first; each would make its own.
   draft:
@@ -50,10 +63,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
-      - name: Draft ${{ github.ref_name }}
+      - name: Draft ${{ needs.version.outputs.tag }}
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.version.outputs.tag }}
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           if ! state=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null); then
@@ -65,7 +78,9 @@ jobs:
               exit 1
               ;;
             draft)
+              # An earlier run's draft takes these builds, from this commit.
               echo "::notice::the draft $TAG takes these builds"
+              gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA"
               ;;
             none)
               bun -e '
@@ -77,8 +92,9 @@ jobs:
                 }
                 await Bun.write("notes.md", notes + "\n")
               '
-              # Not the latest release, which stays the CLI's.
-              gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --latest=false --verify-tag --title "Lorca for Windows and Linux $VERSION" --notes-file notes.md
+              # Not the latest release, which stays the CLI's. On the tag's commit, or on the commit a
+              # run by hand builds, where publishing the draft makes the tag.
+              gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --latest=false --target "$GITHUB_SHA" --title "Lorca for Windows and Linux $VERSION" --notes-file notes.md
               ;;
           esac
 
