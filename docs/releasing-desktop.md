@@ -6,7 +6,8 @@ R2 bucket `lorca-releases`, served at `https://releases.lorca.app`: for each pla
 (`lorca-<version>-windows-amd64.tar.gz`), delta updates from the last three versions, the Linux
 `install.sh`, and `update-<platform>.json`, the manifest the app checks. Installed apps accept only
 archives and deltas signed with the update key, whose public half is `updates.publicKey` in
-[`desktop/mygo.config.ts`](../desktop/mygo.config.ts). One command builds and publishes:
+[`desktop/mygo.config.ts`](../desktop/mygo.config.ts). One command builds and publishes, and the
+**Release desktop** workflow runs it on GitHub Actions:
 
 ```sh
 bun run release-desktop
@@ -15,7 +16,8 @@ bun run release-desktop
 - Updater: [`desktop/updater.go`](../desktop/updater.go). **Check for Updates…** in File and Help,
   and the Updates rows in Settings › General.
 - Configuration: `updates` in [`desktop/mygo.config.ts`](../desktop/mygo.config.ts).
-- Release: [`scripts/desktop.ts`](../scripts/desktop.ts), which runs `mygo build -upload`. MyGo's
+- Release: [`scripts/desktop.ts`](../scripts/desktop.ts), which runs `mygo build -upload`, and
+  [`.github/workflows/release-desktop.yml`](../.github/workflows/release-desktop.yml). MyGo's
   [auto-updates guide](https://github.com/egoist/mygo/blob/main/docs/updates.md) covers what it
   signs and uploads.
 
@@ -50,6 +52,10 @@ Without the secret key, no install in the field can be updated again.
 
 It stops before building when one is missing.
 
+The workflow takes them from the repository's Actions secrets (Settings ▸ Secrets and variables ▸
+Actions): `MYGO_UPDATER_PRIVATE_KEY` (the contents of `mygo-update.key`), `R2_ACCOUNT_ID`,
+`R2_ACCESS_KEY_ID`, and `R2_SECRET_ACCESS_KEY`.
+
 ## Cutting a release
 
 The version is `"version"` in the root [`package.json`](../package.json), the Mac app's too.
@@ -57,13 +63,16 @@ The version is `"version"` in the root [`package.json`](../package.json), the Ma
 1. Make sure [`CHANGELOG.md`](../CHANGELOG.md) has a `## [<version>]` section: it becomes the
    release notes of the update window (`updates.changelog`), and `release-desktop` stops before
    building without it. A version the Mac app released already has one.
-2. Run:
+2. Run **Release desktop** from the repository's Actions tab on the commit to release (it takes
+   `main` unless you pick another branch), or run it here:
 
    ```sh
    bun run release-desktop [platforms]
    ```
 
-Platforms are MyGo's, comma separated. The default is this computer's, or `linux/amd64` and
+Platforms are MyGo's, comma separated. The workflow's default is `linux/amd64,windows/amd64`,
+built on Ubuntu with cargo-zigbuild for the CLIs and NSIS for the Windows installer, and its box
+**Replace the version if it is already published** sets `FORCE=1`. Here the default is this computer's, or `linux/amd64` and
 `windows/amd64` from a Mac. The script:
 
 1. refuses a version already published for any of the platforms, unless `FORCE=1`;
