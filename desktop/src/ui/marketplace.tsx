@@ -776,7 +776,6 @@ function PluginPage(props: { market: Market; pluginID: string }) {
                       fallback={
                         <Button
                           kind="primary"
-                          large
                           disabled={!market.runner()}
                           tooltip={market.runner() ? L("Install %@ on %@, for every bot there", current().name, market.runner()!.name) : L("Pair a Runner first.")}
                           onClick={() => market.install(current())}
@@ -912,7 +911,7 @@ function BotPage(props: { market: Market; templateID: string }) {
                     <span class="market-detail-byline">{L("By %@", current().author)}</span>
                   </Show>
                 </div>
-                <Button kind="primary" large disabled={!market.runner()} onClick={() => market.add(current())}>
+                <Button kind="primary" disabled={!market.runner()} onClick={() => market.add(current())}>
                   {L("Add Bot")}
                 </Button>
               </div>
