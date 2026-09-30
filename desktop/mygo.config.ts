@@ -15,13 +15,14 @@ export default defineConfig(({ command }) => ({
   frontendDist: "dist",
   bindings: "src/mygo.ts",
   out: "build",
-  // Release builds update themselves from the latest release of egoist/lorca-releases, tagged
-  // desktop-v<version>, and install only what the key of `mygo keygen` signed. `bun run
-  // release-desktop` uploads a release as a draft: docs/releasing-desktop.md. The version's section
-  // of CHANGELOG.md here is the update's release notes.
+  // Release builds update themselves from this repository's newest release tagged
+  // desktop-v<version>, which MyGo finds through the GitHub API since the latest release is the
+  // CLI's, and install only what the key of `mygo keygen` signed. `bun run release-desktop`
+  // uploads a release as a draft: docs/releasing-desktop.md. The version's section of CHANGELOG.md
+  // here is the update's release notes.
   updates: {
     publicKey: "WzJsOGNIuf6mcEqo5ff8jub+NoQQOEk4JXreLPYjgyQ=",
-    github: "egoist/lorca-releases",
+    github: "egoist/lorca",
     tagPrefix: "desktop-v",
   },
   linux: {

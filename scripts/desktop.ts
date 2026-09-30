@@ -11,10 +11,9 @@
 //                                         Mac. The Linux CLIs are static (musl) and, like other
 //                                         computers' CLIs, build with cargo-zigbuild.
 //   bun run release-desktop [platforms]   desktop:build signed with the update key and uploaded to
-//                                         the draft release desktop-v<version> of
-//                                         egoist/lorca-releases (`mygo build -upload`), which
-//                                         the apps see once it is published:
-//                                         docs/releasing-desktop.md.
+//                                         the draft release desktop-v<version> of egoist/lorca
+//                                         (`mygo build -upload`), which the apps see once it is
+//                                         published: docs/releasing-desktop.md.
 
 import { copyFileSync, chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
@@ -24,9 +23,9 @@ import { extractReleaseNotes } from "./changelog.ts"
 
 const DESKTOP = join(ROOT, "desktop")
 const MYGO = join(DESKTOP, "node_modules", ".bin", process.platform === "win32" ? "mygo.exe" : "mygo")
-/** `updates.github` and `updates.tagPrefix` of desktop/mygo.config.ts: the latest release of the
- * repository is where installed apps look. */
-const RELEASES_REPO = "egoist/lorca-releases"
+/** `updates.github` and `updates.tagPrefix` of desktop/mygo.config.ts: the newest release with the
+ * prefix is where installed apps look. */
+const RELEASES_REPO = "egoist/lorca"
 const TAG_PREFIX = "desktop-v"
 
 /** The Rust target of the CLI each MyGo platform ships, static builds for Linux. */

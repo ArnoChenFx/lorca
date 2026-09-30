@@ -1,11 +1,13 @@
-# Releases the Windows and Linux app (desktop/) in egoist/lorca-releases, whose latest release is
-# where installed apps look for updates. A tag desktop-vX.Y.Z, naming the version in
-# desktop/package.json, drafts the release desktop-vX.Y.Z there with the version's section of
-# desktop/CHANGELOG.md as its notes, then builds Windows x64, Linux x64 and Linux arm64 side by
-# side. Each build runs `bun run release-desktop <platform>`: the CLI with cargo-zigbuild, then
-# `mygo build -upload`, which builds the app and its installer, signs the update archive and
-# deltas, and uploads them to the draft. Publishing the draft once every platform is there makes it
-# the update apps see. docs/releasing-desktop.md has the steps and the secrets.
+# Releases the Windows and Linux app (desktop/) as a release of this repository tagged
+# desktop-vX.Y.Z. The repository's latest release stays the CLI's, which install-cli.sh and
+# install-cli.ps1 download, and the apps find the newest desktop-v release through the GitHub API.
+# A tag desktop-vX.Y.Z, naming the version in desktop/package.json, drafts the release with the
+# version's section of desktop/CHANGELOG.md as its notes, then builds Windows x64, Linux x64 and
+# Linux arm64 side by side. Each build runs `bun run release-desktop <platform>`: the CLI with
+# cargo-zigbuild, then `mygo build -upload`, which builds the app and its installer, signs the
+# update archive and deltas, and uploads them to the draft. Publishing the draft, without making it
+# the latest release, once every platform is there makes it the update apps see.
+# docs/releasing-desktop.md has the steps.
 name: Release desktop
 
 on:
@@ -21,7 +23,6 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  RELEASES_REPO: egoist/lorca-releases
 
 jobs:
   version:
@@ -44,25 +45,27 @@ jobs:
   draft:
     needs: version
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
-      - name: Draft ${{ github.ref_name }} in ${{ env.RELEASES_REPO }}
+      - name: Draft ${{ github.ref_name }}
         env:
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
           VERSION: ${{ needs.version.outputs.version }}
         run: |
-          if ! state=$(gh release view "$TAG" --repo "$RELEASES_REPO" --json isDraft --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null); then
+          if ! state=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null); then
             state=none
           fi
           case $state in
             published)
-              echo "::error::$TAG is already published in $RELEASES_REPO: bump \"version\" in desktop/package.json"
+              echo "::error::$TAG is already published: bump \"version\" in desktop/package.json"
               exit 1
               ;;
             draft)
-              echo "::notice::the draft $TAG in $RELEASES_REPO takes these builds"
+              echo "::notice::the draft $TAG takes these builds"
               ;;
             none)
               bun -e '
@@ -74,7 +77,8 @@ jobs:
                 }
                 await Bun.write("notes.md", notes + "\n")
               '
-              gh release create "$TAG" --repo "$RELEASES_REPO" --draft --title "Lorca for Windows and Linux $VERSION" --notes-file notes.md
+              # Not the latest release, which stays the CLI's.
+              gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --latest=false --verify-tag --title "Lorca for Windows and Linux $VERSION" --notes-file notes.md
               ;;
           esac
 
@@ -82,6 +86,8 @@ jobs:
     name: build ${{ matrix.platform }}
     needs: draft
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     strategy:
       # A platform that fails leaves the others to finish their uploads.
       fail-fast: false
@@ -121,6 +127,7 @@ jobs:
       - name: Build and upload
         env:
           PLATFORM: ${{ matrix.platform }}
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          # gh uploads with it, and mygo build reads the GitHub API with it for delta updates.
+          GH_TOKEN: ${{ github.token }}
           MYGO_UPDATER_PRIVATE_KEY: ${{ secrets.MYGO_UPDATER_PRIVATE_KEY }}
         run: bun run release-desktop "$PLATFORM"
