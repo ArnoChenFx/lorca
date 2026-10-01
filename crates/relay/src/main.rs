@@ -217,6 +217,23 @@ pub struct AppState {
     pub file_store: Arc<store::FileStore>,
     /// APNs and FCM, for the phones of an identity.
     pub pusher: Arc<push::Pusher>,
+    /// The pushes on their way to APNs and FCM, which a stopping relay delivers before it exits.
+    pub pushes: tokio_util::task::TaskTracker,
+}
+
+/// How long a stopping relay waits for APNs and FCM to take the pushes it already answered
+/// for. Each takes one in well under a second.
+const PUSH_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Stopping, once the server has answered its last request: the pushes it said it queued go to
+/// APNs and FCM, for up to `grace`, while the database is still open to forget a token Apple
+/// or Google calls dead. Then the database closes.
+async fn stop(state: &AppState, grace: std::time::Duration) {
+    state.pushes.close();
+    if tokio::time::timeout(grace, state.pushes.wait()).await.is_err() {
+        tracing::warn!(pushes = state.pushes.len(), "stopping before every push was delivered");
+    }
+    state.db.close().await;
 }
 
 #[tokio::main]
@@ -259,6 +276,7 @@ async fn main() -> anyhow::Result<()> {
         stopping: tokio_util::sync::CancellationToken::new(),
         file_store: file_store.clone(),
         pusher: pusher.clone(),
+        pushes: tokio_util::task::TaskTracker::new(),
     };
 
     let ticking = db.clone();
@@ -275,7 +293,7 @@ async fn main() -> anyhow::Result<()> {
     sweep::spawn(db.clone(), file_store.clone(), args.inactive_days);
 
     let stopping = state.stopping.clone();
-    let app = routes::router(state);
+    let app = routes::router(state.clone());
     let listener = tokio::net::TcpListener::bind(args.bind).await?;
     tracing::info!(
         bind = %args.bind,
@@ -293,8 +311,8 @@ async fn main() -> anyhow::Result<()> {
         tracing::warn!("files are in a local directory: relay processes on other hosts will not find them");
     }
     // A deploy stops the process with SIGTERM. The sockets close, so the Devices connect to
-    // the process that replaces this one, and with Postgres this one's presence rows go.
-    // Windows has no SIGTERM: a relay there stops on Ctrl-C.
+    // the process that replaces this one, the pushes it took go out, and with Postgres this
+    // one's presence rows go. Windows has no SIGTERM: a relay there stops on Ctrl-C.
     let serve = axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).with_graceful_shutdown(async move {
         #[cfg(unix)]
         {
@@ -310,7 +328,7 @@ async fn main() -> anyhow::Result<()> {
         stopping.cancel();
     });
     serve.await?;
-    db.close().await;
+    stop(&state, PUSH_GRACE).await;
     Ok(())
 }
 

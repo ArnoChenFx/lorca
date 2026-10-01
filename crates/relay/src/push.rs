@@ -255,11 +255,11 @@ impl Fcm {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     // A throwaway P-256 key in PKCS#8, as Apple's `.p8` files are.
-    const P8: &str = "-----BEGIN PRIVATE KEY-----
+    pub(crate) const P8: &str = "-----BEGIN PRIVATE KEY-----
 MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQggUoLEBNgg5MHzaFi
 Z6lqVJhY2NcZwEuF4trWnvnw1AehRANCAATwsWtjWEGippjwrz56xcdYTXE0D0Ud
 7cCVDDMUDHTutnz9PyZ5SsgkTGYeE+Kykce3DhJptdeq8K7snCdp8UuW

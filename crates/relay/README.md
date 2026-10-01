@@ -21,6 +21,7 @@ Once it is up, `https://<domain>` reads "Lorca Relay is running...", `curl https
 | `RAILWAY_DOCKERFILE_PATH` | `crates/relay/Dockerfile`. Railway builds the service from this file. |
 | `LORCA_RELAY_SECRET` | The output of `openssl rand -hex 32`. It signs bearer tokens; unset, it changes on every boot and invalidates every Device's token. |
 | `LORCA_RELAY_TRUST_PROXY` | `true`. The relay takes the client address from the `X-Forwarded-For` header that Railway's edge sets; otherwise every request comes from the proxy and all clients share one rate limit. |
+| `RAILWAY_DEPLOYMENT_DRAINING_SECONDS` | `10`. How long Railway waits between the SIGTERM that stops the old relay and a SIGKILL. Railway's default is 0, which kills the relay at once: requests in progress are cut off, for the Devices to send again; pushes it took but had not yet handed to APNs or FCM are lost; and with Postgres, its sockets keep counting as online until its last heartbeat is 150 s old. Given time, it finishes its requests, delivers those pushes (up to 5 s), takes its sockets out of presence, and exits. With Postgres the new relay is already serving by then, so the wait costs no downtime. |
 
 Leave `PORT` and `LORCA_RELAY_BIND` unset. Railway sets `PORT`, the image listens on `[::]:$PORT`, and the healthcheck calls that port. `LORCA_RELAY_BIND` takes precedence over `PORT`.
 

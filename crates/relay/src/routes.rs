@@ -635,7 +635,8 @@ async fn delete_push_token(State(state): State<AppState>, auth: Auth) -> ApiResu
 }
 
 /// A Device asks for a push to the identity's phones. The relay forwards ciphertext it
-/// cannot read; delivery happens after the answer, so a slow APNs never holds a Runner.
+/// cannot read; delivery happens after the answer, so a slow APNs never holds a Runner, and a
+/// relay told to stop finishes it before it exits.
 async fn send_push(State(state): State<AppState>, auth: Auth, Json(body): Json<Ciphertext>) -> ApiResult<Json<Value>> {
     let ciphertext = b64url_decode(&body.ciphertext)?;
     if ciphertext.is_empty() || ciphertext.len() > MAX_PUSH_BYTES {
@@ -649,14 +650,15 @@ async fn send_push(State(state): State<AppState>, auth: Auth, Json(body): Json<C
         .filter(|token| state.pusher.takes(&token.platform))
         .collect();
     let queued = tokens.len();
-    tokio::spawn(async move {
+    let (db, pusher) = (state.db.clone(), state.pusher.clone());
+    state.pushes.spawn(async move {
         for token in tokens {
             let platform = crate::metrics::platform(&token.platform);
-            match state.pusher.send(&token, &ciphertext).await {
+            match pusher.send(&token, &ciphertext).await {
                 crate::push::Delivery::Sent => crate::metrics::METRICS.push_sent[platform].add(1),
                 crate::push::Delivery::Gone => {
                     crate::metrics::METRICS.push_gone[platform].add(1);
-                    if let Err(error) = state.db.delete_push_token(&token.machine_pubkey).await {
+                    if let Err(error) = db.delete_push_token(&token.machine_pubkey).await {
                         tracing::warn!(?error, "forgetting a dead push token");
                     }
                 }

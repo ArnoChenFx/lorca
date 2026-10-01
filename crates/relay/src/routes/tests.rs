@@ -16,6 +16,10 @@ struct Relay {
 
 impl Relay {
     async fn start(quota_bytes: u64) -> Self {
+        Self::start_with(quota_bytes, crate::push::Pusher::new(None, None)).await
+    }
+
+    async fn start_with(quota_bytes: u64, pusher: crate::push::Pusher) -> Self {
         let home = std::env::temp_dir().join(format!("lorca-binary-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&home).unwrap();
         let local = Arc::new(db::Local::default());
@@ -36,7 +40,8 @@ impl Relay {
             instance: "test".into(),
             stopping: tokio_util::sync::CancellationToken::new(),
             file_store: Arc::new(crate::store::FileStore::Local { dir: home.join("files") }),
-            pusher: Arc::new(crate::push::Pusher::new(None, None)),
+            pusher: Arc::new(pusher),
+            pushes: tokio_util::task::TaskTracker::new(),
         };
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
@@ -216,4 +221,53 @@ async fn binary_file_limit_includes_the_encryption_envelope_and_caps_chunked_bod
     let response = relay.put("att-overflow").body(reqwest::Body::wrap_stream(chunks)).send().await.unwrap();
     assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
     assert!(!relay.home.join("files/identity/att-overflow").exists());
+}
+
+/// A relay told to stop still hands APNs the pushes it answered `queued` for, and stops waiting
+/// for one APNs never takes once the grace is up.
+#[tokio::test]
+async fn a_stopping_relay_delivers_the_pushes_it_took() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::{Duration, Instant};
+
+    /// A relay whose identity has a phone that takes pushes at `phone_token`.
+    async fn relay_with_phone(apns_url: &str, phone_token: &str) -> Relay {
+        let apns = crate::push::Apns::new(crate::push::tests::P8, "KEYID12345".into(), "TEAMID1234".into(), "app.lorca".into(), Some(apns_url.into())).unwrap();
+        let relay = Relay::start_with(0, crate::push::Pusher::new(Some(apns), None)).await;
+        relay.state.db.register_identity("identity", "content", "phone", "phone-box", "attestation").await.unwrap();
+        let token = db::PushToken { machine_pubkey: "phone".into(), platform: "apns".into(), token: phone_token.into(), environment: "sandbox".into() };
+        relay.state.db.set_push_token("identity", &token).await.unwrap();
+        relay
+    }
+
+    // APNs takes a while over the token `slow`, and never answers for `stuck`.
+    let delivered = Arc::new(AtomicUsize::new(0));
+    let apns = Router::new().route("/3/device/{token}", post({
+        let delivered = delivered.clone();
+        move |Path(token): Path<String>| async move {
+            if token == "stuck" {
+                std::future::pending::<()>().await;
+            }
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            delivered.fetch_add(1, Ordering::Relaxed);
+            StatusCode::OK
+        }
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let apns_url = format!("http://{}", listener.local_addr().unwrap());
+    let apns = tokio::spawn(async move { axum::serve(listener, apns).await.unwrap() });
+
+    let relay = relay_with_phone(&apns_url, "slow").await;
+    assert_eq!(relay.client.push(&relay.url, &relay.token, &b64url_encode(b"notice")).await.unwrap(), 1);
+    crate::stop(&relay.state, Duration::from_secs(5)).await;
+    assert_eq!(delivered.load(Ordering::Relaxed), 1, "the push reached APNs before the relay stopped");
+
+    let relay = relay_with_phone(&apns_url, "stuck").await;
+    assert_eq!(relay.client.push(&relay.url, &relay.token, &b64url_encode(b"notice")).await.unwrap(), 1);
+    let started = Instant::now();
+    crate::stop(&relay.state, Duration::from_millis(300)).await;
+    let waited = started.elapsed();
+    assert!(waited >= Duration::from_millis(300) && waited < Duration::from_secs(3), "waited {waited:?}");
+    assert_eq!(delivered.load(Ordering::Relaxed), 1);
+    apns.abort();
 }
