@@ -19,6 +19,7 @@ Sparkle shows it in the update window. The Windows and Linux app's are in
 - Bots use plugins by writing a short script that calls the plugin's tools, pages through the results, and keeps only what matters, so a long list or a big search no longer fills the chat's context. A script can also have a small, fast model rate or sort many items one by one, and that cost counts in the chat's Spent figure. A change a script wants to make still asks first on a card, and saying no stops the script.
 - A plugin's tools are ready from the first chat after you install it, and chats that use plugins keep their prompt cache for the whole turn. Claude bots keep their thinking when they use a plugin.
 - Lorca opens on your last chat, even when you quit it with Settings open.
+- Your phone still gets the notification for a reply that finishes while the relay restarts or is briefly out of reach.
 
 ## [0.1.0]
 

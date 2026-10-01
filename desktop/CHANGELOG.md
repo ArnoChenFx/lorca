@@ -12,6 +12,8 @@ and the update window shows it.
   and the chat narrows instead.
 - On Linux without a tray icon, finishing onboarding opens the main window, and Delete Account
   opens onboarding. Before, Lorca quit.
+- Your phone still gets the notification for a reply that finishes while the relay restarts or is
+  briefly out of reach.
 
 ## [0.1.0]
 

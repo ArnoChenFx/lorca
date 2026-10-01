@@ -23,6 +23,10 @@ const MAX_SEALED_BYTES: usize = 2400;
 const BODY_CHARS: usize = 280;
 /// Time for a paired Device displaying the reply to send its encrypted read mark back.
 const READ_GRACE: Duration = Duration::from_secs(3);
+/// A push the relay did not take goes again after this, then after twice the last wait...
+const FIRST_RETRY: Duration = Duration::from_secs(2);
+/// ...until this long after the first try. A relay restarting for a deploy is back well within it.
+const RETRY_FOR: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Notice {
@@ -109,24 +113,44 @@ fn send(app: &Arc<App>, chat: &Chat, bot: &Bot, text: &str, permission_id: Optio
     let app = app.clone();
     tokio::spawn(async move {
         tokio::time::sleep(READ_GRACE).await;
-        // A read mark is about a reply that arrived, so a phone left open or disconnected
-        // before the reply finished cannot suppress future notifications.
-        if app.dek() != Some(dek) || !should_notify(&app, &notice.chat_id, permission_id.as_deref()) {
-            return;
-        }
-        let result = match crate::sync::token_or_register(&app, &url, &machine).await {
-            Ok(token) => {
-                // Authentication may have taken longer than the read mark.
-                if app.dek() != Some(dek) || !should_notify(&app, &notice.chat_id, permission_id.as_deref()) {
-                    return;
-                }
-                app.relay.push(&url, &token, &crate::keys::b64(&sealed)).await
+        let give_up = tokio::time::Instant::now() + RETRY_FOR;
+        let mut wait = FIRST_RETRY;
+        loop {
+            // A read mark is about a reply that arrived, so a phone left open or disconnected
+            // before the reply finished cannot suppress future notifications.
+            if app.dek() != Some(dek) || !should_notify(&app, &notice.chat_id, permission_id.as_deref()) {
+                return;
             }
-            Err(error) => Err(error),
-        };
-        match result {
-            Ok(queued) => tracing::debug!(queued, "pushed a chat notification"),
-            Err(error) => tracing::debug!(%error, "pushing a chat notification"),
+            let result = match crate::sync::token_or_register(&app, &url, &machine).await {
+                Ok(token) => {
+                    // Authentication may have taken longer than the read mark.
+                    if app.dek() != Some(dek) || !should_notify(&app, &notice.chat_id, permission_id.as_deref()) {
+                        return;
+                    }
+                    app.relay.push(&url, &token, &crate::keys::b64(&sealed)).await
+                }
+                Err(error) => Err(error),
+            };
+            let error = match result {
+                Ok(queued) => return tracing::debug!(queued, "pushed a chat notification"),
+                Err(error) => error,
+            };
+            // The relay refused this push, and would refuse it again.
+            if error.is_client_error() && !error.is_unauthorized() {
+                return tracing::debug!(%error, "pushing a chat notification");
+            }
+            // A relay that restarted with a new secret refuses the bearer: the next try signs in again.
+            if error.is_unauthorized() {
+                app.relay.forget_token();
+            }
+            // The relay is restarting, away, or failing: the push goes again until `RETRY_FOR` is up.
+            let left = give_up.saturating_duration_since(tokio::time::Instant::now());
+            if left.is_zero() {
+                return tracing::warn!(%error, "pushing a chat notification; giving up");
+            }
+            tracing::debug!(%error, retry_in = ?wait.min(left), "pushing a chat notification");
+            tokio::time::sleep(wait.min(left)).await;
+            wait *= 2;
         }
     });
 }
@@ -163,11 +187,49 @@ mod tests {
         assert_eq!(notice.body, "Sent the three flagged invoices.");
     }
 
+    /// A Runner with one bot, Chef, whose relay is at `url`.
+    #[cfg(feature = "server")]
+    fn runner(url: &str, dek: &[u8; 32]) -> (Arc<App>, Bot, std::path::PathBuf) {
+        use crate::{config::Config, keys::MachineFile};
+
+        let home = std::env::temp_dir().join(format!("lorca-push-{}", uuid::Uuid::new_v4()));
+        let app = App::load(Config { home: home.clone(), port: 0 }).unwrap();
+        *app.machine.lock().unwrap() = Some(MachineFile {
+            machine_secret: crate::keys::b64(&crate::keys::random_32()), identity_pubkey: "identity".into(),
+            content_pubkey: "content".into(), account_dek: crate::keys::b64(dek), name: "Runner".into(),
+            os: "macos".into(), os_version: String::new(), model: String::new(), registered: true,
+            relay_url: Some(url.into()), created_at: 1,
+        });
+        app.settings.lock().unwrap().relay_url = Some(url.into());
+        let bot = Bot {
+            id: "bot".into(), name: "Chef".into(), description: String::new(), symbol_name: "sparkles".into(),
+            accent: "indigo".into(), avatar: None, runner_id: "runner".into(), provider: "deepseek".into(),
+            model: None, thinking: None, legacy_instructions: String::new(), workdir: None, created_at: 1.0,
+        };
+        app.state.lock().unwrap().bots.push(bot.clone());
+        (app, bot, home)
+    }
+
+    /// A direct chat with `bot` whose turn just ended with an unread reply.
+    #[cfg(feature = "server")]
+    fn replied(app: &Arc<App>, bot: &Bot, id: &str) {
+        use crate::model::*;
+
+        let chat = Chat {
+            meta: ChatMeta { id: id.into(), kind: "dm".into(), title: None, bot_ids: vec![bot.id.clone()],
+                owner_bot_id: None, is_pinned: false, created_at: 1.0 },
+            unread_count: 0, usage: None, compactions: vec![],
+        };
+        app.state.lock().unwrap().chats.push(chat.clone());
+        app.upsert_message(Message::new(id, Author::Bot { bot_id: bot.id.clone() }, Body::text("Done")), false);
+        reply(app, &chat, bot, "Done");
+    }
+
     #[cfg(feature = "server")]
     #[tokio::test]
     async fn notifications_wait_for_reads_and_permission_answers_from_paired_devices() {
         use axum::{routing::post, Json, Router};
-        use crate::{config::Config, keys::MachineFile, model::*};
+        use crate::model::*;
 
         let (sent, mut pushes) = tokio::sync::mpsc::unbounded_channel();
         let server = Router::new()
@@ -183,31 +245,10 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let server = tokio::spawn(async move { axum::serve(listener, server).await.unwrap() });
-        let home = std::env::temp_dir().join(format!("lorca-push-{}", uuid::Uuid::new_v4()));
-        let app = App::load(Config { home: home.clone(), port: 0 }).unwrap();
         let dek = crate::keys::random_32();
-        *app.machine.lock().unwrap() = Some(MachineFile {
-            machine_secret: crate::keys::b64(&crate::keys::random_32()), identity_pubkey: "identity".into(),
-            content_pubkey: "content".into(), account_dek: crate::keys::b64(&dek), name: "Runner".into(),
-            os: "macos".into(), os_version: String::new(), model: String::new(), registered: true,
-            relay_url: Some(url.clone()), created_at: 1,
-        });
-        app.settings.lock().unwrap().relay_url = Some(url);
-        let bot = Bot {
-            id: "bot".into(), name: "Chef".into(), description: String::new(), symbol_name: "sparkles".into(),
-            accent: "indigo".into(), avatar: None, runner_id: "runner".into(), provider: "deepseek".into(),
-            model: None, thinking: None, legacy_instructions: String::new(), workdir: None, created_at: 1.0,
-        };
-        app.state.lock().unwrap().bots.push(bot.clone());
+        let (app, bot, home) = runner(&url, &dek);
         for id in ["read-on-phone", "unread", "deleted", "watching"] {
-            let chat = Chat {
-                meta: ChatMeta { id: id.into(), kind: "dm".into(), title: None, bot_ids: vec![bot.id.clone()],
-                    owner_bot_id: None, is_pinned: false, created_at: 1.0 },
-                unread_count: 0, usage: None, compactions: vec![],
-            };
-            app.state.lock().unwrap().chats.push(chat.clone());
-            app.upsert_message(Message::new(id, Author::Bot { bot_id: bot.id.clone() }, Body::text("Done")), false);
-            reply(&app, &chat, &bot, "Done");
+            replied(&app, &bot, id);
         }
         assert!(tokio::time::timeout(Duration::from_millis(150), pushes.recv()).await.is_err(), "pushes must wait for read sync");
         // This is the same operation sync applies for another Device's ClearUnread blob.
@@ -277,6 +318,91 @@ mod tests {
         assert_eq!((notices[0].chat_id.as_str(), notices[0].body.as_str()), ("failed", "Reply failed: Provider connection lost"));
         assert_eq!((notices[1].chat_id.as_str(), notices[1].body.as_str()), ("pending", "Confirmation needed: Deploy the app"));
         assert!(tokio::time::timeout(Duration::from_millis(150), pushes.recv()).await.is_err());
+        server.abort();
+        drop(app);
+        let _ = std::fs::remove_dir_all(home);
+    }
+
+    /// A relay that restarts as a turn ends does not take the push. The push goes again until
+    /// the relay takes it, unless the relay refused it for good or the reply was read meanwhile.
+    #[cfg(feature = "server")]
+    #[tokio::test]
+    async fn a_push_the_relay_did_not_take_goes_again() {
+        use axum::{http::{HeaderMap, StatusCode}, routing::post, Json, Router};
+        use std::collections::{HashMap, VecDeque};
+        use std::sync::{atomic::{AtomicUsize, Ordering}, Mutex};
+
+        type Push = (String, u16, String);
+        async fn next(pushes: &mut tokio::sync::mpsc::UnboundedReceiver<Push>) -> Push {
+            tokio::time::timeout(READ_GRACE + FIRST_RETRY + Duration::from_secs(2), pushes.recv()).await.expect("a push").unwrap()
+        }
+
+        let dek = crate::keys::random_32();
+        // What the relay answers each chat's pushes, in turn, before it takes them.
+        let answers = Arc::new(Mutex::new(HashMap::<&str, VecDeque<u16>>::from([
+            ("restarting", VecDeque::from([503])),
+            ("refused", VecDeque::from([400])),
+            ("read-meanwhile", VecDeque::from([503])),
+        ])));
+        // The bearer the relay stopped taking when it came back with a new secret.
+        let old_bearer = Arc::new(Mutex::new(None::<String>));
+        let issued = Arc::new(AtomicUsize::new(0));
+        let (sent, mut pushes) = tokio::sync::mpsc::unbounded_channel::<Push>();
+        let server = Router::new()
+            .route("/v1/auth/challenge", post(|| async { Json(serde_json::json!({ "nonce": "test" })) }))
+            .route("/v1/auth/verify", post(move || {
+                let token = format!("token-{}", issued.fetch_add(1, Ordering::Relaxed));
+                async move { Json(serde_json::json!({ "token": token })) }
+            }))
+            .route("/v1/push", post({
+                let old_bearer = old_bearer.clone();
+                move |headers: HeaderMap, Json(body): Json<serde_json::Value>| {
+                    let notice = open(&dek, &crate::keys::unb64(body["ciphertext"].as_str().unwrap()).unwrap()).unwrap();
+                    let bearer = headers["authorization"].to_str().unwrap().trim_start_matches("Bearer ").to_string();
+                    let status = if old_bearer.lock().unwrap().as_ref() == Some(&bearer) {
+                        401
+                    } else {
+                        answers.lock().unwrap().get_mut(notice.chat_id.as_str()).and_then(VecDeque::pop_front).unwrap_or(200)
+                    };
+                    sent.send((notice.chat_id, status, bearer)).unwrap();
+                    async move {
+                        let body = if status == 200 { serde_json::json!({ "queued": 1 }) } else { serde_json::json!({ "error": "not now" }) };
+                        (StatusCode::from_u16(status).unwrap(), Json(body))
+                    }
+                }
+            }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, server).await.unwrap() });
+        let (app, bot, home) = runner(&url, &dek);
+
+        for id in ["restarting", "refused", "read-meanwhile"] {
+            replied(&app, &bot, id);
+        }
+        let mut seen = Vec::new();
+        while seen.len() < 4 {
+            let (chat_id, status, _) = next(&mut pushes).await;
+            if (chat_id.as_str(), status) == ("read-meanwhile", 503) {
+                // Read on another Device before the next try.
+                app.mark_read("read-meanwhile", false);
+            }
+            seen.push((chat_id, status));
+        }
+        seen.sort();
+        let expected: [(&str, u16); 4] = [("read-meanwhile", 503), ("refused", 400), ("restarting", 200), ("restarting", 503)];
+        assert_eq!(seen, expected.map(|(chat_id, status)| (chat_id.to_string(), status)));
+
+        // The relay came back with a new secret: the bearer this Runner holds is refused.
+        let machine = app.machine_file().unwrap().machine().unwrap();
+        let held = app.relay.token(&url, &machine).await.unwrap();
+        *old_bearer.lock().unwrap() = Some(held.clone());
+        replied(&app, &bot, "new-secret");
+        // The refused and the read push did not go again in the meantime.
+        assert_eq!(next(&mut pushes).await, ("new-secret".to_string(), 401, held.clone()));
+        let (chat_id, status, bearer) = next(&mut pushes).await;
+        assert_eq!((chat_id.as_str(), status), ("new-secret", 200));
+        assert_ne!(bearer, held, "the next try signs in again");
+        assert!(tokio::time::timeout(Duration::from_millis(500), pushes.recv()).await.is_err());
         server.abort();
         drop(app);
         let _ = std::fs::remove_dir_all(home);
