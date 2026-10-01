@@ -6,6 +6,8 @@ and the update window shows it.
 
 ## [Unreleased]
 
+## [0.1.1]
+
 - A routine can watch for something without spending a turn each time: the bot gives it a check, a
   short script that looks at an inbox, a repository, or a feed at each due time and starts the bot
   only when it finds something new. Checks only read and never change anything. A check that finds
