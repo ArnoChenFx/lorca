@@ -10,6 +10,8 @@ and the update window shows it.
 - Toggle Inspector shows the inspector in a window too narrow for it. Opening the inspector or the
   sidebar where there is no room widens the window by the pane; a maximized window keeps its size,
   and the chat narrows instead.
+- On Linux without a tray icon, finishing onboarding opens the main window, and Delete Account
+  opens onboarding. Before, Lorca quit.
 
 ## [0.1.0]
 

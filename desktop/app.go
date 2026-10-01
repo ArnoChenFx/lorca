@@ -226,16 +226,17 @@ func (a *appDelegate) identityChanged(has bool) {
 		}
 		// The account is gone: a main window hidden behind onboarding goes with it, and
 		// onboarding opened over the account becomes the real thing. Its unread count goes too,
-		// since the main window's page that kept it is gone.
+		// since the main window's page that kept it is gone. Onboarding opens before the main
+		// window closes: without a tray, the app quits once its last window is gone.
 		a.onboardingOverIdentity = false
 		Host{}.SetBadge(0)
+		if a.onboarding == nil {
+			a.presentOnboarding()
+		}
 		if a.main != nil {
 			main := a.main
 			a.main = nil
 			main.Destroy()
-		}
-		if a.onboarding == nil {
-			a.presentOnboarding()
 		}
 	})
 }
@@ -404,7 +405,8 @@ func (a *appDelegate) presentOnboarding() {
 }
 
 // endOnboarding closes onboarding and the small settings window, and the main window takes
-// over: the same one, as it was, when onboarding hid it.
+// over: the same one, as it was, when onboarding hid it. The main window shows first: without a
+// tray, the app quits once its last window is gone.
 func (a *appDelegate) endOnboarding() {
 	if a.onboarding == nil {
 		return
@@ -412,13 +414,13 @@ func (a *appDelegate) endOnboarding() {
 	onboarding := a.onboarding
 	a.onboarding = nil
 	a.onboardingOverIdentity = false
+	a.showMainWindow()
 	onboarding.Destroy()
 	if a.settings != nil {
 		settings := a.settings
 		a.settings = nil
 		settings.Destroy()
 	}
-	a.showMainWindow()
 }
 
 // showOnboarding opens onboarding again, from Settings › Advanced. It hides the main window
