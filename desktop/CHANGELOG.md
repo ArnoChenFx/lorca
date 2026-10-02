@@ -6,6 +6,8 @@ and the update window shows it.
 
 ## [Unreleased]
 
+## [0.1.2]
+
 - Your own MCP servers: Settings › Plugins has an MCP Servers section, where you add a server by
   the command that runs it or its URL, or paste its JSON from a README or another app's settings,
   and edit, turn off, or remove it. Each server shows how it stands and the tools it offers, with
