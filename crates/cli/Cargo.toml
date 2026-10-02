@@ -21,7 +21,7 @@ cli = ["runner", "server", "dep:usage", "dep:tracing-subscriber"]
 # Connecting and disconnecting account providers. Devices use this without the agent loop.
 provider-auth = ["dep:lorca-provider-auth"]
 # Running bots: the agent loop, providers, tools. Off for a Device that only takes part.
-runner = ["provider-auth", "dep:lorca-agent", "dep:open", "dep:rmcp", "dep:mcp_http"]
+runner = ["provider-auth", "dep:lorca-agent", "dep:open", "dep:rmcp", "dep:mcp_http", "dep:process-wrap"]
 # The local websocket the desktop app connects to.
 server = ["dep:axum"]
 
@@ -64,7 +64,13 @@ if-addrs = "0.15.0"
 # rmcp speaks reqwest 0.13; the rest of the crate is on the workspace's 0.12, so the MCP side has its own client.
 mcp_http = { package = "reqwest", version = "0.13", default-features = false, features = ["json", "stream", "rustls", "http2"], optional = true }
 rmcp = { version = "3.4.0", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "auth", "reqwest"], optional = true }
+# rmcp's process wrapper, to start a stdio server in a process group (a job object on Windows) that stops as one.
+process-wrap = { version = "10", features = ["tokio1"], optional = true }
 
 [target.'cfg(windows)'.dependencies]
 # `serve --parent-pid` watches the parent through a process handle.
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading"] }
+
+[dev-dependencies]
+# Real images for the attachment tests; the agent crate builds the same crate already.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }

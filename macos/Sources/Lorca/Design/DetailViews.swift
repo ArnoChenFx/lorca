@@ -561,15 +561,18 @@ final class PopUpRow: NSView {
 }
 
 
-/// Key on the left, a status value on the right, and an inline text action after it.
+/// Key on the left, a status value on the right, and an inline text action after it, with a
+/// second action before that one when the row has two.
 final class ActionRow: NSView {
     private let key: NSTextField
     private let value: NSTextField
     private let button = CopyFeedbackButton()
+    private let secondButton = NSButton()
     var onAction: (() -> Void)?
+    var onSecondAction: (() -> Void)?
 
     /// A monospaced value is something to copy (a sign-in code), so it is also selectable.
-    init(key keyText: String, value valueText: String, tint: NSColor, actionTitle: String?, monospaced: Bool = false) {
+    init(key keyText: String, value valueText: String, tint: NSColor, actionTitle: String?, secondActionTitle: String? = nil, monospaced: Bool = false) {
         key = Build.label(keyText, font: .systemFont(ofSize: 12), color: .secondaryLabelColor)
         value = Build.label(
             valueText,
@@ -595,16 +598,34 @@ final class ActionRow: NSView {
         addSubview(key)
         addSubview(value)
         addSubview(button)
-        NSLayoutConstraint.activate([
+        var constraints = [
             heightAnchor.constraint(greaterThanOrEqualToConstant: 32),
             key.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             key.centerYAnchor.constraint(equalTo: centerYAnchor),
             value.leadingAnchor.constraint(greaterThanOrEqualTo: key.trailingAnchor, constant: 10),
             value.centerYAnchor.constraint(equalTo: centerYAnchor),
-            button.leadingAnchor.constraint(equalTo: value.trailingAnchor, constant: actionTitle == nil ? 0 : 8),
             button.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             button.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
+        ]
+        if let secondActionTitle {
+            secondButton.title = secondActionTitle
+            secondButton.isBordered = false
+            secondButton.font = .systemFont(ofSize: 12, weight: .medium)
+            secondButton.contentTintColor = .controlAccentColor
+            secondButton.target = self
+            secondButton.action = #selector(secondTapped)
+            secondButton.translatesAutoresizingMaskIntoConstraints = false
+            secondButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+            addSubview(secondButton)
+            constraints += [
+                secondButton.leadingAnchor.constraint(equalTo: value.trailingAnchor, constant: 8),
+                secondButton.centerYAnchor.constraint(equalTo: centerYAnchor),
+                button.leadingAnchor.constraint(equalTo: secondButton.trailingAnchor, constant: 10),
+            ]
+        } else {
+            constraints.append(button.leadingAnchor.constraint(equalTo: value.trailingAnchor, constant: actionTitle == nil ? 0 : 8))
+        }
+        NSLayoutConstraint.activate(constraints)
     }
 
     @available(*, unavailable)
@@ -625,6 +646,10 @@ final class ActionRow: NSView {
 
     @objc private func tapped() {
         onAction?()
+    }
+
+    @objc private func secondTapped() {
+        onSecondAction?()
     }
 }
 
@@ -834,7 +859,7 @@ final class SwitchRow: NSView {
     }
 
     @objc private func clicked(_ gesture: NSClickGestureRecognizer) {
-        guard !toggle.frame.contains(gesture.location(in: self)) else { return }
+        guard toggle.isHidden || !toggle.frame.contains(gesture.location(in: self)) else { return }
         onClick?()
     }
 
@@ -861,6 +886,26 @@ final class SwitchRow: NSView {
         toolTip = tooltip
     }
 
+    /// One of a Runner's MCP servers: its symbol in the color of how it stands, how it stands in
+    /// that color, then where it runs, and its switch, unless it cannot run.
+    func configure(server: McpServer) {
+        let state = server.state
+        let runs = server.problem == nil
+        configure(
+            symbol: server.entry.symbolName, tint: server.isEnabled && runs ? state.color : .tertiaryLabelColor, title: server.name, detail: "",
+            isOn: server.isEnabled, toggleTooltip: server.isEnabled ? L("Turn %@ off", server.name) : L("Turn %@ on", server.name),
+            tooltip: server.entry.about)
+        let line = NSMutableAttributedString(string: state.text, attributes: [.foregroundColor: state.color, .font: Theme.Font.caption])
+        line.append(NSAttributedString(
+            string: " · \(server.entry.address)",
+            attributes: [.foregroundColor: NSColor.tertiaryLabelColor, .font: NSFont.monospacedSystemFont(ofSize: 10.5, weight: .regular)]))
+        detail.attributedStringValue = line
+        detail.lineBreakMode = .byTruncatingTail
+        name.textColor = server.isEnabled ? .labelColor : .secondaryLabelColor
+        toggle.isHidden = !runs
+        toggle.setAccessibilityLabel(server.name)
+    }
+
     @objc private func toggled() {
         onToggle?(toggle.state == .on)
     }
@@ -885,12 +930,12 @@ final class SwitchRow: NSView {
     }
 }
 
-/// A sentence inside a section card, for an empty state.
+/// A sentence inside a section card, for an empty state, or in a color for what went wrong.
 final class NoteRow: NSView {
-    init(text: String) {
+    init(text: String, tint: NSColor = .secondaryLabelColor) {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        let label = Build.label(text, font: Theme.Font.caption, color: .secondaryLabelColor, lines: 0)
+        let label = Build.label(text, font: Theme.Font.caption, color: tint, lines: 0)
         addSubview(label)
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),

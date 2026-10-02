@@ -43,6 +43,7 @@ A host can run a script itself, outside a model's turn: `codemode.run_script(cal
 
 - `tools.<name>(args)`: a promise per tool. A name becomes a JavaScript identifier, with characters that are not valid in one turned into `_`; `tools["my-tool"]` works too, and so does a name the script found with a search after it started.
 - A tool that declares `output_schema()` resolves to its `structured` output, also for an error result that carries one. Any other tool resolves to its text. A call that fails, or whose arguments fail the schema check, rejects with an `Error` carrying the tool's error text.
+- A call to a name no tool has rejects with the closest names (`tools.Bash` suggests `tools.bash`), or with every name when there are 20 or fewer, as pi does.
 - `text(value)` and `console.log(...)` append output; `image(dataUrlOrMcpImage)` appends an image; `return value` appends the value; `exit()` ends the script successfully.
 - `store(key, value)` and `load(key)` keep JSON values across scripts through a `CodemodeStore` the host persists (`with_store`). A value may take 256 Ki characters of JSON and all of them together 1 Mi; a failed script writes nothing.
 - `ALL_TOOLS`, `await searchTools(query, { limit, namespace })` (BM25 over names, descriptions, schemas, and namespaces by default), and `await describeTool(name)`.
@@ -51,7 +52,7 @@ A host can run a script itself, outside a model's turn: `codemode.run_script(cal
 
 A script that waits on a promise nothing can settle fails at once instead of hanging.
 
-The host holds a script to limits its VM's memory cap does not cover. Past 16 MB of output, or with more than 1,000 calls it started and has not seen finish, the script stops. An image must be PNG, JPEG, GIF, or WebP, in valid base64, of at most 5 MB, and ten at most; any other is left out with a note in the output. A call whose arguments are over 8 MB, or are not JSON the host can read, rejects without running. Strings are made well-formed before they cross, so a lone surrogate becomes U+FFFD. `store()` writes over their limits fail the script, whatever the script did to the prelude's own checks.
+The host holds a script to limits its VM's memory cap does not cover. Past 16 MB of output, or with more than 1,000 calls it started and has not seen finish, the script stops. Ten images at most, whose base64 counts toward the 16 MB; as the script ends, each is made one a model takes ([Images](providers.md#images): converted, turned upright, or scaled down, with a note), whatever the script labeled it, and one that cannot be read is left out with a note in the output. A call whose arguments are over 8 MB, or are not JSON the host can read, rejects without running. Strings are made well-formed before they cross, so a lone surrogate becomes U+FFFD. `store()` writes over their limits fail the script, whatever the script did to the prelude's own checks.
 
 ## Calls go through the loop
 
@@ -67,11 +68,11 @@ Calls run in parallel, up to `max_concurrent_calls` (8) at once. A tool whose `e
 
 `CodemodeTool::new` renders the description once, from the catalog, so it stays the same for as long as the tool lives and does not break a prompt cache. It lists:
 
-- what a script has, and the limits;
+- what a script has, one line per global, after pi 1.0's description; limits, side effects, and wrong tool names are left to the errors, which say what happened and how to recover;
 - the shared MCP result types, when an MCP tool is callable or `CodemodeOptions::mcp_types` is set, with how to read a `CallToolResult`;
 - the host's functions as TypeScript;
 - the tools the model can also call directly (`Exposure::Direct`), by name only;
-- every other tool as a TypeScript declaration built from its JSON Schemas, grouped by namespace, within `inline_budget` estimated tokens (3,000). Each round, every group places its cheapest remaining tool, so each namespace is represented before any is complete. `Exposure::Deferred` tools are never listed. The listing says whether it is complete, and every namespace is named with its tool count, including one with no tools known yet.
+- every other tool as a TypeScript declaration built from its JSON Schemas, grouped by namespace, within `inline_budget` estimated tokens (3,000). Each round, every group places its cheapest remaining tool, so each namespace is represented before any is complete. `Exposure::Deferred` tools are never listed. Every namespace is named, including one with no tools known yet, and marked when some or all of its tools are not listed; no counts, so a heading stays the same while its tools change.
 
 A tool whose output schema is shaped like MCP's `CallToolResult` (a `content` array of objects and a boolean `isError`) renders as `Promise<CallToolResult<T>>`, with `T` from its `structuredContent` schema.
 

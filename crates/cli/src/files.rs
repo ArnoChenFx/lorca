@@ -7,17 +7,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 #[cfg(feature = "runner")]
-use base64::Engine;
-#[cfg(feature = "runner")]
 use lorca_agent::ContentPart;
 
 use crate::app::App;
 use crate::model::Attachment;
 
 pub const MAX_ATTACHMENT_BYTES: u64 = 100 * 1024 * 1024;
-/// Images up to this size go to the model as pixels as well as a path.
-#[cfg(feature = "runner")]
-const MAX_IMAGE_PART_BYTES: u64 = 5 * 1024 * 1024;
 
 /// A file the app asked to send: a path on this machine, with the id the app already shows.
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -156,7 +151,7 @@ pub fn materialize(app: &App, attachment: &Attachment, workdir: &Path) -> Option
 }
 
 /// What the model sees for one attachment: a line naming the file, and, when `pixels` (the
-/// model takes images), an image up to 5 MB as an image part too.
+/// model takes images), an image it takes as an image part too, or a line saying why not.
 #[cfg(feature = "runner")]
 pub fn content_parts(app: &App, attachment: &Attachment, workdir: &Path, pixels: bool) -> Vec<ContentPart> {
     let Some(path) = materialize(app, attachment, workdir) else {
@@ -169,15 +164,56 @@ pub fn content_parts(app: &App, attachment: &Attachment, workdir: &Path, pixels:
         human_size(attachment.size),
         path.display()
     ))];
-    if pixels && attachment.is_image() && attachment.size <= MAX_IMAGE_PART_BYTES {
-        if let Ok(bytes) = std::fs::read(&path) {
-            parts.push(ContentPart::Image {
-                data: base64::engine::general_purpose::STANDARD.encode(&bytes),
-                mime_type: attachment.mime.clone(),
-            });
+    if pixels && attachment.is_image() {
+        match inline_image(app, attachment) {
+            Ok(image) => parts.extend(image.into_parts()),
+            Err(why) => parts.push(ContentPart::text(format!("[{} is not shown as an image: {why}]", attachment.name))),
         }
     }
     parts
+}
+
+/// Where an attachment's image as a model takes it is kept, beside the attachment.
+#[cfg(feature = "runner")]
+fn inline_image_path(app: &App, id: &str) -> PathBuf {
+    app.config.files_dir().join(format!("{id}.inline.json"))
+}
+
+/// The image an attachment shows a model (`images::prepare`): a HEIC photo converted on a Mac, a
+/// rotated one turned upright, a large one scaled down with a note, or why it cannot go. Made
+/// once and kept beside the attachment, failures too, since every turn builds its messages again
+/// and a photo takes a moment to make.
+#[cfg(feature = "runner")]
+pub fn inline_image(app: &App, attachment: &Attachment) -> Result<lorca_agent::images::Inline, String> {
+    let kept = inline_image_path(app, &attachment.id);
+    if let Some(made) = crate::config::read_json::<Result<lorca_agent::images::Inline, String>>(&kept) {
+        return made;
+    }
+    let bytes = std::fs::read(local_path(app, &attachment.id)).map_err(|e| format!("it could not be read: {e}"))?;
+    let made = lorca_agent::images::prepare(&bytes);
+    if let Err(error) = crate::config::write_json_private(&kept, &made) {
+        tracing::warn!(%error, name = %attachment.name, "keeping an attachment's image for the model");
+    }
+    made
+}
+
+/// Makes the images of a turn's attachments for the model before the turn builds its messages,
+/// off the async threads.
+#[cfg(feature = "runner")]
+pub async fn make_images(app: &Arc<App>, attachments: &[Attachment]) {
+    let pending: Vec<Attachment> = attachments.iter().filter(|attachment| attachment.is_image() && is_local(app, &attachment.id) && !inline_image_path(app, &attachment.id).is_file()).cloned().collect();
+    if pending.is_empty() {
+        return;
+    }
+    let app = app.clone();
+    let made = tokio::task::spawn_blocking(move || {
+        for attachment in &pending {
+            let _ = inline_image(&app, attachment);
+        }
+    });
+    if let Err(error) = made.await {
+        tracing::warn!(%error, "making attachments' images for the model");
+    }
 }
 
 fn safe_name(name: &str) -> String {
@@ -269,6 +305,45 @@ mod tests {
         png.extend_from_slice(&480u32.to_be_bytes());
         assert_eq!(image_size(&png), (Some(640), Some(480)));
         assert_eq!(image_size(b"nope"), (None, None));
+    }
+
+    #[cfg(feature = "runner")]
+    #[test]
+    fn attachments_reach_the_model_as_images_it_takes() {
+        let home = std::env::temp_dir().join(format!("lorca-files-{}", uuid::Uuid::new_v4()));
+        let app = App::load(crate::config::Config { home: home.clone(), port: 0 }).unwrap();
+        let workdir = home.join("work");
+        let picture = |width: u32, height: u32| {
+            let image = image::DynamicImage::ImageRgb8(image::ImageBuffer::from_fn(width, height, |x, y| image::Rgb([(x % 256) as u8, (y % 256) as u8, 60])));
+            let mut png = Vec::new();
+            image.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+            png
+        };
+        let parts = |id: &str, name: &str, mime: &str, bytes: &[u8]| {
+            write_local(&app, id, bytes).unwrap();
+            let attachment = Attachment { id: id.into(), name: name.into(), mime: mime.into(), size: bytes.len() as u64, width: None, height: None };
+            content_parts(&app, &attachment, &workdir, true)
+        };
+        let labeled = parts("att-1", "shot.jpg", "image/jpeg", &picture(64, 48));
+        assert!(matches!(&labeled[1], ContentPart::Image { mime_type, .. } if mime_type == "image/png"), "the type its bytes say: {labeled:?}");
+        let large = parts("att-2", "pano.png", "image/png", &picture(2600, 100));
+        assert_eq!(large[1], ContentPart::text("[Image: original 2600x100, displayed at 2000x77. Multiply coordinates by 1.30 to map to original image.]"));
+        assert!(matches!(&large[2], ContentPart::Image { .. }), "{large:?}");
+        assert!(app.config.files_dir().join("att-2.inline.json").is_file(), "made once, then kept");
+        let kept = Attachment { id: "att-2".into(), name: "pano.png".into(), mime: "image/png".into(), size: 0, width: None, height: None };
+        std::fs::remove_file(local_path(&app, "att-2")).unwrap();
+        assert_eq!(content_parts_from_kept(&app, &kept), large[1..], "the next turn reads what was kept");
+        let heic = parts("att-3", "IMG_0001.heic", "image/heic", b"\0\0\0\x18ftypheic\0\0\0\0mif1heic");
+        assert!(heic[1].as_text().is_some_and(|text| text.starts_with("[IMG_0001.heic is not shown as an image: it is an image/heic image")), "{heic:?}");
+        assert_eq!(parts("att-4", "notes.txt", "text/plain", b"hi").len(), 1, "a file that is no image is only named");
+        drop(app);
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    /// An attachment's image parts from what `inline_image` kept, its file gone.
+    #[cfg(feature = "runner")]
+    fn content_parts_from_kept(app: &App, attachment: &Attachment) -> Vec<ContentPart> {
+        inline_image(app, attachment).unwrap().into_parts()
     }
 
     #[test]

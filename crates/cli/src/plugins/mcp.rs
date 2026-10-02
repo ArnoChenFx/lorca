@@ -29,8 +29,6 @@ use crate::model::*;
 
 /// How long the user has to answer a permission card before the call is refused.
 pub const PERMISSION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10 * 60);
-/// How long a tool call may run.
-const CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 /// How long a server may take to start and answer the MCP handshake. A package runner such as
 /// `npx` may download the server first.
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2 * 60);
@@ -52,14 +50,28 @@ const MAX_NAMESPACE_INSTRUCTIONS_BYTES: usize = 1024;
 pub struct Server {
     pub plugin_id: String,
     pub name: String,
-    service: RunningService<RoleClient, ClientConfig>,
-    pub tools: Vec<rmcp::model::Tool>,
+    service: RunningService<RoleClient, Client>,
+    /// What the server offers, which it may change while connected (`tools/list_changed`).
+    tools: std::sync::RwLock<Vec<rmcp::model::Tool>>,
     pub instructions: Option<String>,
+    /// Whether it offers resources, which scripts list and read through its resource tools.
+    pub resources: bool,
     /// The OAuth manager behind the transport, to persist tokens it refreshed.
     auth: Option<Arc<tokio::sync::Mutex<AuthorizationManager>>>,
     /// Device-flow tokens are plain bearers. Drop this pooled server before its bearer expires;
     /// the next connection refreshes and persists the rotating token pair itself.
     bearer_expires_at: Option<f64>,
+}
+
+impl Server {
+    pub fn tools(&self) -> Vec<rmcp::model::Tool> {
+        self.tools.read().unwrap().clone()
+    }
+
+    /// Whether the connection is gone: the server's process ended, or its transport closed.
+    fn is_closed(&self) -> bool {
+        self.service.is_closed() || self.service.peer().is_transport_closed()
+    }
 }
 
 /// Connected servers by `plugin/server`, connected on first use and dropped when the plugin
@@ -69,7 +81,9 @@ pub struct Pool {
     /// Bumped by `forget`, per plugin: a connection that started before a change of the
     /// plugin's settings is used for nothing once it answers.
     generations: Mutex<HashMap<String, u64>>,
-    connecting: tokio::sync::Mutex<()>,
+    /// One connection at a time per server, so two calls never start one server twice, while
+    /// a server that is slow to start (`npx` downloading it) holds up no other.
+    connecting: Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
     /// The HTTP client the MCP transports and the OAuth flow use (rmcp's reqwest, not the
     /// App's).
     http: mcp_http::Client,
@@ -86,7 +100,7 @@ impl Default for Pool {
 impl Pool {
     pub fn new() -> Self {
         let http = mcp_http::Client::builder().timeout(std::time::Duration::from_secs(600)).build().unwrap_or_default();
-        Pool { servers: Mutex::new(HashMap::new()), generations: Mutex::new(HashMap::new()), connecting: tokio::sync::Mutex::new(()), http, sign_ins: Mutex::new(HashMap::new()) }
+        Pool { servers: Mutex::new(HashMap::new()), generations: Mutex::new(HashMap::new()), connecting: Mutex::new(HashMap::new()), http, sign_ins: Mutex::new(HashMap::new()) }
     }
 
     /// Drops every connection of a plugin, so the next use reconnects with fresh settings.
@@ -101,11 +115,12 @@ impl Pool {
 
     fn cached_server(&self, key: &str) -> Option<Arc<Server>> {
         let mut servers = self.servers.lock().unwrap();
-        let expiring = servers
-            .get(key)
-            .and_then(|server| server.bearer_expires_at)
-            .is_some_and(|expires_at| expires_at <= now_secs() + DEVICE_TOKEN_REFRESH_BUFFER_SECS);
-        if expiring {
+        // A server whose process ended or whose connection dropped starts again, and one whose
+        // device-flow bearer is about to expire connects with a fresh one.
+        let stale = servers.get(key).is_some_and(|server| {
+            server.is_closed() || server.bearer_expires_at.is_some_and(|expires_at| expires_at <= now_secs() + DEVICE_TOKEN_REFRESH_BUFFER_SECS)
+        });
+        if stale {
             servers.remove(key);
             None
         } else {
@@ -119,7 +134,8 @@ impl Pool {
         if let Some(server) = self.cached_server(&key) {
             return Ok(server);
         }
-        let _guard = self.connecting.lock().await;
+        let gate = self.connecting.lock().unwrap().entry(key.clone()).or_default().clone();
+        let _guard = gate.lock().await;
         if let Some(server) = self.cached_server(&key) {
             return Ok(server);
         }
@@ -128,6 +144,7 @@ impl Pool {
             let plugin = store.get(plugin_id).cloned().ok_or_else(|| format!("{plugin_id} is not installed on this Runner"))?;
             (plugin, store.values(plugin_id))
         };
+        let values = template_values(&plugin, values).await;
         let spec = plugin.manifest.servers.get(name).cloned().ok_or_else(|| format!("{} has no server {name}", plugin.manifest.name))?;
         let generation = self.generation(plugin_id);
         super::note(app, plugin_id, Some(("connecting", "Connecting…")));
@@ -141,14 +158,19 @@ impl Pool {
                 Err(format!("{}'s settings changed while it connected. Try again.", plugin.manifest.name))
             }
             Ok(server) => {
-                save_catalog(app, &server);
+                save_catalog(app, plugin_id, name, SavedServer { instructions: server.instructions.clone(), tools: server.tools(), resources: server.resources });
                 let server = Arc::new(server);
                 self.servers.lock().unwrap().insert(key, server.clone());
                 super::note(app, plugin_id, None);
                 Ok(server)
             }
             Err(error) => {
-                super::note(app, plugin_id, Some(("error", &error)));
+                // A server that answered that it needs a sign-in reads Sign in, not an error.
+                let signs_in = {
+                    let store = app.plugins.lock().unwrap();
+                    store.needs_sign_in(plugin_id, name, &spec, &store.values(plugin_id))
+                };
+                super::note(app, plugin_id, (!signs_in).then_some(("error", error.as_str())));
                 Err(error)
             }
         }
@@ -161,6 +183,10 @@ impl Pool {
         for name in names {
             match self.server(app, plugin_id, &name).await {
                 Ok(server) => servers.push(server),
+                // A server that asked for a sign-in did what it should.
+                Err(error) if app.plugins.lock().unwrap().status(plugin_id).is_some_and(|status| status.state == "needs_auth") => {
+                    tracing::info!(%error, plugin = plugin_id, server = %name, "a plugin server needs a sign-in")
+                }
                 Err(error) => tracing::warn!(%error, plugin = plugin_id, server = %name, "connecting a plugin server"),
             }
         }
@@ -174,29 +200,62 @@ async fn connect(app: &Arc<App>, plugin: &Installed, name: &str, spec: &ServerSp
     implementation.version = crate::config::VERSION.into();
     let mut info = ClientConfig::default();
     info.client_info = implementation;
+    let generation = app.mcp.generation(&plugin.manifest.id);
+    // A client per try, since a handshake takes the one it is given.
+    let client = || Client { info: info.clone(), app: Arc::downgrade(app), plugin_id: plugin.manifest.id.clone(), server: name.to_string(), generation };
     let mut auth = None;
     let mut bearer_expires_at = None;
     let service = match spec {
-        ServerSpec::Stdio { command, args, env } => {
+        ServerSpec::Stdio { command, args, env, cwd, .. } => {
+            let command = expand_home(&fill(command, values));
             // The login shell's environment, so `npx` or `uvx` resolve from the user's PATH, on
             // Windows as files the way a terminal finds them (`npx` is npm's `npx.cmd`).
-            let mut cmd = lorca_agent::login_shell::command(command).await;
-            cmd.args(args.iter().map(|a| fill(a, values)));
+            let mut cmd = lorca_agent::login_shell::command(&command).await;
+            cmd.args(args.iter().map(|a| expand_home(&fill(a, values))));
             // A variable naming an optional key the user left unset is left out.
             for (key, value) in env {
                 if let Some(value) = fill_if_set(value, values) {
                     cmd.env(key, value);
                 }
             }
-            cmd.current_dir(app.config.plugins_dir().join(&plugin.manifest.id));
+            let dir = match cwd {
+                Some(cwd) => std::path::PathBuf::from(expand_home(&fill(cwd, values))),
+                None => app.config.plugins_dir().join(&plugin.manifest.id),
+            };
+            if cwd.is_none() {
+                // A server from mcp.json has no folder until it first starts.
+                let _ = std::fs::create_dir_all(&dir);
+            } else if !dir.is_dir() {
+                return Err(format!("{} cannot start in {}: there is no such folder.", plugin.manifest.name, dir.display()));
+            }
+            cmd.current_dir(dir);
             // On Windows a bare name starts a file found on PATH (npx.cmd), which the error names:
             // a batch file refuses an argument with a line break.
             let program = std::path::Path::new(cmd.as_std().get_program()).display().to_string();
-            let starting = if program == *command { program } else { format!("{command} ({program})") };
-            let transport = TokioChildProcess::new(cmd).map_err(|e| format!("Cannot start {starting}: {e}"))?;
-            info.serve(transport).await.map_err(|e| format!("{command} did not answer the MCP handshake: {e}"))?
+            let starting = if program == command { program } else { format!("{command} ({program})") };
+            // The server and what it starts in turn (npx starts node, uvx starts python) stop
+            // together: a process group on macOS and Linux, a job object on Windows.
+            let mut wrapped = process_wrap::tokio::CommandWrap::from(cmd);
+            #[cfg(unix)]
+            wrapped.wrap(process_wrap::tokio::ProcessGroup::leader());
+            #[cfg(windows)]
+            wrapped.wrap(process_wrap::tokio::JobObject);
+            wrapped.wrap(process_wrap::tokio::KillOnDrop);
+            let (transport, stderr) =
+                TokioChildProcess::builder(wrapped).stderr(std::process::Stdio::piped()).spawn().map_err(|e| format!("Cannot start {starting}: {e}"))?;
+            let said = Stderr::follow(stderr, &plugin.manifest.id);
+            match client().serve(transport).await {
+                Ok(service) => service,
+                // What a server printed before it stopped usually says why.
+                Err(error) => {
+                    let words = said.last_words().await.unwrap_or_else(|| error.to_string());
+                    return Err(format!("{command} did not answer the MCP handshake: {words}"));
+                }
+            }
         }
-        ServerSpec::Http { url, headers, auth: auth_spec } => {
+        ServerSpec::Http { url, headers, auth: auth_spec, .. } => {
+            // `${VAR}` in an mcp.json server's URL is the environment's.
+            let url = &fill(url, values);
             let mut config = StreamableHttpClientTransportConfig::with_uri(url.as_str());
             let mut custom = HashMap::new();
             // A header naming an optional key the user left unset is left out: Context7 without its
@@ -213,13 +272,16 @@ async fn connect(app: &Arc<App>, plugin: &Installed, name: &str, spec: &ServerSp
                 Some(AuthSpec::Oauth { token_variable: Some(variable), .. }) => values.get(variable).cloned(),
                 _ => None,
             };
-            let tokens = app.plugins.lock().unwrap().secret(&plugin.manifest.id, &format!("oauth:{name}"));
+            let tokens = app.plugins.lock().unwrap().sign_in_secret(&plugin.manifest.id, "oauth", name);
+            let http = app.mcp.http.clone();
+            let plain = |config: StreamableHttpClientTransportConfig| move || StreamableHttpClientTransport::with_client(http.clone(), config.clone());
             match (pasted, auth_spec, tokens) {
-                (Some(token), _, _) => {
-                    let transport = StreamableHttpClientTransport::with_client(app.mcp.http.clone(), config.auth_header(token));
-                    info.serve(transport).await.map_err(|e| describe_connect_error(&e.to_string(), url))?
-                }
+                (Some(token), _, _) => serve_retrying(&client, plain(config.auth_header(token))).await.map_err(|e| describe_connect_error(&e.to_string(), url))?,
                 (None, Some(oauth @ AuthSpec::Oauth { .. }), Some(stored)) => {
+                    let metadata_url = match oauth {
+                        AuthSpec::Oauth { auth_server_metadata_url, .. } => auth_server_metadata_url.as_deref(),
+                        _ => None,
+                    };
                     if stored["device_flow"].as_bool() == Some(true) {
                         // GitHub's refresh endpoint has its own contract: no `scope` or MCP
                         // `resource`. Refresh it here, then give the transport a plain bearer.
@@ -229,35 +291,48 @@ async fn connect(app: &Arc<App>, plugin: &Installed, name: &str, spec: &ServerSp
                         };
                         let bearer = device_bearer(app, &plugin.manifest.id, name, &plugin.manifest.name, token_endpoint, &stored).await?;
                         bearer_expires_at = bearer.expires_at;
-                        let transport = StreamableHttpClientTransport::with_client(app.mcp.http.clone(), config.auth_header(bearer.access_token));
-                        info.serve(transport).await.map_err(|e| describe_connect_error(&e.to_string(), url))?
+                        serve_retrying(&client, plain(config.auth_header(bearer.access_token))).await.map_err(|e| describe_connect_error(&e.to_string(), url))?
                     } else {
                         // A token whose server metadata cannot be found again, or which has no
                         // refresh token, is sent as a plain bearer.
                         let refreshable = stored["tokens"]["refresh_token"].as_str().is_some_and(|r| !r.is_empty());
-                        let restored = if refreshable { restore_manager(app, url, &stored).await } else { Err("no refresh token".into()) };
+                        let restored = if refreshable { restore_manager(app, url, &stored, metadata_url).await } else { Err("no refresh token".into()) };
                         match restored {
                             Ok(manager) => {
-                                let client = AuthClient::new(app.mcp.http.clone(), manager);
-                                auth = Some(client.auth_manager.clone());
-                                let transport = StreamableHttpClientTransport::with_client(client, config);
-                                info.serve(transport).await.map_err(|e| describe_connect_error(&e.to_string(), url))?
+                                let signed_in = AuthClient::new(app.mcp.http.clone(), manager);
+                                auth = Some(signed_in.auth_manager.clone());
+                                let transport = || StreamableHttpClientTransport::with_client(signed_in.clone(), config.clone());
+                                serve_retrying(&client, transport).await.map_err(|e| describe_connect_error(&e.to_string(), url))?
                             }
                             Err(why) => {
                                 tracing::debug!(%why, plugin = %plugin.manifest.id, "using the saved access token as a bearer");
                                 let token = stored["tokens"]["access_token"].as_str().ok_or("The saved sign-in has no access token")?.to_string();
-                                let transport = StreamableHttpClientTransport::with_client(app.mcp.http.clone(), config.auth_header(token));
-                                info.serve(transport).await.map_err(|e| describe_connect_error(&e.to_string(), url))?
+                                serve_retrying(&client, plain(config.auth_header(token))).await.map_err(|e| describe_connect_error(&e.to_string(), url))?
                             }
                         }
                     }
                 }
+                // A server that signs in only when asked is tried as it is first.
+                (None, Some(AuthSpec::Oauth { optional: true, .. }), None) => {
+                    match serve_retrying(&client, plain(config)).await {
+                        Ok(service) => {
+                            // A server that once asked for a sign-in and now lets Lorca in no
+                            // longer reads Sign in.
+                            app.plugins.lock().unwrap().forget_challenge(&app.config, &plugin.manifest.id, name);
+                            service
+                        }
+                        Err(error) => match auth_challenge(&error) {
+                            Some(challenge) => {
+                                app.plugins.lock().unwrap().note_challenge(&app.config, &plugin.manifest.id, name, &challenge);
+                                return Err(format!("{} needs a sign-in.", plugin.manifest.name));
+                            }
+                            None => return Err(describe_connect_error(&error.to_string(), url)),
+                        },
+                    }
+                }
                 (None, Some(AuthSpec::Oauth { .. }), None) => return Err(format!("Sign in to {} first.", plugin.manifest.name)),
                 (None, Some(AuthSpec::Bearer { variable }), _) => return Err(format!("Set {variable} first.")),
-                (None, None, _) => {
-                    let transport = StreamableHttpClientTransport::with_client(app.mcp.http.clone(), config);
-                    info.serve(transport).await.map_err(|e| describe_connect_error(&e.to_string(), url))?
-                }
+                (None, None, _) => serve_retrying(&client, plain(config)).await.map_err(|e| describe_connect_error(&e.to_string(), url))?,
             }
         }
     };
@@ -267,24 +342,324 @@ async fn connect(app: &Arc<App>, plugin: &Installed, name: &str, spec: &ServerSp
         persist_refreshed(app, &plugin.manifest.id, name, manager).await;
     }
     let instructions = service.peer_info().and_then(|i| i.instructions.clone());
-    let mut tools = service.list_all_tools().await.map_err(|e| format!("{} could not list its tools: {e}", plugin.manifest.name))?;
-    tools.retain(|t| !plugin.manifest.tools.hide.iter().any(|h| pattern_matches(h, &t.name)));
-    tracing::info!(plugin = %plugin.manifest.id, server = name, tools = tools.len(), "connected an MCP server");
-    Ok(Server { plugin_id: plugin.manifest.id.clone(), name: name.to_string(), service, tools, instructions, auth, bearer_expires_at })
+    let resources = service.peer_info().is_some_and(|info| info.capabilities.resources.is_some());
+    // Every tool the server offers: which ones bots see is read as they are listed, so showing a
+    // hidden one needs no reconnecting.
+    let tools = all_tools(service.peer()).await.map_err(|e| format!("{} could not list its tools: {e}", plugin.manifest.name))?;
+    tracing::info!(plugin = %plugin.manifest.id, server = name, tools = tools.len(), resources, "connected an MCP server");
+    Ok(Server { plugin_id: plugin.manifest.id.clone(), name: name.to_string(), service, tools: std::sync::RwLock::new(tools), instructions, resources, auth, bearer_expires_at })
 }
 
-fn describe_connect_error(error: &str, url: &str) -> String {
-    if error.contains("401") || error.to_lowercase().contains("unauthorized") {
-        format!("{url} refused the credentials. Sign in again.")
-    } else {
-        format!("Could not connect to {url}: {error}")
+/// Lorca as an MCP client: its name and version, and what it does when a connected server says
+/// its tools changed.
+pub struct Client {
+    info: ClientConfig,
+    app: std::sync::Weak<App>,
+    plugin_id: String,
+    server: String,
+    /// The plugin's generation when the connection began: a connection from before a change of
+    /// its settings refreshes nothing.
+    generation: u64,
+}
+
+impl rmcp::ClientHandler for Client {
+    fn get_info(&self) -> ClientConfig {
+        self.info.clone()
+    }
+
+    async fn on_tool_list_changed(&self, context: rmcp::service::NotificationContext<RoleClient>) {
+        let Some(app) = self.app.upgrade() else { return };
+        let (plugin_id, server, generation) = (self.plugin_id.clone(), self.server.clone(), self.generation);
+        // From a task of its own: the connection answers the listing while this is handled.
+        tokio::spawn(async move { refresh_tools(&app, &plugin_id, &server, generation, &context.peer).await });
     }
 }
 
-/// An authorization manager holding tokens saved by an earlier sign-in.
-async fn restore_manager(app: &Arc<App>, url: &str, stored: &Value) -> Result<AuthorizationManager, String> {
+/// Lists a connected server's tools again after it said they changed, for the pooled connection
+/// and the next turns' listing.
+async fn refresh_tools(app: &Arc<App>, plugin_id: &str, server: &str, generation: u64, peer: &rmcp::service::Peer<RoleClient>) {
+    let installed = app.plugins.lock().unwrap().get(plugin_id).is_some();
+    if !installed || app.mcp.generation(plugin_id) != generation {
+        return;
+    }
+    let tools = match all_tools(peer).await {
+        Ok(tools) => tools,
+        Err(error) => {
+            tracing::warn!(%error, plugin = plugin_id, server, "listing a server's changed tools");
+            return;
+        }
+    };
+    tracing::info!(plugin = plugin_id, server, tools = tools.len(), "an MCP server changed its tools");
+    let (instructions, resources) = match app.mcp.cached_server(&format!("{plugin_id}/{server}")) {
+        Some(pooled) => {
+            *pooled.tools.write().unwrap() = tools.clone();
+            (pooled.instructions.clone(), pooled.resources)
+        }
+        None => match peer.peer_info() {
+            Some(info) => (info.instructions.clone(), info.capabilities.resources.is_some()),
+            None => (None, false),
+        },
+    };
+    save_catalog(app, plugin_id, server, SavedServer { instructions, tools, resources });
+}
+
+/// Pages of a server's tool list one connection reads at most.
+const MAX_TOOL_PAGES: usize = 100;
+
+/// Every tool a server lists, page by page. A list ends at a page with no cursor, an empty one,
+/// or one the server handed out before: following those would ask for the same page forever.
+async fn all_tools(peer: &rmcp::service::Peer<RoleClient>) -> Result<Vec<rmcp::model::Tool>, rmcp::ServiceError> {
+    let mut tools = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut cursor = None;
+    for _ in 0..MAX_TOOL_PAGES {
+        let page = peer.list_tools(Some(rmcp::model::PaginatedRequestParams::default().with_cursor(cursor))).await?;
+        tools.extend(page.tools);
+        match page.next_cursor.filter(|next| !next.is_empty() && seen.insert(next.clone())) {
+            Some(next) => cursor = Some(next),
+            None => return Ok(tools),
+        }
+    }
+    tracing::warn!(tools = tools.len(), "an MCP server's tool list ran past {MAX_TOOL_PAGES} pages; keeping what it listed");
+    Ok(tools)
+}
+
+/// What a stdio server writes to stderr: read for as long as it runs, so it never blocks on a
+/// full pipe, logged, and its last lines kept for when it stops before the handshake.
+struct Stderr {
+    lines: Arc<Mutex<std::collections::VecDeque<String>>>,
+    reading: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl Stderr {
+    const KEPT: usize = 40;
+
+    fn follow(stderr: Option<tokio::process::ChildStderr>, plugin_id: &str) -> Stderr {
+        let lines = Arc::new(Mutex::new(std::collections::VecDeque::new()));
+        let reading = stderr.map(|stderr| {
+            let (lines, plugin_id) = (lines.clone(), plugin_id.to_string());
+            tokio::spawn(async move {
+                use tokio::io::AsyncBufReadExt;
+                let mut reader = tokio::io::BufReader::new(stderr);
+                let mut line = Vec::new();
+                loop {
+                    line.clear();
+                    match reader.read_until(b'\n', &mut line).await {
+                        Ok(0) | Err(_) => break,
+                        Ok(_) => {
+                            let text = String::from_utf8_lossy(&line).trim_end().to_string();
+                            tracing::debug!(plugin = %plugin_id, "{text}");
+                            let mut lines = lines.lock().unwrap();
+                            if lines.len() == Self::KEPT {
+                                lines.pop_front();
+                            }
+                            lines.push_back(text);
+                        }
+                    }
+                }
+            })
+        });
+        Stderr { lines, reading }
+    }
+
+    /// The server's last lines, once it has had a moment to finish writing them.
+    async fn last_words(self) -> Option<String> {
+        if let Some(reading) = self.reading {
+            let _ = tokio::time::timeout(std::time::Duration::from_millis(500), reading).await;
+        }
+        let lines = self.lines.lock().unwrap();
+        last_words(lines.iter().map(String::as_str))
+    }
+}
+
+/// The last few lines a program wrote before it stopped, on one line, as a plugin's state shows
+/// it: blank lines, stack frames, and the caret under a source line left out, and a long tail cut
+/// from the front, since the cause usually comes last.
+fn last_words<'a>(lines: impl DoubleEndedIterator<Item = &'a str>) -> Option<String> {
+    const MAX_CHARS: usize = 400;
+    let mut words: Vec<&str> = lines.rev().map(str::trim).filter(|line| !line.starts_with("at ") && !line.trim_start_matches('^').trim().is_empty()).take(4).collect();
+    words.reverse();
+    let words = words.join(" · ");
+    match words.chars().count().checked_sub(MAX_CHARS) {
+        None | Some(0) => (!words.is_empty()).then_some(words),
+        Some(over) => Some(format!("…{}", words.chars().skip(over + 1).collect::<String>())),
+    }
+}
+
+/// The handshake with a remote server, tried again after a moment when its failure is one a
+/// moment may fix (`transient`): twice, after a quarter of a second and then a second, as pi
+/// does. A tool call is never tried again, since the server may have done it.
+// The error is rmcp's own, as its `serve` gives it.
+#[allow(clippy::result_large_err)]
+async fn serve_retrying<T, E, A>(client: &impl Fn() -> Client, transport: impl Fn() -> T) -> Result<RunningService<RoleClient, Client>, rmcp::service::ClientInitializeError>
+where
+    T: rmcp::transport::IntoTransport<RoleClient, E, A>,
+    E: std::error::Error + Send + Sync + 'static,
+{
+    let mut waits = [250, 1000].into_iter();
+    loop {
+        match client().serve(transport()).await {
+            Err(error) if transient(&error) => match waits.next() {
+                Some(wait) => {
+                    tracing::info!(%error, "trying a server's handshake again");
+                    tokio::time::sleep(std::time::Duration::from_millis(wait)).await;
+                }
+                None => return Err(error),
+            },
+            done => return done,
+        }
+    }
+}
+
+/// Whether a failed handshake is the network's or the server's passing trouble (408, 429, or a 5xx
+/// other than 501) rather than a refusal.
+fn transient(error: &rmcp::service::ClientInitializeError) -> bool {
+    use rmcp::transport::streamable_http_client::StreamableHttpError;
+    let passing = |status: u16| status == 408 || status == 429 || ((500..600).contains(&status) && status != 501);
+    let mut text = error.to_string();
+    if let rmcp::service::ClientInitializeError::TransportError { error, .. } = error {
+        let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(error.error.as_ref());
+        while let Some(current) = cause {
+            if let Some(StreamableHttpError::Client(client)) = current.downcast_ref::<StreamableHttpError<mcp_http::Error>>() {
+                if client.is_connect() || client.is_timeout() {
+                    return true;
+                }
+                if let Some(status) = client.status() {
+                    return passing(status.as_u16());
+                }
+            }
+            text.push('\n');
+            text.push_str(&current.to_string());
+            cause = current.source();
+        }
+    }
+    // What rmcp says of a status it did not expect, `HTTP 503 Service Unavailable: …`, and a
+    // signed-in client's failure to reach the server at all.
+    text.split("HTTP ").skip(1).filter_map(|rest| rest.get(..3)?.parse::<u16>().ok()).any(passing) || text.contains("error sending request")
+}
+
+/// Why a remote server did not connect, naming it by its origin alone: the state goes into the
+/// machine blob, and a URL's path or query can hold a key (Zapier's does).
+fn describe_connect_error(error: &str, url: &str) -> String {
+    let shown = shown_url(url);
+    let error = match reqwest::Url::parse(url) {
+        Ok(parsed) => error.replace(parsed.as_str(), &shown).replace(url, &shown),
+        Err(_) => error.replace(url, &shown),
+    };
+    let lower = error.to_lowercase();
+    if error.contains("401") || lower.contains("unauthorized") || lower.contains("auth required") {
+        format!("{shown} refused the credentials. Sign in again.")
+    } else if reqwest::Url::parse(url).is_ok_and(|parsed| parsed.path().trim_end_matches('/').ends_with("/sse")) {
+        // The older HTTP+SSE transport, which rmcp's client does not speak.
+        format!("Could not connect to {shown}: {error}. Lorca speaks MCP's streamable HTTP; a server that offers it too usually has it at /mcp rather than /sse.")
+    } else {
+        format!("Could not connect to {shown}: {error}")
+    }
+}
+
+/// `https://mcp.example.com` for any URL there.
+fn shown_url(url: &str) -> String {
+    match reqwest::Url::parse(url) {
+        Ok(parsed) => match (parsed.host_str(), parsed.port()) {
+            (Some(host), Some(port)) => format!("{}://{host}:{port}", parsed.scheme()),
+            (Some(host), None) => format!("{}://{host}", parsed.scheme()),
+            _ => "the server".into(),
+        },
+        Err(_) => "the server".into(),
+    }
+}
+
+/// The `WWW-Authenticate` challenge of a server that answered the handshake with a 401, or an
+/// empty one when it gave none: the server wants a sign-in.
+fn auth_challenge(error: &rmcp::service::ClientInitializeError) -> Option<String> {
+    use rmcp::transport::streamable_http_client::StreamableHttpError;
+    if let rmcp::service::ClientInitializeError::TransportError { error, .. } = error {
+        let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(error.error.as_ref());
+        while let Some(current) = cause {
+            if let Some(http) = current.downcast_ref::<StreamableHttpError<mcp_http::Error>>() {
+                if let Some(challenge) = http.auth_challenge() {
+                    return Some(challenge.to_string());
+                }
+                if let StreamableHttpError::Client(client) = http {
+                    if client.status().is_some_and(|status| status.as_u16() == 401) {
+                        return Some(String::new());
+                    }
+                }
+            }
+            cause = current.source();
+        }
+    }
+    // A transport that ended on it says so only in words.
+    let text = error.to_string().to_lowercase();
+    (text.contains("auth required") || text.contains("401 unauthorized")).then(String::new)
+}
+
+/// The values a server's `${VAR}` reads: the plugin's variables and secrets, and for a server
+/// from `mcp.json`, the login shell's environment, as Claude's and Cursor's files mean them.
+async fn template_values(plugin: &Installed, own: BTreeMap<String, String>) -> BTreeMap<String, String> {
+    if plugin.source != super::mcp_json::SOURCE {
+        return own;
+    }
+    let mut values: BTreeMap<String, String> = std::env::vars_os().map(|(name, value)| (name.to_string_lossy().into_owned(), value.to_string_lossy().into_owned())).collect();
+    for (name, value) in lorca_agent::login_shell::environment().await {
+        values.insert(name.to_string_lossy().into_owned(), value.to_string_lossy().into_owned());
+    }
+    values.extend(own);
+    values
+}
+
+/// `~/x` as a path in the home folder.
+fn expand_home(path: &str) -> String {
+    match (path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\")).or((path == "~").then_some("")), dirs::home_dir()) {
+        (Some(rest), Some(home)) => home.join(rest).display().to_string(),
+        _ => path.to_string(),
+    }
+}
+
+/// The authorization server's metadata from the document a server's sign-in names, taken as it
+/// is: for a server that advertises the wrong authorization server, or none.
+async fn auth_server_metadata(app: &Arc<App>, metadata_url: &str, name: &str) -> Result<rmcp::transport::auth::AuthorizationMetadata, String> {
+    let response = app.mcp.http.get(metadata_url).header("accept", "application/json").send().await.map_err(|e| format!("{name}'s authorization server metadata did not load: {e}"))?;
+    if !response.status().is_success() {
+        return Err(format!("{name}'s authorization server metadata answered {}.", response.status()));
+    }
+    let body = response.bytes().await.map_err(|e| e.to_string())?;
+    serde_json::from_slice(&body).map_err(|e| format!("{name}'s authorization server metadata does not read: {e}"))
+}
+
+/// A token response without the optional fields a server sent empty or null, as some send
+/// `"scope": ""` for a token with no scope. Kept, an empty scope is asked for again at every
+/// refresh.
+fn tidy_tokens(tokens: &Value) -> Value {
+    let mut tokens = tokens.clone();
+    if let Some(fields) = tokens.as_object_mut() {
+        fields.retain(|key, value| {
+            let optional = matches!(key.as_str(), "scope" | "refresh_token" | "id_token" | "expires_in" | "refresh_token_expires_in");
+            !(optional && (value.is_null() || value.as_str().is_some_and(|text| text.trim().is_empty())))
+        });
+    }
+    tokens
+}
+
+/// An authorization manager holding tokens saved by an earlier sign-in. With `metadata_url`, the
+/// authorization server is the one that document describes, never one found by discovery.
+async fn restore_manager(app: &Arc<App>, url: &str, stored: &Value, metadata_url: Option<&str>) -> Result<AuthorizationManager, String> {
     let client_id = stored["client_id"].as_str().ok_or("The saved sign-in has no client id")?;
-    let tokens = serde_json::from_value(stored["tokens"].clone()).map_err(|e| format!("The saved sign-in is unreadable: {e}"))?;
+    if let Some(metadata_url) = metadata_url {
+        use rmcp::transport::auth::CredentialStore;
+        let mut manager = AuthorizationManager::new(url).await.map_err(|e| e.to_string())?;
+        manager.with_client(app.mcp.http.clone()).map_err(|e| e.to_string())?;
+        manager.set_metadata(auth_server_metadata(app, metadata_url, url).await?);
+        let tokens = serde_json::from_value(tidy_tokens(&stored["tokens"])).map_err(|e| format!("The saved sign-in is unreadable: {e}"))?;
+        let saved = rmcp::transport::auth::InMemoryCredentialStore::new();
+        saved.save(rmcp::transport::auth::StoredCredentials::new(client_id.to_string(), Some(tokens), Vec::new(), None)).await.map_err(|e| e.to_string())?;
+        manager.set_credential_store(saved);
+        return match manager.initialize_from_store().await.map_err(|e| e.to_string())? {
+            true => Ok(manager),
+            false => Err("Restoring the sign-in".into()),
+        };
+    }
+    let tokens = serde_json::from_value(tidy_tokens(&stored["tokens"])).map_err(|e| format!("The saved sign-in is unreadable: {e}"))?;
     let mut state = OAuthState::new(url, Some(app.mcp.http.clone())).await.map_err(|e| e.to_string())?;
     state.set_credentials(client_id, tokens).await.map_err(|e| format!("Restoring the sign-in: {e}"))?;
     state.into_authorization_manager().ok_or_else(|| "Restoring the sign-in".to_string())
@@ -419,6 +794,8 @@ pub struct SignInStart {
     pub message: String,
     pub url: Option<String>,
     pub id: Option<String>,
+    /// How a sign-in that finishes here ended, once it has, for a caller that waits on it.
+    pub done: Option<tokio::sync::oneshot::Receiver<Result<(), String>>>,
 }
 
 /// A browser sign-in another Device finishes: the authorization this Runner holds until that
@@ -525,11 +902,33 @@ pub async fn connect_oauth_for_card(app: &Arc<App>, plugin_id: &str, server: &st
         let spec = plugin.manifest.servers.get(server).cloned().ok_or_else(|| format!("{} has no server {server}", plugin.manifest.name))?;
         (plugin, spec)
     };
+    let own = app.plugins.lock().unwrap().values(plugin_id);
+    let values = template_values(&plugin, own).await;
     let (url, scopes, client, device) = match &spec {
-        ServerSpec::Http { url, auth: Some(AuthSpec::Oauth { scopes, token_variable, client_id_variable, client_secret_variable, client_id, client_secret, device_authorization_endpoint, token_endpoint }), .. } => {
-            let values = app.plugins.lock().unwrap().values(plugin_id);
+        ServerSpec::Http {
+            url,
+            auth:
+                Some(AuthSpec::Oauth {
+                    scopes,
+                    token_variable,
+                    client_id_variable,
+                    client_secret_variable,
+                    client_id,
+                    client_secret,
+                    device_authorization_endpoint,
+                    token_endpoint,
+                    client_name,
+                    callback_port,
+                    callback_url,
+                    auth_server_metadata_url,
+                    ..
+                }),
+            ..
+        } => {
+            let url = fill(url, &values);
+            // A fixed value may name the environment (`${CLIENT_SECRET}`), as an mcp.json entry's does.
             let set = |fixed: &Option<String>, variable: &Option<String>| {
-                fixed.clone().filter(|v| !v.trim().is_empty()).or_else(|| variable.as_ref().and_then(|v| values.get(v).cloned())).filter(|v| !v.trim().is_empty())
+                fixed.as_deref().map(|value| fill(value, &values)).filter(|v| !v.trim().is_empty()).or_else(|| variable.as_ref().and_then(|v| values.get(v).cloned())).filter(|v| !v.trim().is_empty())
             };
             let hint = ClientHint {
                 id: set(client_id, client_id_variable),
@@ -537,15 +936,29 @@ pub async fn connect_oauth_for_card(app: &Arc<App>, plugin_id: &str, server: &st
                 token_variable: token_variable.clone(),
                 client_id_variable: client_id_variable.clone(),
                 client_secret_variable: client_secret_variable.clone(),
+                name: client_name.clone(),
+                callback_port: *callback_port,
+                callback_url: callback_url.clone(),
+                metadata_url: auth_server_metadata_url.clone(),
             };
             let device = match (device_authorization_endpoint, token_endpoint, &hint.id) {
                 (Some(device_endpoint), Some(token_endpoint), Some(_)) => Some((device_endpoint.clone(), token_endpoint.clone())),
                 _ => None,
             };
-            (url.clone(), scopes.clone(), hint, device)
+            // What a server asked for more of since (`insufficient_scope`) is asked for too.
+            let more = app.plugins.lock().unwrap().secret(plugin_id, &format!("scope:{server}"));
+            let mut scopes = scopes.clone();
+            for scope in more.as_ref().and_then(|more| more["scope"].as_str()).unwrap_or_default().split_whitespace() {
+                if !scopes.iter().any(|known| known == scope) {
+                    scopes.push(scope.to_string());
+                }
+            }
+            (url, scopes, hint, device)
         }
         _ => return Err(format!("{server} does not sign in with OAuth.")),
     };
+    // A redirect the client was registered with is this Runner's own, so its browser opens here.
+    let elsewhere = elsewhere.filter(|_| !client.has_fixed_redirect());
     let name = plugin.manifest.name.clone();
     // A device code works on any Device, so it is the sign-in wherever the user asked.
     let opens_on = match (&device, &elsewhere) {
@@ -565,7 +978,7 @@ pub async fn connect_oauth_for_card(app: &Arc<App>, plugin_id: &str, server: &st
         return match begin_sign_in(app, &url, &scopes, &name, &client, elsewhere.redirect_uri).await {
             Ok((state, page)) => {
                 let id = hold_sign_in(app, plugin_id, Pending { state, server: server.to_string(), name: name.clone(), card });
-                Ok(SignInStart { message: format!("Open the {name} sign-in page on {}.", elsewhere.device), url: Some(page), id: Some(id) })
+                Ok(SignInStart { message: format!("Open the {name} sign-in page on {}.", elsewhere.device), url: Some(page), id: Some(id), done: None })
             }
             Err(error) => {
                 end_sign_in(app, plugin_id, server, &name, card, Err(error.clone()));
@@ -575,14 +988,17 @@ pub async fn connect_oauth_for_card(app: &Arc<App>, plugin_id: &str, server: &st
     }
     let message = if device.is_some() { format!("Getting a {name} sign-in code.") } else { format!("Opened the {name} sign-in page in the browser on this Runner.") };
     let (app, plugin_id, server) = (app.clone(), plugin_id.to_string(), server.to_string());
+    let (ended, done) = tokio::sync::oneshot::channel();
     tokio::spawn(async move {
         let flow = match &device {
             Some((device_endpoint, token_endpoint)) => device_sign_in(&app, &plugin_id, &server, device_endpoint, token_endpoint, &scopes, &name, client.id.as_deref().unwrap_or(""), card.as_ref()).await,
             None => sign_in(&app, &url, &scopes, &name, &client).await,
         };
+        let outcome = flow.as_ref().map(|_| ()).map_err(Clone::clone);
         end_sign_in(&app, &plugin_id, &server, &name, card, flow);
+        let _ = ended.send(outcome);
     });
-    Ok(SignInStart { message, url: None, id: None })
+    Ok(SignInStart { message, url: None, id: None, done: Some(done) })
 }
 
 fn this_runner(app: &App) -> String {
@@ -814,6 +1230,20 @@ struct ClientHint {
     token_variable: Option<String>,
     client_id_variable: Option<String>,
     client_secret_variable: Option<String>,
+    /// The name to register under; Lorca when unset.
+    name: Option<String>,
+    /// The redirect a preregistered client was registered with.
+    callback_port: Option<u16>,
+    callback_url: Option<String>,
+    /// The authorization server's metadata document, in place of discovery.
+    metadata_url: Option<String>,
+}
+
+impl ClientHint {
+    /// A redirect the client was registered with, which only this Runner's own loopback can take.
+    fn has_fixed_redirect(&self) -> bool {
+        self.callback_port.is_some() || self.callback_url.is_some()
+    }
 }
 
 impl ClientHint {
@@ -853,7 +1283,8 @@ async fn challenge_of(app: &Arc<App>, url: &str) -> Option<String> {
 async fn begin_sign_in(app: &Arc<App>, url: &str, scopes: &[String], name: &str, client: &ClientHint, redirect: String) -> Result<(OAuthState, String), String> {
     let setup = async {
         let mut state = OAuthState::new(url, Some(app.mcp.http.clone())).await.map_err(|e| format!("{name}: {e}"))?;
-        let mut request = AuthorizationRequest::new(redirect).with_scopes(scopes.iter().cloned()).with_client_name("Lorca").with_application_type("native");
+        let client_name = client.name.as_deref().unwrap_or("Lorca");
+        let mut request = AuthorizationRequest::new(redirect).with_scopes(scopes.iter().cloned()).with_client_name(client_name).with_application_type("native");
         if let Some(challenge) = challenge_of(app, url).await {
             request = request.with_challenge(challenge);
         }
@@ -863,10 +1294,20 @@ async fn begin_sign_in(app: &Arc<App>, url: &str, scopes: &[String], name: &str,
                 request = request.with_client_secret(secret.clone());
             }
         }
-        state.start_authorization(request).await.map_err(|e| match e {
+        let refused = |e: rmcp::transport::auth::AuthError| match e {
             rmcp::transport::auth::AuthError::RegistrationFailed(_) => client.no_registration_advice(name),
             other => format!("{name} does not offer a sign-in: {other}"),
-        })?;
+        };
+        match &client.metadata_url {
+            // The document the entry names, taken as it is, in place of discovery.
+            Some(metadata_url) => {
+                let metadata = auth_server_metadata(app, metadata_url, name).await?;
+                let OAuthState::Unauthorized(mut manager) = state else { return Err(format!("{name}'s sign-in has already begun.")) };
+                manager.set_metadata(metadata);
+                state = OAuthState::Session(rmcp::transport::auth::AuthorizationSession::new(manager, request).await.map_err(|(_, e)| refused(e))?);
+            }
+            None => state.start_authorization(request).await.map_err(refused)?,
+        }
         let page = state.get_authorization_url().await.map_err(|e| e.to_string())?;
         Ok((state, page))
     };
@@ -881,12 +1322,16 @@ async fn complete_sign_in(mut state: OAuthState, callback: &str, name: &str) -> 
     state.handle_callback_url(callback).await.map_err(|e| format!("{name} rejected the sign-in: {e}"))?;
     let (client_id, tokens) = state.get_credentials().await.map_err(|e| e.to_string())?;
     let tokens = tokens.ok_or("The sign-in produced no tokens")?;
-    Ok(json!({ "client_id": client_id, "tokens": tokens, "signed_in_at": now_secs() }))
+    Ok(json!({ "client_id": client_id, "tokens": tidy_tokens(&json!(tokens)), "signed_in_at": now_secs() }))
 }
 
 /// A sign-in in this Runner's own browser, back to its own loopback.
 async fn sign_in(app: &Arc<App>, url: &str, scopes: &[String], name: &str, client: &ClientHint) -> Result<Value, String> {
-    let callback = super::sign_in::Callback::bind().await?;
+    let callback = if client.has_fixed_redirect() {
+        super::sign_in::Callback::bind_fixed(client.callback_port, client.callback_url.as_deref()).await?
+    } else {
+        super::sign_in::Callback::bind().await?
+    };
     let (state, page) = begin_sign_in(app, url, scopes, name, client, callback.redirect_uri()).await?;
     open_browser(app, &page)?;
     let landed = callback.wait(name, super::sign_in::TIMEOUT).await?;
@@ -926,28 +1371,33 @@ struct SavedCatalog {
     servers: BTreeMap<String, SavedServer>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 struct SavedServer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     instructions: Option<String>,
     #[serde(default)]
     tools: Vec<rmcp::model::Tool>,
+    /// Whether it offers resources, so a turn lists its resource tools too.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    resources: bool,
 }
+
+/// What a plugin server offered when it last connected: its name, its instructions, its tools,
+/// and whether it offers resources.
+type Offered = (String, Option<String>, Vec<rmcp::model::Tool>, bool);
 
 fn catalog_path(app: &App, plugin_id: &str) -> std::path::PathBuf {
     app.config.plugins_dir().join(plugin_id).join("catalog.json")
 }
 
 /// Keeps what a server just offered, for the next turns' listings.
-fn save_catalog(app: &App, server: &Server) {
-    let path = catalog_path(app, &server.plugin_id);
+fn save_catalog(app: &App, plugin_id: &str, server: &str, fresh: SavedServer) {
+    let path = catalog_path(app, plugin_id);
     let mut saved: SavedCatalog = crate::config::read_json(&path).unwrap_or_default();
-    let fresh = SavedServer { instructions: server.instructions.clone(), tools: server.tools.clone() };
-    let changed = saved.servers.get(&server.name).is_none_or(|old| old.instructions != fresh.instructions || old.tools != fresh.tools);
-    if changed {
-        saved.servers.insert(server.name.clone(), fresh);
+    if saved.servers.get(server) != Some(&fresh) {
+        saved.servers.insert(server.to_string(), fresh);
         if let Err(error) = crate::config::write_json_private(&path, &saved) {
-            tracing::warn!(%error, plugin = %server.plugin_id, "saving a plugin's tool list");
+            tracing::warn!(%error, plugin = %plugin_id, "saving a plugin's tool list");
         }
     }
 }
@@ -966,18 +1416,43 @@ pub fn prefetch_tools(app: &Arc<App>, plugin_id: &str) {
     });
 }
 
-/// The saved tool lists of a plugin's current servers, without the tools its manifest hides.
-fn saved_servers(app: &App, plugin: &Installed) -> Vec<(String, Option<String>, Vec<rmcp::model::Tool>)> {
+/// The saved tool lists of a plugin's current servers, every tool they offered.
+fn offered(app: &App, plugin: &Installed) -> Vec<Offered> {
     let saved: SavedCatalog = crate::config::read_json(&catalog_path(app, &plugin.manifest.id)).unwrap_or_default();
-    saved
-        .servers
+    saved.servers.into_iter().filter(|(name, _)| plugin.manifest.servers.contains_key(name)).map(|(name, server)| (name, server.instructions, server.tools, server.resources)).collect()
+}
+
+/// The saved tool lists of a plugin's current servers, without the tools it hides.
+fn saved_servers(app: &App, plugin: &Installed) -> Vec<Offered> {
+    offered(app, plugin)
         .into_iter()
-        .filter(|(name, _)| plugin.manifest.servers.contains_key(name))
-        .map(|(name, server)| {
-            let tools = server.tools.into_iter().filter(|tool| !plugin.manifest.tools.hide.iter().any(|pattern| pattern_matches(pattern, &tool.name))).collect();
-            (name, server.instructions, tools)
+        .map(|(name, instructions, tools, resources)| (name, instructions, tools.into_iter().filter(|tool| !plugin.manifest.tools.hides(&tool.name)).collect(), resources))
+        .collect()
+}
+
+/// The tools a plugin's servers offered when they last connected, for the apps' MCP server sheet
+/// and `lorca mcp get`: each one's name, the first line of what it does, whether its server
+/// marked it read-only then, and whether it is hidden from bots, so a hidden one can be shown again.
+pub fn saved_tools(app: &App, plugin: &Installed) -> Vec<Value> {
+    offered(app, plugin)
+        .into_iter()
+        .flat_map(|(_, _, tools, _)| tools)
+        .map(|tool| {
+            let about = tool.description.as_deref().and_then(|text| text.lines().map(str::trim).find(|line| !line.is_empty())).unwrap_or_default();
+            json!({
+                "name": tool.name,
+                "title": tool.title.clone().or_else(|| tool.annotations.as_ref().and_then(|a| a.title.clone())),
+                "description": utf8_prefix(about, 300),
+                "read_only": tool.annotations.as_ref().and_then(|a| a.read_only_hint).unwrap_or(false),
+                "hidden": plugin.manifest.tools.hides(&tool.name),
+            })
         })
         .collect()
+}
+
+/// How many tools a plugin's servers offered when they last connected; none before they have.
+pub fn saved_tool_count(app: &App, plugin: &Installed) -> Option<usize> {
+    catalog_path(app, &plugin.manifest.id).is_file().then(|| saved_servers(app, plugin).iter().map(|(_, _, tools, _)| tools.len()).sum())
 }
 
 /// A tool of a plugin server, which scripts call as `tools.github__create_issue(args)`. The
@@ -992,6 +1467,44 @@ pub struct PluginTool {
     name: String,
     description: String,
     read_only: bool,
+    kind: ToolKind,
+    /// How long a call may go without an answer or progress: its server's `timeout`, or ten minutes.
+    timeout: std::time::Duration,
+}
+
+/// What calling a plugin tool asks its server: one of its own tools, or its resources.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToolKind {
+    Call,
+    ListResources,
+    ListResourceTemplates,
+    ReadResource,
+}
+
+/// The tools a server that offers resources lists and reads them with, named as Codex and pi
+/// name them. Reading a resource changes nothing, so they never ask.
+fn resource_tools(plugin_name: &str) -> Vec<(rmcp::model::Tool, ToolKind)> {
+    let paged = json!({ "type": "object", "properties": { "cursor": { "type": "string", "description": "nextCursor from the page before, for the next page" } } });
+    let listing = |item: Value, key: &str| json!({ "type": "object", "properties": { key: { "type": "array", "items": item }, "nextCursor": { "type": "string" } } });
+    let resource = json!({ "type": "object", "properties": { "uri": { "type": "string" }, "name": { "type": "string" }, "title": { "type": "string" }, "description": { "type": "string" }, "mimeType": { "type": "string" }, "size": { "type": "number" } } });
+    let template = json!({ "type": "object", "properties": { "uriTemplate": { "type": "string" }, "name": { "type": "string" }, "title": { "type": "string" }, "description": { "type": "string" }, "mimeType": { "type": "string" } } });
+    let contents = json!({ "type": "object", "properties": { "contents": { "type": "array", "items": { "type": "object", "properties": { "uri": { "type": "string" }, "mimeType": { "type": "string" }, "text": { "type": "string" }, "blob": { "type": "string", "description": "base64" }, "path": { "type": "string", "description": "where binary contents were saved" } } } } } });
+    let tool = |name: &str, description: String, input: Value, output: Value| -> rmcp::model::Tool {
+        serde_json::from_value(json!({ "name": name, "description": description, "inputSchema": input, "outputSchema": output, "annotations": { "readOnlyHint": true } })).expect("a resource tool's definition")
+    };
+    vec![
+        (tool("list_mcp_resources", format!("List the resources {plugin_name} offers: files, records, and other data to read by URI with read_mcp_resource. A long list comes in pages."), paged.clone(), listing(resource, "resources")), ToolKind::ListResources),
+        (tool("list_mcp_resource_templates", format!("List the URI templates of resources {plugin_name} can read but does not list, such as file:///{{path}}. Fill one in and read it with read_mcp_resource."), paged, listing(template, "resourceTemplates")), ToolKind::ListResourceTemplates),
+        (
+            tool(
+                "read_mcp_resource",
+                format!("Read one of {plugin_name}'s resources by its URI. Text comes back as text and images as images; other binary contents are saved to a file, whose path the result names."),
+                json!({ "type": "object", "properties": { "uri": { "type": "string", "description": "The resource's URI" } }, "required": ["uri"] }),
+                contents,
+            ),
+            ToolKind::ReadResource,
+        ),
+    ]
 }
 
 /// One plugin tool in the turn's catalog, with the bounded text search ranks it by.
@@ -1038,18 +1551,21 @@ impl PluginCatalog {
         for plugin in &installed {
             let saved = saved_servers(&catalog.app, plugin);
             catalog.groups.push(plugin_group(&catalog.app, plugin, &saved));
-            for (server, instructions, tools) in &saved {
-                catalog.add_tools(plugin, server, instructions.as_deref(), tools);
+            for (server, instructions, tools, resources) in &saved {
+                catalog.add_tools(plugin, server, instructions.as_deref(), tools, *resources);
             }
         }
         catalog
     }
 
-    fn add_tools(&self, plugin: &Installed, server_name: &str, instructions: Option<&str>, tools: &[rmcp::model::Tool]) {
+    fn add_tools(&self, plugin: &Installed, server_name: &str, instructions: Option<&str>, tools: &[rmcp::model::Tool], resources: bool) {
         let mut state = self.state.lock().unwrap();
         let server_instructions = instructions.map(|text| utf8_prefix(text, MAX_SERVER_INSTRUCTIONS_BYTES).to_string()).unwrap_or_default();
-        for tool in tools {
-            if plugin.manifest.tools.hide.iter().any(|pattern| pattern_matches(pattern, &tool.name)) {
+        // A server that offers resources lists and reads them through three tools of its own.
+        let resource_tools: Vec<(rmcp::model::Tool, ToolKind)> = if resources { resource_tools(&plugin.manifest.name) } else { Vec::new() };
+        let all = tools.iter().map(|tool| (tool, ToolKind::Call)).chain(resource_tools.iter().map(|(tool, kind)| (tool, *kind)));
+        for (tool, kind) in all {
+            if kind == ToolKind::Call && plugin.manifest.tools.hides(&tool.name) {
                 continue;
             }
             let original_name = tool.name.to_string();
@@ -1063,7 +1579,8 @@ impl PluginCatalog {
                 .map(str::to_string)
                 .or_else(|| tool.title.clone())
                 .unwrap_or_else(|| format!("{} tool {original_name}", plugin.manifest.name));
-            let read_only = tool.annotations.as_ref().and_then(|annotations| annotations.read_only_hint).unwrap_or(false)
+            let read_only = kind != ToolKind::Call
+                || tool.annotations.as_ref().and_then(|annotations| annotations.read_only_hint).unwrap_or(false)
                 || plugin.manifest.tools.readonly.iter().any(|pattern| pattern_matches(pattern, &original_name));
             let executable = Arc::new(PluginTool {
                 app: self.app.clone(),
@@ -1074,6 +1591,8 @@ impl PluginCatalog {
                 name: name.clone(),
                 description: description.clone(),
                 read_only,
+                kind,
+                timeout: plugin.manifest.servers.get(server_name).map(ServerSpec::call_timeout).unwrap_or(super::CALL_TIMEOUT),
             });
             let raw_search_schema = serde_json::to_string(&Value::Object((*tool.input_schema).clone())).unwrap_or_default();
             state.tools.insert(
@@ -1110,7 +1629,7 @@ impl PluginCatalog {
                 _ = cancel.cancelled() => return problems,
             };
             match server {
-                Ok(server) => self.add_tools(plugin, &server.name, server.instructions.as_deref(), &server.tools),
+                Ok(server) => self.add_tools(plugin, &server.name, server.instructions.as_deref(), &server.tools(), server.resources),
                 Err(error) => {
                     tracing::warn!(%error, plugin = %plugin.manifest.id, server = %server_name, "connecting a plugin server for a script");
                     problems.push(error);
@@ -1146,7 +1665,7 @@ impl PluginCatalog {
 /// How the codemode description names a plugin: its id, its name and what it does, what it
 /// still needs, and the start of its servers' own instructions. Only the needs that last are
 /// named, so the description stays the same from turn to turn.
-fn plugin_group(app: &App, plugin: &Installed, saved: &[(String, Option<String>, Vec<rmcp::model::Tool>)]) -> PluginGroup {
+fn plugin_group(app: &App, plugin: &Installed, saved: &[Offered]) -> PluginGroup {
     let manifest = &plugin.manifest;
     let mut description = manifest.name.clone();
     if let Some(about) = manifest.description.lines().map(str::trim).find(|line| !line.is_empty()) {
@@ -1158,7 +1677,7 @@ fn plugin_group(app: &App, plugin: &Installed, saved: &[(String, Option<String>,
         Some("needs_setup") => description.push_str(&format!("\nNot set up yet ({}): the user sets it up in the plugin's settings.", status.map(|status| status.detail).unwrap_or_default())),
         _ => {}
     }
-    for (_, instructions, _) in saved {
+    for (_, instructions, _, _) in saved {
         if let Some(instructions) = instructions.as_deref().map(str::trim).filter(|text| !text.is_empty()) {
             let shown = utf8_prefix(instructions, MAX_NAMESPACE_INSTRUCTIONS_BYTES);
             description.push_str(&format!("\nServer instructions: {shown}{}", if shown.len() < instructions.len() { "…" } else { "" }));
@@ -1281,6 +1800,10 @@ enum Access {
 /// the bot can write that file; a server that cannot be reached says nothing, and the tool may
 /// change things.
 async fn access(app: &Arc<App>, tool: &PluginTool, cancel: &CancellationToken) -> Access {
+    // Listing and reading resources is the protocol's, and changes nothing.
+    if tool.kind != ToolKind::Call {
+        return Access::ReadOnly;
+    }
     let name = tool.tool.name.to_string();
     let manifest_read_only =
         app.plugins.lock().unwrap().get(&tool.plugin_id).is_some_and(|plugin| plugin.manifest.tools.readonly.iter().any(|pattern| pattern_matches(pattern, &name)));
@@ -1292,7 +1815,7 @@ async fn access(app: &Arc<App>, tool: &PluginTool, cancel: &CancellationToken) -
         _ = cancel.cancelled() => return Access::Stopped,
         server = app.mcp.server(app, &tool.plugin_id, &tool.server_name) => server.ok(),
     };
-    let live_tool = live.as_ref().and_then(|server| server.tools.iter().find(|candidate| candidate.name == tool.tool.name).cloned());
+    let live_tool = live.as_ref().and_then(|server| server.tools().into_iter().find(|candidate| candidate.name == tool.tool.name));
     if live_tool.as_ref().and_then(|live| live.annotations.as_ref()).and_then(|annotations| annotations.read_only_hint) == Some(true) {
         return Access::ReadOnly;
     }
@@ -1530,6 +2053,9 @@ impl Tool for PluginTool {
         (!self.read_only).then_some(ToolExecutionMode::Sequential)
     }
     async fn execute(&self, _id: &str, args: Value, cancel: CancellationToken, _on_update: ToolUpdateFn) -> Result<ToolResult, ToolError> {
+        if self.kind != ToolKind::Call {
+            return self.resources(args, cancel).await;
+        }
         let tool = self.tool.name.to_string();
         let server = tokio::select! {
             server = self.app.mcp.server(&self.app, &self.plugin_id, &self.server_name) => server.map_err(ToolError)?,
@@ -1538,17 +2064,51 @@ impl Tool for PluginTool {
         let mut params = CallToolRequestParams::default();
         params.name = tool.clone().into();
         params.arguments = args.as_object().cloned();
-        let call = server.service.call_tool(params);
-        let result = tokio::select! {
-            result = tokio::time::timeout(CALL_TIMEOUT, call) => result.map_err(|_| ToolError(format!("{tool} took too long")))?,
+        // A call the user stops, or one that runs out of time, is called off at the server too
+        // (`notifications/cancelled`), so it stops the work rather than finishing it unseen.
+        let request = rmcp::model::ClientRequest::CallToolRequest(rmcp::model::CallToolRequest::new(params));
+        let options = rmcp::service::PeerRequestOptions::with_timeout(self.timeout).reset_timeout_on_progress();
+        let call = server.service.send_cancellable_request(request, options);
+        let handle = tokio::select! {
+            handle = call => handle.map_err(|e| ToolError(format!("{tool} failed: {e}")))?,
             _ = cancel.cancelled() => return Err(ToolError("Stopped".into())),
+        };
+        let (peer, id) = (handle.peer.clone(), handle.id.clone());
+        let response = tokio::select! {
+            response = handle.await_response() => response,
+            _ = cancel.cancelled() => {
+                let cancelled = rmcp::model::CancelledNotification::new(rmcp::model::CancelledNotificationParam::new(Some(id), Some("Stopped".into())));
+                let _ = peer.send_notification(cancelled.into()).await;
+                return Err(ToolError("Stopped".into()));
+            }
         };
         if let Some(auth) = &server.auth {
             persist_refreshed(&self.app, &self.plugin_id, &server.name, auth).await;
         }
-        let result = result.map_err(|e| ToolError(format!("{tool} failed: {e}")))?;
+        let result = match response {
+            Ok(rmcp::model::ServerResult::CallToolResult(result)) => result,
+            Ok(_) => return Err(ToolError(format!("{tool} answered with something other than a result"))),
+            Err(rmcp::ServiceError::Timeout { .. }) => return Err(ToolError(format!("{tool} took too long"))),
+            Err(error) => {
+                if let Some((scope, challenge)) = insufficient_scope(&error) {
+                    needs_more_access(&self.app, &self.plugin_id, &self.server_name, &scope, &challenge);
+                    return Err(ToolError(format!("{} needs more access for {tool}. The user signs in to it again to grant it.", self.plugin_name)));
+                }
+                // The next call starts the server again.
+                if server.is_closed() {
+                    return Err(ToolError(format!("{} stopped running: {error}", self.plugin_name)));
+                }
+                return Err(ToolError(format!("{tool} failed: {error}")));
+            }
+        };
         let is_error = result.is_error.unwrap_or(false);
-        let mut content = model_content(&result);
+        // Off the async threads: making a large image one a model takes takes a moment.
+        let (result, mut content) = tokio::task::spawn_blocking(move || {
+            let content = model_content(&result);
+            (result, content)
+        })
+        .await
+        .map_err(|e| ToolError(format!("{tool} failed: {e}")))?;
         if is_error && content.iter().all(|part| part.as_text().is_none_or(|text| text.trim().is_empty())) {
             content = vec![ContentPart::text(format!("{} {tool} reported an error", self.plugin_name))];
         }
@@ -1561,38 +2121,194 @@ impl Tool for PluginTool {
     }
 }
 
-/// A plugin result as text and images: text blocks cut at `MAX_RESULT_CHARS` in all, other
-/// blocks as JSON, and the structured result when there are no blocks. What an error says, and
-/// what hooks read.
+impl PluginTool {
+    /// A resource tool's call: a page of the server's resources or templates, or one resource's
+    /// contents, shaped as a tool's result, so a script reads `structuredContent` either way.
+    async fn resources(&self, args: Value, cancel: CancellationToken) -> Result<ToolResult, ToolError> {
+        let tool = self.tool.name.to_string();
+        let server = tokio::select! {
+            server = self.app.mcp.server(&self.app, &self.plugin_id, &self.server_name) => server.map_err(ToolError)?,
+            _ = cancel.cancelled() => return Err(ToolError("Stopped".into())),
+        };
+        let peer = server.service.peer();
+        let page = args["cursor"].as_str().and_then(|cursor| serde_json::from_value::<rmcp::model::PaginatedRequestParams>(json!({ "cursor": cursor })).ok());
+        let asked = async {
+            Ok::<Value, String>(match self.kind {
+                ToolKind::ListResources => listed(serde_json::to_value(peer.list_resources(page).await.map_err(|e| e.to_string())?).unwrap_or_default(), "resources"),
+                ToolKind::ListResourceTemplates => {
+                    listed(serde_json::to_value(peer.list_resource_templates(page).await.map_err(|e| e.to_string())?).unwrap_or_default(), "resourceTemplates")
+                }
+                ToolKind::ReadResource | ToolKind::Call => {
+                    let uri = args["uri"].as_str().filter(|uri| !uri.trim().is_empty()).ok_or("read_mcp_resource needs the resource's uri")?;
+                    let params = serde_json::from_value::<rmcp::model::ReadResourceRequestParams>(json!({ "uri": uri })).map_err(|e| e.to_string())?;
+                    serde_json::to_value(peer.read_resource(params).await.map_err(|e| e.to_string())?).unwrap_or_default()
+                }
+            })
+        };
+        let structured = tokio::select! {
+            answer = tokio::time::timeout(self.timeout, asked) => answer.map_err(|_| ToolError(format!("{tool} took too long")))?.map_err(|e| ToolError(format!("{tool} failed: {e}")))?,
+            _ = cancel.cancelled() => return Err(ToolError("Stopped".into())),
+        };
+        let (content, structured) = match self.kind {
+            ToolKind::ReadResource => tokio::task::spawn_blocking(move || read_contents(structured)).await.map_err(|e| ToolError(format!("{tool} failed: {e}")))?,
+            _ => (vec![ContentPart::text(serde_json::to_string_pretty(&structured).unwrap_or_default())], structured),
+        };
+        let blocks: Vec<Value> = content
+            .iter()
+            .map(|part| match part {
+                ContentPart::Image { data, mime_type } => json!({ "type": "image", "data": data, "mimeType": mime_type }),
+                other => json!({ "type": "text", "text": other.as_text().unwrap_or_default() }),
+            })
+            .collect();
+        let result = json!({ "content": blocks, "structuredContent": structured, "isError": false });
+        Ok(ToolResult { content, details: json!({ "plugin_id": self.plugin_id, "tool": tool }), structured: Some(result), is_error: false, terminate: false })
+    }
+}
+
+/// A page of resources or resource templates, each with what says what it is, and without the
+/// interfaces of MCP Apps (`ui://`), which Lorca does not show, or icons and `_meta`.
+fn listed(page: Value, key: &str) -> Value {
+    let keep = ["uri", "uriTemplate", "name", "title", "description", "mimeType", "size"];
+    let items: Vec<Value> = page[key]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|item| !item["uri"].as_str().is_some_and(|uri| uri.starts_with("ui://")) && !item["mimeType"].as_str().is_some_and(|mime| mime.contains("profile=mcp-app")))
+        .map(|item| Value::Object(keep.iter().filter_map(|field| item.get(*field).map(|value| (field.to_string(), value.clone()))).collect()))
+        .collect();
+    let mut out = json!({ key: items });
+    if let Some(cursor) = page["nextCursor"].as_str().filter(|cursor| !cursor.is_empty()) {
+        out["nextCursor"] = json!(cursor);
+    }
+    out
+}
+
+/// The scope a signed-in server said a call needs, and its whole challenge, when it refused the
+/// call for want of it: a 403 whose `WWW-Authenticate` says `error="insufficient_scope"`.
+fn insufficient_scope(error: &(dyn std::error::Error + 'static)) -> Option<(String, String)> {
+    let mut text = String::new();
+    let mut cause = Some(error);
+    while let Some(current) = cause {
+        text.push_str(&current.to_string());
+        text.push('\n');
+        cause = current.source();
+    }
+    if !text.contains("insufficient_scope") && !text.to_ascii_lowercase().contains("insufficient scope") {
+        return None;
+    }
+    let challenge = text.lines().find(|line| line.contains("insufficient_scope")).unwrap_or_default();
+    let challenge = challenge.split_once("Bearer").map(|(_, rest)| format!("Bearer{rest}")).unwrap_or_else(|| challenge.to_string());
+    let scope = challenge.split("scope=\"").nth(1).and_then(|rest| rest.split('"').next()).unwrap_or_default().to_string();
+    Some((scope, challenge))
+}
+
+/// A server refused a call for want of access the sign-in lacks, as pi signs in again on
+/// `insufficient_scope`: the scope it named joins those the sign-in had, for the next sign-in to ask
+/// for (`scope:<server>`), and the sign-in is forgotten, so the plugin reads Sign in.
+fn needs_more_access(app: &Arc<App>, plugin_id: &str, server: &str, required: &str, challenge: &str) {
+    {
+        let mut store = app.plugins.lock().unwrap();
+        let granted = store.sign_in_secret(plugin_id, "oauth", server).and_then(|saved| saved["tokens"]["scope"].as_str().map(str::to_string)).unwrap_or_default();
+        let earlier = store.secret(plugin_id, &format!("scope:{server}")).and_then(|saved| saved["scope"].as_str().map(str::to_string)).unwrap_or_default();
+        let mut scopes: Vec<&str> = Vec::new();
+        for scope in earlier.split_whitespace().chain(granted.split_whitespace()).chain(required.split_whitespace()) {
+            if !scopes.contains(&scope) {
+                scopes.push(scope);
+            }
+        }
+        // An object, so `values` never takes it for a variable.
+        let wanted = json!({ "scope": scopes.join(" ") });
+        store.set_secret(plugin_id, &format!("scope:{server}"), Some(wanted));
+        store.set_secret(plugin_id, &format!("oauth:{server}"), None);
+        // One that signs in only when asked reads Sign in from the challenge it answered with.
+        store.note_challenge(&app.config, plugin_id, server, challenge);
+        if let Err(error) = store.save(&app.config) {
+            tracing::warn!(%error, "forgetting a sign-in that needs more access");
+        }
+    }
+    tracing::info!(plugin = plugin_id, server, required, "a server needs more access than its sign-in has");
+    app.mcp.forget(plugin_id);
+    super::note(app, plugin_id, None);
+}
+
+/// A read resource for the model and for scripts: text as text, images a model takes as images,
+/// and other binary contents saved to a private file the result names, never carried as base64.
+fn read_contents(read: Value) -> (Vec<ContentPart>, Value) {
+    let mut content = Vec::new();
+    let mut text_len = 0;
+    let mut contents = Vec::new();
+    for item in read["contents"].as_array().into_iter().flatten() {
+        let uri = item["uri"].as_str().unwrap_or_default();
+        let mime = item["mimeType"].as_str().unwrap_or("application/octet-stream");
+        match (item["text"].as_str(), item["blob"].as_str()) {
+            (Some(text), _) => {
+                push_text(&mut content, &mut text_len, text.to_string());
+                contents.push(json!({ "uri": uri, "mimeType": mime, "text": text }));
+            }
+            (None, Some(blob)) => match mime.starts_with("image/").then(|| model_image(blob).ok()).flatten() {
+                Some(image) => {
+                    content.extend(image);
+                    contents.push(json!({ "uri": uri, "mimeType": mime, "blob": blob }));
+                }
+                None => match save_blob(uri, blob) {
+                    Ok((path, size)) => {
+                        push_text(&mut content, &mut text_len, format!("[{uri}: {mime}, {size} bytes, saved to {}]", path.display()));
+                        contents.push(json!({ "uri": uri, "mimeType": mime, "path": path.display().to_string() }));
+                    }
+                    Err(error) => push_text(&mut content, &mut text_len, format!("[{uri}: {mime}, which could not be saved: {error}]")),
+                },
+            },
+            (None, None) => {}
+        }
+    }
+    if content.is_empty() {
+        content.push(ContentPart::text("(empty)"));
+    }
+    (content, json!({ "contents": contents }))
+}
+
+/// Saves a resource's binary contents to a private file of its own, for the bot's other tools.
+fn save_blob(uri: &str, blob: &str) -> Result<(std::path::PathBuf, usize), String> {
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(blob.trim()).map_err(|e| format!("its base64 does not read: {e}"))?;
+    let dir = std::env::temp_dir().join("lorca-resources");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let name: String = uri.rsplit(['/', '\\', ':']).next().unwrap_or_default().chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_')).take(80).collect();
+    let path = dir.join(format!("{}-{}", uuid::Uuid::new_v4().simple(), if name.trim_matches('.').is_empty() { "resource" } else { &name }));
+    crate::config::write_private(&path, &bytes).map_err(|e| e.to_string())?;
+    Ok((path, bytes.len()))
+}
+
+/// A plugin result as text and images: text, embedded text, and resource links as text cut at
+/// `MAX_RESULT_CHARS` in all; images a model takes, embedded ones too, as images; other images,
+/// audio, and other binary data named, never carried as base64; and the structured result when
+/// there are no blocks. What an error says, and what hooks read.
 fn model_content(result: &rmcp::model::CallToolResult) -> Vec<ContentPart> {
+    use rmcp::model::ResourceContents;
     let mut content: Vec<ContentPart> = Vec::new();
     let mut text_len = 0;
     for block in &result.content {
         match block {
-            ContentBlock::Text(text) => {
-                let mut text = text.text.clone();
-                if text_len + text.len() > MAX_RESULT_CHARS {
-                    let mut cut = MAX_RESULT_CHARS.saturating_sub(text_len);
-                    while cut > 0 && !text.is_char_boundary(cut) {
-                        cut -= 1;
-                    }
-                    text.truncate(cut);
-                    text.push_str("\n[truncated]");
+            ContentBlock::Text(text) => push_text(&mut content, &mut text_len, text.text.clone()),
+            ContentBlock::Image(image) => match model_image(&image.data) {
+                Ok(parts) => content.extend(parts),
+                Err(why) => push_text(&mut content, &mut text_len, format!("[{} image, left out: {why}]", image.mime_type)),
+            },
+            ContentBlock::Audio(audio) => push_text(&mut content, &mut text_len, format!("[{} audio, left out]", audio.mime_type)),
+            ContentBlock::Resource(embedded) => match &embedded.resource {
+                ResourceContents::TextResourceContents { text, .. } => push_text(&mut content, &mut text_len, text.clone()),
+                ResourceContents::BlobResourceContents { uri, mime_type: Some(mime), blob, .. } if mime.starts_with("image/") => match model_image(blob) {
+                    Ok(parts) => content.extend(parts),
+                    Err(why) => push_text(&mut content, &mut text_len, format!("[{uri}: {mime}, left out: {why}]")),
+                },
+                ResourceContents::BlobResourceContents { uri, mime_type, .. } => {
+                    push_text(&mut content, &mut text_len, format!("[{uri}: {}, left out]", mime_type.as_deref().unwrap_or("binary data")))
                 }
-                text_len += text.len();
-                content.push(ContentPart::text(text));
-            }
-            ContentBlock::Image(image) => content.push(ContentPart::Image { data: image.data.clone(), mime_type: image.mime_type.clone() }),
-            ContentBlock::Resource(resource) => {
-                if let Ok(text) = serde_json::to_string(&resource.resource) {
-                    content.push(ContentPart::text(text));
-                }
-            }
-            other => {
-                if let Ok(text) = serde_json::to_string(other) {
-                    content.push(ContentPart::text(text));
-                }
-            }
+                other => push_text(&mut content, &mut text_len, serde_json::to_string(other).unwrap_or_default()),
+            },
+            ContentBlock::ResourceLink(link) => push_text(&mut content, &mut text_len, format!("[{} ({})]", link.uri, link.name)),
+            #[allow(unreachable_patterns)]
+            other => push_text(&mut content, &mut text_len, serde_json::to_string(other).unwrap_or_default()),
         }
     }
     if content.is_empty() {
@@ -1604,6 +2320,28 @@ fn model_content(result: &rmcp::model::CallToolResult) -> Vec<ContentPart> {
     content
 }
 
+/// An image of a result as a model takes it (`images::prepare`), with a note when it changed on
+/// the way, or why it cannot go: providers refuse a whole request over an image they do not
+/// take, and the chat would fail at every later turn. A large one takes a moment, so results
+/// are made off the async threads.
+fn model_image(data: &str) -> Result<Vec<ContentPart>, String> {
+    lorca_agent::images::prepare_base64(data).map(lorca_agent::images::Inline::into_parts)
+}
+
+/// Adds a result's text, cut where the result's text reaches `MAX_RESULT_CHARS`.
+fn push_text(content: &mut Vec<ContentPart>, text_len: &mut usize, mut text: String) {
+    if *text_len + text.len() > MAX_RESULT_CHARS {
+        let mut cut = MAX_RESULT_CHARS.saturating_sub(*text_len);
+        while cut > 0 && !text.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        text.truncate(cut);
+        text.push_str("\n[truncated]");
+    }
+    *text_len += text.len();
+    content.push(ContentPart::text(text));
+}
+
 /// Saves tokens the transport refreshed, so the next connection does not start from a stale
 /// refresh token.
 async fn persist_refreshed(app: &Arc<App>, plugin_id: &str, server: &str, auth: &Arc<tokio::sync::Mutex<AuthorizationManager>>) {
@@ -1611,7 +2349,7 @@ async fn persist_refreshed(app: &Arc<App>, plugin_id: &str, server: &str, auth: 
     if let Ok((client_id, Some(tokens))) = credentials {
         let key = format!("oauth:{server}");
         let saved = app.plugins.lock().unwrap().secret(plugin_id, &key);
-        let fresh = json!({ "client_id": client_id, "tokens": tokens, "signed_in_at": now_secs() });
+        let fresh = json!({ "client_id": client_id, "tokens": tidy_tokens(&json!(tokens)), "signed_in_at": now_secs() });
         if saved.as_ref().map(|s| s["tokens"] != fresh["tokens"]).unwrap_or(true) {
             let _ = super::set_oauth(app, plugin_id, server, Some(fresh));
         }
@@ -1838,6 +2576,8 @@ mod tests {
                 name,
                 description: description.into(),
                 read_only: true,
+                kind: ToolKind::Call,
+                timeout: super::super::CALL_TIMEOUT,
             }),
         })
     }
@@ -1875,6 +2615,258 @@ mod tests {
             socket.write_all(reply.as_bytes()).await.unwrap();
         });
         (format!("http://{address}/token"), seen_rx)
+    }
+
+    #[test]
+    fn a_program_that_stopped_says_why_in_its_last_lines() {
+        let node = "/srv/index.js:3\n    throw new Error(\"GITHUB_TOKEN is not set\");\n    ^\n\nError: GITHUB_TOKEN is not set\n    at Object.<anonymous> (/srv/index.js:3:11)\n    at Module._compile (node:internal/modules/cjs/loader:1554:14)\n\nNode.js v22.14.0";
+        assert_eq!(last_words(node.lines()).as_deref(), Some("/srv/index.js:3 · throw new Error(\"GITHUB_TOKEN is not set\"); · Error: GITHUB_TOKEN is not set · Node.js v22.14.0"));
+        let python = "Traceback (most recent call last):\n  File \"/srv/server.py\", line 1, in <module>\n    import httpx\nModuleNotFoundError: No module named 'httpx'";
+        assert!(last_words(python.lines()).unwrap().ends_with("import httpx · ModuleNotFoundError: No module named 'httpx'"));
+        let chatty: Vec<String> = (1..=10).map(|n| format!("line {n}")).collect();
+        assert_eq!(last_words(chatty.iter().map(String::as_str)).as_deref(), Some("line 7 · line 8 · line 9 · line 10"));
+        let long = last_words([format!("Error: {}", "x".repeat(500)).as_str()].into_iter()).unwrap();
+        assert!(long.starts_with('…') && long.ends_with('x') && long.chars().count() == 400, "a long tail keeps its end");
+        assert_eq!(last_words(["", "  ", "    at frame (x.js:1:1)"].into_iter()), None);
+    }
+
+    /// A 1×1 PNG, and text labeled an image, which no system reads as one, in base64.
+    const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    const NOT_AN_IMAGE: &str = "bm90IGFuIGltYWdl";
+
+    /// A small JPEG, in base64.
+    fn jpeg() -> String {
+        let mut jpeg = Vec::new();
+        image::DynamicImage::ImageRgb8(image::ImageBuffer::from_pixel(8, 8, image::Rgb([20, 120, 220]))).write_to(&mut std::io::Cursor::new(&mut jpeg), image::ImageFormat::Jpeg).unwrap();
+        base64::Engine::encode(&base64::engine::general_purpose::STANDARD, jpeg)
+    }
+
+    #[test]
+    fn results_reach_the_model_without_binary_data() {
+        let result: rmcp::model::CallToolResult = serde_json::from_value(json!({ "content": [
+            { "type": "text", "text": "hello" },
+            { "type": "audio", "data": "QVVESU8=", "mimeType": "audio/wav" },
+            { "type": "resource", "resource": { "uri": "file:///a.txt", "mimeType": "text/plain", "text": "embedded" } },
+            { "type": "resource", "resource": { "uri": "file:///a.pdf", "mimeType": "application/pdf", "blob": "JVBERi0=" } },
+            { "type": "resource", "resource": { "uri": "file:///a.png", "mimeType": "image/png", "blob": PNG } },
+            { "type": "resource_link", "uri": "file:///b.md", "name": "b.md" },
+            { "type": "image", "data": NOT_AN_IMAGE, "mimeType": "image/svg+xml" },
+            { "type": "image", "data": jpeg(), "mimeType": "image/png" },
+            { "type": "resource", "resource": { "uri": "file:///c.png", "mimeType": "image/png", "blob": "iVBORw0=" } }
+        ] }))
+        .unwrap();
+        let content = model_content(&result);
+        let texts: Vec<&str> = content.iter().filter_map(|part| part.as_text()).collect();
+        assert_eq!(
+            texts,
+            [
+                "hello",
+                "[audio/wav audio, left out]",
+                "embedded",
+                "[file:///a.pdf: application/pdf, left out]",
+                "[file:///b.md (b.md)]",
+                "[image/svg+xml image, left out: it is not an image Lorca can read]",
+                "[file:///c.png: image/png, left out: it is not an image Lorca can read]"
+            ]
+        );
+        let types: Vec<&str> = content.iter().filter_map(|part| if let ContentPart::Image { mime_type, .. } = part { Some(mime_type.as_str()) } else { None }).collect();
+        assert_eq!(types, ["image/png", "image/jpeg"], "an embedded image is an image, and an image has the type its bytes say");
+        let shown = format!("{content:?}");
+        assert!(!shown.contains("QVVESU8=") && !shown.contains("JVBERi0=") && !shown.contains(NOT_AN_IMAGE), "audio and other binary data never reach the model as text");
+    }
+
+    /// A server at the other end of `io` that answers the handshake and lists one tool a page,
+    /// with the next cursor `next` gives for the cursor it was asked with. Counts its pages.
+    fn paging_server(io: tokio::io::DuplexStream, next: fn(Option<&str>) -> Option<String>, pages: Arc<std::sync::atomic::AtomicUsize>) {
+        tokio::spawn(async move {
+            use tokio::io::AsyncBufReadExt;
+            let (read, mut write) = tokio::io::split(io);
+            let mut lines = tokio::io::BufReader::new(read).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                let message: Value = serde_json::from_str(&line).unwrap();
+                let result = match message["method"].as_str() {
+                    Some("initialize") => {
+                        json!({ "protocolVersion": message["params"]["protocolVersion"], "capabilities": { "tools": {} }, "serverInfo": { "name": "pager", "version": "1" } })
+                    }
+                    Some("tools/list") => {
+                        let page = pages.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        let mut result = json!({ "tools": [{ "name": format!("tool{page}"), "inputSchema": { "type": "object" } }] });
+                        if let Some(cursor) = next(message["params"]["cursor"].as_str()) {
+                            result["nextCursor"] = json!(cursor);
+                        }
+                        result
+                    }
+                    _ => continue,
+                };
+                if write.write_all(format!("{}\n", json!({ "jsonrpc": "2.0", "id": message["id"], "result": result })).as_bytes()).await.is_err() {
+                    return;
+                }
+            }
+        });
+    }
+
+    #[tokio::test]
+    async fn a_tool_list_ends_where_its_server_stops_paging() {
+        use rmcp::ServiceExt;
+        async fn list(next: fn(Option<&str>) -> Option<String>) -> (usize, usize) {
+            let (client, server) = tokio::io::duplex(64 * 1024);
+            let pages = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            paging_server(server, next, pages.clone());
+            let service = ().serve(client).await.unwrap();
+            let tools = tokio::time::timeout(std::time::Duration::from_secs(20), all_tools(service.peer())).await.expect("the listing ends").unwrap();
+            (tools.len(), pages.load(std::sync::atomic::Ordering::SeqCst))
+        }
+        assert_eq!(list(|_| None).await, (1, 1));
+        assert_eq!(list(|cursor| (cursor.is_none()).then(|| "2".into())).await, (2, 2), "a list of two pages");
+        assert_eq!(list(|_| Some(String::new())).await, (1, 1), "an empty cursor ends the list");
+        assert_eq!(list(|_| Some("again".into())).await, (2, 2), "a cursor handed out before ends it too");
+        let endless = list(|cursor| Some(format!("{}", cursor.and_then(|cursor| cursor.parse::<u32>().ok()).unwrap_or(0) + 1))).await;
+        assert_eq!(endless, (MAX_TOOL_PAGES, MAX_TOOL_PAGES), "a server that pages forever is read so far");
+    }
+
+    #[test]
+    fn empty_token_fields_are_left_out() {
+        let tidy = tidy_tokens(&json!({ "access_token": "a", "token_type": "Bearer", "scope": "", "refresh_token": " ", "id_token": null, "expires_in": null, "refresh_token_expires_in": 60 }));
+        assert_eq!(tidy, json!({ "access_token": "a", "token_type": "Bearer", "refresh_token_expires_in": 60 }));
+        let tokens: rmcp::transport::auth::OAuthTokenResponse = serde_json::from_value(tidy).expect("rmcp reads what is left");
+        assert!(serde_json::to_value(tokens).unwrap().get("scope").is_none(), "no empty scope to ask for again at a refresh");
+        assert_eq!(tidy_tokens(&json!({ "access_token": "a", "scope": "repo read:org" }))["scope"], json!("repo read:org"));
+    }
+
+    #[tokio::test]
+    async fn a_server_that_stops_before_the_handshake_says_why() {
+        let scratch = scratch_app();
+        let app = &scratch.0;
+        let (command, args) = if cfg!(windows) {
+            ("cmd", vec!["/d", "/c", "echo Error: GITHUB_TOKEN is not set 1>&2 & exit 1"])
+        } else {
+            ("sh", vec!["-c", "echo 'Error: GITHUB_TOKEN is not set' >&2; exit 1"])
+        };
+        let manifest = super::super::Manifest::parse(&json!({ "id": "boom", "name": "Boom", "servers": { "main": { "type": "stdio", "command": command, "args": args } } })).unwrap();
+        super::super::install(app, manifest, "inline").unwrap();
+        let error = app.mcp.server(app, "boom", "main").await.err().unwrap();
+        assert!(error.contains("did not answer the MCP handshake: Error: GITHUB_TOKEN is not set"), "{error}");
+    }
+
+    #[test]
+    fn a_server_that_wants_more_access_asks_for_it_at_the_next_sign_in() {
+        let refusal = std::io::Error::other("Transport send error: insufficient scope: Bearer error=\"insufficient_scope\", scope=\"read:org\", resource_metadata=\"https://hub.test/.well-known/x\"");
+        let (scope, challenge) = insufficient_scope(&refusal).unwrap();
+        assert_eq!(scope, "read:org");
+        assert!(challenge.starts_with("Bearer error=\"insufficient_scope\""), "{challenge}");
+        assert!(insufficient_scope(&std::io::Error::other("connection refused")).is_none());
+
+        let scratch = scratch_app();
+        let app = &scratch.0;
+        let manifest = super::super::Manifest::parse(&json!({ "id": "hub", "name": "Hub", "servers": { "api": { "type": "http", "url": "https://hub.test/mcp", "auth": { "type": "oauth" } } } })).unwrap();
+        super::super::install(app, manifest, "inline").unwrap();
+        super::super::set_oauth(app, "hub", "api", Some(json!({ "client_id": "c", "tokens": { "access_token": "a", "scope": "repo read:org" } }))).unwrap();
+        assert_eq!(app.plugins.lock().unwrap().status("hub").unwrap().state, "ready");
+        needs_more_access(app, "hub", "api", "admin:org read:org", &challenge);
+        let store = app.plugins.lock().unwrap();
+        assert_eq!(store.secret("hub", "scope:api").unwrap()["scope"], json!("repo read:org admin:org"), "what it had and what it needs, once each");
+        assert!(store.sign_in_secret("hub", "oauth", "api").is_none());
+        assert_eq!(store.status("hub").unwrap().state, "needs_auth");
+    }
+
+    #[test]
+    fn a_server_that_offers_resources_gets_tools_to_read_them() {
+        let scratch = scratch_app();
+        let app = &scratch.0;
+        for id in ["docs", "plain"] {
+            let manifest = super::super::Manifest::parse(&json!({ "id": id, "name": id, "servers": { "api": { "type": "stdio", "command": "false" } } })).unwrap();
+            super::super::install(app, manifest, "inline").unwrap();
+            let saved = SavedCatalog { servers: BTreeMap::from([("api".to_string(), SavedServer { instructions: None, tools: vec![mcp_tool("search", "Search", r#"{"type":"object"}"#)], resources: id == "docs" })]) };
+            crate::config::write_json_private(&catalog_path(app, id), &saved).unwrap();
+        }
+        let catalog = turn_catalog(app, Vec::new());
+        let names: Vec<String> = codemode::Catalog::entries(catalog.as_ref()).iter().map(|entry| entry.tool.name().to_string()).collect();
+        assert_eq!(names, ["docs__list_mcp_resource_templates", "docs__list_mcp_resources", "docs__read_mcp_resource", "docs__search", "plain__search"]);
+        let read = catalog.plugin_tool("docs__read_mcp_resource").unwrap();
+        assert!(read.read_only && read.kind == ToolKind::ReadResource, "reading a resource never asks");
+        assert_eq!(read.parameters()["required"], json!(["uri"]));
+        assert_eq!(saved_tool_count(app, &app.plugins.lock().unwrap().get("docs").unwrap().clone()), Some(1), "the server's own tools are what it counts");
+    }
+
+    #[test]
+    fn resources_read_as_text_images_and_saved_files() {
+        let page = listed(
+            json!({ "resources": [
+                { "uri": "file:///a.md", "name": "a.md", "mimeType": "text/markdown", "icons": [{ "src": "x" }], "_meta": { "x": 1 } },
+                { "uri": "ui://widget", "name": "widget" },
+                { "uri": "app://b", "name": "b", "mimeType": "text/html;profile=mcp-app" }
+            ], "nextCursor": "2" }),
+            "resources",
+        );
+        assert_eq!(page, json!({ "resources": [{ "uri": "file:///a.md", "name": "a.md", "mimeType": "text/markdown" }], "nextCursor": "2" }));
+        use base64::Engine;
+        let pdf = base64::engine::general_purpose::STANDARD.encode(b"%PDF-1.7 tiny");
+        let (content, structured) = read_contents(json!({ "contents": [
+            { "uri": "file:///a.md", "mimeType": "text/markdown", "text": "# A" },
+            { "uri": "file:///b.png", "mimeType": "image/png", "blob": PNG },
+            { "uri": "file:///docs/report.pdf", "mimeType": "application/pdf", "blob": pdf },
+            { "uri": "file:///logo.svg", "mimeType": "image/svg+xml", "blob": NOT_AN_IMAGE }
+        ] }));
+        assert_eq!(content[0].as_text(), Some("# A"));
+        assert!(matches!(&content[1], ContentPart::Image { mime_type, .. } if mime_type == "image/png"));
+        let saved = structured["contents"][2]["path"].as_str().unwrap().to_string();
+        assert!(saved.ends_with("-report.pdf") && content[2].as_text().unwrap().contains("13 bytes, saved to"), "{:?}", content[2]);
+        assert_eq!(std::fs::read(&saved).unwrap(), b"%PDF-1.7 tiny");
+        assert!(structured["contents"][2].get("blob").is_none(), "scripts get the file, not the base64");
+        let logo = structured["contents"][3]["path"].as_str().unwrap().to_string();
+        assert!(logo.ends_with("-logo.svg") && content[3].as_text().unwrap().contains("saved to"), "an image no model takes is saved like other binary contents: {:?}", content[3]);
+        let _ = std::fs::remove_file(saved);
+        let _ = std::fs::remove_file(logo);
+    }
+
+    /// A server at a local port that answers every request with `status` and no body, counting
+    /// the POSTs it got.
+    async fn answering(status: &'static str) -> (String, Arc<std::sync::atomic::AtomicUsize>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let posts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counted = posts.clone();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                let counted = counted.clone();
+                tokio::spawn(async move {
+                    let mut request = Vec::new();
+                    let mut buffer = [0_u8; 4096];
+                    loop {
+                        let Ok(count) = socket.read(&mut buffer).await else { return };
+                        if count == 0 {
+                            break;
+                        }
+                        request.extend_from_slice(&buffer[..count]);
+                        let Some(end) = request.windows(4).position(|part| part == b"\r\n\r\n").map(|at| at + 4) else { continue };
+                        let headers = String::from_utf8_lossy(&request[..end]).to_ascii_lowercase();
+                        let length = headers.lines().find_map(|line| line.strip_prefix("content-length:")?.trim().parse::<usize>().ok()).unwrap_or(0);
+                        if request.len() >= end + length {
+                            break;
+                        }
+                    }
+                    if request.starts_with(b"POST") {
+                        counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                    let _ = socket.write_all(format!("HTTP/1.1 {status}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await;
+                });
+            }
+        });
+        (format!("http://{address}/mcp"), posts)
+    }
+
+    #[tokio::test]
+    async fn a_server_in_passing_trouble_is_tried_again_and_a_refusal_is_not() {
+        let scratch = scratch_app();
+        let app = &scratch.0;
+        for (id, status, tries) in [("busy", "503 Service Unavailable", 3), ("refusing", "403 Forbidden", 1)] {
+            let (url, posts) = answering(status).await;
+            let manifest = super::super::Manifest::parse(&json!({ "id": id, "name": id, "servers": { "api": { "type": "http", "url": url } } })).unwrap();
+            // Not `install`, whose background connection would try too.
+            app.plugins.lock().unwrap().installed.push(super::super::Installed { manifest, source: "inline".into(), installed_at: 0.0, variables: BTreeMap::new() });
+            assert!(app.mcp.server(app, id, "api").await.is_err());
+            assert_eq!(posts.load(std::sync::atomic::Ordering::SeqCst), tries, "{status}");
+        }
     }
 
     #[test]
@@ -1962,8 +2954,8 @@ mod tests {
         let hidden = mcp_tool("secret_admin", "Never offered", r#"{"type":"object"}"#);
         let saved = SavedCatalog {
             servers: BTreeMap::from([
-                ("api".to_string(), SavedServer { instructions: Some("Use team keys like ENG.".into()), tools: vec![issues, comment, hidden] }),
-                ("gone".to_string(), SavedServer { instructions: None, tools: vec![mcp_tool("old", "A server the manifest no longer has", r#"{}"#)] }),
+                ("api".to_string(), SavedServer { instructions: Some("Use team keys like ENG.".into()), tools: vec![issues, comment, hidden], resources: false }),
+                ("gone".to_string(), SavedServer { instructions: None, tools: vec![mcp_tool("old", "A server the manifest no longer has", r#"{}"#)], resources: false }),
             ]),
         };
         crate::config::write_json_private(&catalog_path(app, "linear"), &saved).unwrap();
@@ -1980,7 +2972,7 @@ mod tests {
 
         let codemode = CodemodeTool::new(catalog.clone(), CodemodeOptions::default());
         let description = codemode.description().to_string();
-        assert!(description.contains("## linear (2 tools)\nLinear: Linear for the team.\nServer instructions: Use team keys like ENG."), "{description}");
+        assert!(description.contains("## linear\nLinear: Linear for the team.\nServer instructions: Use team keys like ENG."), "{description}");
         assert!(description.contains("linear__list_issues(args: {\n  // Team key\n  team: string;\n}): Promise<CallToolResult>;"), "{description}");
         assert!(description.contains("## notion (tools not known yet; searchTools() finds them)\nNotion: Notion for the team."), "{description}");
         assert!(description.contains("Your own tools `read` are callable here too"), "{description}");

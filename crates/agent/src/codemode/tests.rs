@@ -196,10 +196,11 @@ async fn stored_values_reach_later_scripts_and_failed_scripts_write_nothing() {
 #[tokio::test]
 async fn exit_ends_early_and_output_keeps_its_order() {
     let codemode = tool(vec![]);
-    let result = run(&codemode, "console.log('a', { b: 1 });\nimage('data:image/png;base64,AAAA');\ntext(2);\nexit();\ntext('never');").await;
+    let png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    let result = run(&codemode, &format!("console.log('a', {{ b: 1 }});\nimage('data:image/png;base64,{png}');\ntext(2);\nexit();\ntext('never');")).await;
     assert!(!result.is_error);
     assert_eq!(result.content[1], ContentPart::text("a {\"b\":1}"));
-    assert_eq!(result.content[2], ContentPart::Image { data: "AAAA".into(), mime_type: "image/png".into() });
+    assert_eq!(result.content[2], ContentPart::Image { data: png.into(), mime_type: "image/png".into() });
     assert_eq!(result.content[3], ContentPart::text("2"));
     assert_eq!(result.content.len(), 4);
     let remote = run(&codemode, "image('https://example.com/a.png');").await;
@@ -293,10 +294,9 @@ fn the_description_lists_tools_by_namespace_within_its_budget() {
     ];
     let namespaces = vec![Namespace { name: "github".into(), description: "GitHub: issues and pull requests".into() }, Namespace { name: "notion".into(), description: "Notion".into() }];
     let complete = describe(&entries, &namespaces, &[], &CodemodeOptions { inline_budget: 100_000, ..CodemodeOptions::default() });
-    assert!(complete.contains("Nested tools: PARTIAL - 3 of 4 shown."), "a deferred tool is never listed: {complete}");
+    assert!(complete.contains("## linear (some tools not listed)"), "a deferred tool is never listed: {complete}");
     assert!(complete.contains("Shared MCP types. An MCP tool resolves to its whole `CallToolResult`"));
-    assert!(complete.contains("## github (2 tools)\nGitHub: issues and pull requests"), "{complete}");
-    assert!(complete.contains("## linear (2 tools, 1 shown)"), "{complete}");
+    assert!(complete.contains("Nested tools:\n\n## github\nGitHub: issues and pull requests"), "no counts, so the heading stays while the tools change: {complete}");
     assert!(complete.contains("## notion (tools not known yet; searchTools() finds them)\nNotion"), "{complete}");
     assert!(complete.contains("github__create_issue(args: { q: string; }): Promise<CallToolResult>;"), "{complete}");
     assert!(!complete.contains("### `read`"), "a direct tool is named, not listed");
@@ -307,9 +307,8 @@ fn the_description_lists_tools_by_namespace_within_its_budget() {
     assert!(before_connecting.contains("CallToolResult<TStructured"), "a host reaching MCP servers declares the types before their tools are known");
 
     let tight = describe(&entries, &namespaces, &[], &CodemodeOptions { inline_budget: 150, ..CodemodeOptions::default() });
-    assert!(tight.contains("Nested tools: PARTIAL - 2 of 4 shown."), "each namespace gets one tool in first: {tight}");
-    assert!(tight.contains("## github (2 tools, 1 shown)") && tight.contains("## linear (2 tools, 1 shown)"), "{tight}");
-    assert!(tight.contains(PARTIAL_GUIDANCE));
+    assert!(tight.contains("## github (some tools not listed)") && tight.contains("## linear (some tools not listed)"), "each namespace gets one tool in first: {tight}");
+    assert_eq!(tight.matches("\n### `").count(), 2, "{tight}");
 }
 
 /// `models.ask` as a host might give it: the prompt back in capitals, or a failure.
@@ -421,16 +420,34 @@ async fn a_script_cannot_flood_the_host() {
 #[tokio::test]
 async fn images_the_model_cannot_take_are_left_out() {
     let codemode = tool(vec![]);
-    let code = "image('data:image/svg+xml;base64,PHN2Zz4=');\nimage('data:image/png;base64,not base64!');\nimage({ type: 'image', data: 'AAAA' });\n\
-                for (let i = 0; i < 11; i++) image('data:image/png;base64,AAAA');";
-    let result = run(&codemode, code).await;
-    let images = result.content.iter().filter(|part| matches!(part, ContentPart::Image { .. })).count();
+    let mut jpeg = Vec::new();
+    image::DynamicImage::ImageRgb8(image::ImageBuffer::from_pixel(8, 8, image::Rgb([200, 30, 30]))).write_to(&mut std::io::Cursor::new(&mut jpeg), image::ImageFormat::Jpeg).unwrap();
+    let jpeg = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, jpeg);
+    // Data that is not base64 or no image is left out; a JPEG labeled PNG keeps the type its
+    // bytes say, as providers refuse a mismatch; wrapped base64 loses its line breaks; and the
+    // eleventh image is one too many.
+    let code = format!(
+        "image('data:image/png;base64,not base64!');\nimage({{ type: 'image', data: 'AAAA' }});\nimage('data:image/png;base64,{jpeg}');\n\
+         for (let i = 0; i < 8; i++) image('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4\\n2mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==');"
+    );
+    let result = run(&codemode, &code).await;
+    let types: Vec<&str> = result.content.iter().filter_map(|part| if let ContentPart::Image { mime_type, .. } = part { Some(mime_type.as_str()) } else { None }).collect();
     let text = text_of(&result);
-    assert_eq!(images, 10, "{text}");
-    assert!(text.contains("image/svg+xml is not an image type the model takes"), "{text}");
-    assert!(text.contains("its data is not base64"), "{text}");
-    assert!(text.contains("application/octet-stream is not an image type"), "{text}");
+    assert_eq!(types, ["image/jpeg", "image/png", "image/png", "image/png", "image/png", "image/png", "image/png", "image/png"], "{text}");
+    assert!(text.contains("[An image was left out: its data is not base64]"), "{text}");
+    assert!(text.contains("[An image was left out: it is not an image Lorca can read]"), "{text}");
     assert!(text.contains("at most 10 images"), "{text}");
+}
+
+#[tokio::test]
+async fn an_unknown_tool_names_the_closest_ones() {
+    let codemode = tool(vec![Probe::tool("github__create_issue", Mode::Echo), Probe::tool("fails", Mode::Fail)]);
+    let close = text_of(&run(&codemode, "await tools.github_create_issue({});").await);
+    assert!(close.contains("Unknown tool \"github_create_issue\". Did you mean tools.github__create_issue?"), "{close}");
+    let cased = text_of(&run(&codemode, "await tools.Fails({});").await);
+    assert!(cased.contains("Did you mean tools.fails?"), "{cased}");
+    let listed = text_of(&run(&codemode, "await tools.zzz({});").await);
+    assert!(listed.contains("Unknown tool \"zzz\". The tools are fails, github__create_issue."), "a short catalog is listed whole: {listed}");
 }
 
 #[tokio::test]
@@ -452,7 +469,6 @@ async fn every_script_has_a_deadline() {
     assert!(text_of(&spinning).contains("timed out after 200 ms"), "{}", text_of(&spinning));
     let longer = run(&codemode, "// @options: {\"timeout_ms\": 60000}\nwhile (true) {}").await;
     assert!(text_of(&longer).contains("timed out after 200 ms"), "an options line cannot ask for more: {}", text_of(&longer));
-    assert!(tool(vec![]).description().contains("at most and by default 30 minutes"));
 }
 
 #[test]

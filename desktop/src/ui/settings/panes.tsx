@@ -4,9 +4,10 @@
 
 import { createEffect, createMemo, createSignal, For, onSettled, Show } from "solid-js";
 import type { JSX } from "@solidjs/web";
-import { host, hostInfo, onUpdaterChanged, preferences, setPreferences, type UpdaterState } from "../../host";
+import { files, host, hostInfo, onUpdaterChanged, preferences, setPreferences, type UpdaterState } from "../../host";
 import { chosenLanguage, L, supportedLanguages } from "../../l10n";
 import * as Format from "../../model/format";
+import { isMcpServer, mcpAddress, mcpState, mcpSymbol, type McpFile, type McpServer } from "../../model/mcp";
 import {
   behaviorTitle,
   deviceSymbol,
@@ -24,7 +25,7 @@ import {
   type Device,
   type SettingsPane,
 } from "../../model/models";
-import { track } from "../../model/reactive";
+import { onStoreEvent, track } from "../../model/reactive";
 import { errorText, store } from "../../model/store";
 import { newBot, presentMarketplace } from "../actions";
 import { HoverButton, PopUpButton, Switch, TextArea } from "../controls";
@@ -34,6 +35,7 @@ import { open, revealed, settingsDeviceID } from "../root";
 import { AccessoryRow, ActionRow, BotRow, EditableRow, KeyValueRow, NoteRow, PluginRow, Section, StatusRow } from "../sections";
 import { presentConnectProvider } from "../sheets/connectProvider";
 import { presentAddProviderMenu, presentCustomProvider } from "../sheets/customProvider";
+import { presentMcpServer } from "../sheets/mcpServer";
 import { presentPlugin } from "../sheets/plugin";
 import { Entries } from "./search";
 
@@ -481,14 +483,17 @@ function Placeholder(props: { device: Device | undefined; children: JSX.Element 
   );
 }
 
-/** What the picked Runner has installed, with each plugin's state, and the marketplace. */
+/** What the picked Runner has installed, with each plugin's state, and the marketplace; then the
+ * MCP servers of its mcp.json. */
 function PluginsPane() {
   const device = pickedDevice;
+  // Its mcp.json's servers are listed in their own section.
+  const plugins = () => (device()?.plugins ?? []).filter((plugin) => !isMcpServer(plugin));
   return (
     <PaneFrame pane="plugins">
       <Section title={device() ? L("Plugins on %@", device()!.name) : L("Plugins")} style="heading">
         <Placeholder device={device()}>
-          <For each={device()?.plugins ?? []} keyed={(plugin) => plugin.id}>
+          <For each={plugins()} keyed={(plugin) => plugin.id}>
             {(plugin) => (
               <PluginRow
                 plugin={plugin()}
@@ -499,14 +504,157 @@ function PluginsPane() {
               />
             )}
           </For>
-          <Show when={(device()?.plugins.length ?? 0) === 0}>
+          <Show when={plugins().length === 0}>
             <KeyValueRow label={L("No plugins installed")} value="" tint="var(--label-2)" />
           </Show>
           <ActionRow label={L("Marketplace")} tint="var(--label-2)" actionTitle={L("Add from Plugins…")} onAction={() => presentMarketplace(device()?.id ?? null)} />
         </Placeholder>
       </Section>
       <Footnote text={L("Plugins are installed on a Runner, and the bots assigned to it use them. An action that changes something goes through Auto-review first.")} />
+      <Show when={device() && isRunner(device()!)}>
+        <McpServersSection device={device()!} />
+        <Footnote
+          text={L(
+            "Servers you add yourself live in mcp.json on %@, in the format Claude Desktop and Cursor use. Edit them here or with the lorca mcp command; after editing the file itself, click Reload.",
+            device()!.name,
+          )}
+        />
+      </Show>
     </PaneFrame>
+  );
+}
+
+/** A Runner's mcp.json: each server with how it stands and a switch, a row to add one, and the file
+ * itself, with Reload for an edit made outside Lorca (and on this computer, Open). The list follows
+ * the servers' states in the Runner's roster. */
+function McpServersSection(props: { device: Device }) {
+  const [file, setFile] = createSignal<McpFile | null>(null);
+  const [failure, setFailure] = createSignal<string | null>(null);
+  let loads = 0;
+  const load = async (runnerID: string) => {
+    const load = ++loads;
+    try {
+      const next = await store.mcpServers(runnerID);
+      if (load !== loads) return;
+      setFile(next);
+      setFailure(null);
+    } catch (error) {
+      if (load !== loads) return;
+      setFailure(errorText(error));
+    }
+  };
+  // Again when another Device is picked, or a server of this one changes how it stands.
+  createEffect(
+    () => `${props.device.id}|${JSON.stringify(props.device.plugins.filter(isMcpServer).map((plugin) => [plugin.id, plugin.state, plugin.detail]))}`,
+    (key, previous) => {
+      if (previous?.split("|")[0] !== props.device.id) setFile(null);
+      void load(key.split("|")[0]!);
+    },
+  );
+  // This computer's file is asked again whenever the CLI says something changed, as a reload
+  // from a terminal (`lorca mcp reload`) does: a file that no longer reads moves no server's state.
+  onSettled(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const stop = onStoreEvent((event) => {
+      if (event.kind !== "rosterChanged" || !props.device.isThisDevice) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => void load(props.device.id), 300);
+    });
+    return () => {
+      clearTimeout(timer);
+      stop();
+    };
+  });
+  const setEnabled = async (server: McpServer, on: boolean) => {
+    const runnerID = props.device.id;
+    const swap = (next: McpServer) => {
+      const current = file();
+      if (current) setFile({ ...current, servers: current.servers.map((each) => (each.name === server.name ? next : each)) });
+    };
+    swap({ ...server, enabled: on });
+    try {
+      swap(await store.setMcpServerEnabled(runnerID, server.name, on));
+    } catch (error) {
+      swap(server);
+      void alert({ message: on ? L("Couldn't turn %@ on", server.name) : L("Couldn't turn %@ off", server.name), informative: errorText(error) });
+    }
+  };
+  const openFile = async (path: string) => {
+    try {
+      await files.open(path);
+    } catch {
+      await files.showInFolder(path);
+    }
+  };
+  // The Runner reads the file only when asked, after an edit made outside Lorca.
+  const reload = async () => {
+    const runnerID = props.device.id;
+    loads += 1;
+    try {
+      const next = await store.reloadMcpServers(runnerID);
+      if (props.device.id === runnerID) setFile(next);
+    } catch (error) {
+      void alert({ message: L("Couldn't reload mcp.json"), informative: errorText(error) });
+    }
+  };
+  return (
+    <Section title={L("MCP Servers on %@", props.device.name)} style="heading">
+      <Show when={file()} fallback={<KeyValueRow label={failure() ?? L("Loading…")} value="" tint={failure() ? "var(--red)" : "var(--label-2)"} />}>
+        {(current) => (
+          <>
+            <Show when={current().error}>{(error) => <NoteRow text={L("%@ Lorca keeps the servers it read before.", error())} tint="var(--red)" />}</Show>
+            <For each={current().servers} keyed={(server) => server.name}>
+              {(server) => (
+                <McpServerRow
+                  server={server()}
+                  onToggle={(on) => void setEnabled(server(), on)}
+                  onClick={() => void presentMcpServer(props.device, server().name)}
+                />
+              )}
+            </For>
+            <Show when={current().servers.length === 0 && !current().error}>
+              <NoteRow text={L("No MCP servers yet. Add one by the command that starts it or its URL, or paste the JSON from its README.")} />
+            </Show>
+            <ActionRow label={L("Custom")} tint="var(--label-2)" actionTitle={L("Add Server…")} onAction={() => void presentMcpServer(props.device)} />
+            {/* Open once the file is there, which it is once it holds a server. */}
+            <ActionRow
+              label="mcp.json"
+              value={current().path}
+              tint="var(--label-2)"
+              monospaced
+              tooltip={current().path}
+              actionTitle={L("Reload")}
+              onAction={() => void reload()}
+              secondActionTitle={props.device.isThisDevice && (current().servers.length > 0 || current().error) ? L("Open") : undefined}
+              onSecondAction={() => void openFile(current().path)}
+            />
+          </>
+        )}
+      </Show>
+    </Section>
+  );
+}
+
+/** One server: its symbol in the color of how it stands, its name, its state and address, and a
+ * switch, unless it cannot run. A click opens it. */
+function McpServerRow(props: { server: McpServer; onToggle: (on: boolean) => void; onClick: () => void }) {
+  const state = () => mcpState(props.server);
+  return (
+    <div class="row mcp-row clickable" data-label={props.server.name} title={props.server.entry.description} onClick={() => props.onClick()}>
+      <span class="row-icon" style={{ color: props.server.enabled && !props.server.problem ? state().color : "var(--label-3)" }}>
+        <Icon name={mcpSymbol(props.server.entry)} size={16} strokeWidth={1.7} />
+      </span>
+      <div class="row-text">
+        <span class={["row-title", "truncate", { off: !props.server.enabled }]}>{props.server.name}</span>
+        <span class="row-subtitle truncate">
+          <span style={{ color: state().color }}>{state().text}</span>
+          <span class="mcp-row-address">{` · ${mcpAddress(props.server.entry)}`}</span>
+        </span>
+      </div>
+      <Show when={!props.server.problem}>
+        <Switch small checked={props.server.enabled} tooltip={props.server.enabled ? L("Turn %@ off", props.server.name) : L("Turn %@ on", props.server.name)} label={props.server.name} onChange={props.onToggle} />
+      </Show>
+    </div>
   );
 }
 
