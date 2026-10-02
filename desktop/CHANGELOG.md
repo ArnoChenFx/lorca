@@ -11,6 +11,8 @@ and the update window shows it.
   app connects, and when you or a bot look through the marketplace, at most once an hour, and a bot
   that can't find a plugin you asked for checks again first. `lorca marketplace reload` checks
   right away.
+- Window titles end with ` - Lorca`, so the taskbar and Alt+Tab say which app a chat belongs
+  to.
 
 ## [0.1.2]
 
