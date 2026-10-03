@@ -11,6 +11,7 @@ Commands:
 - `lorca mcp list` / `get` / `add` / `add-json` / `remove` / `enable` / `disable` / `sign-in` / `sign-out` / `hide` / `show` / `reload` / `import` — the servers in `mcp.json`, through a running `lorca serve` or in that process ([MCP servers](mcp-servers.md#managing-it))
 - `lorca marketplace reload` — check lorca.app for a newer marketplace index now, through a running `lorca serve` or, with none, into `marketplace.json` for the next start
 - `lorca models reload` — check lorca.app for a newer model catalog now, through a running `lorca serve` or, with none, into `catalog.json` for the next start
+- `lorca chats list` / `chats set-owner <group> <bot>` — the chats with each group's owner, and a new owner for a group, the group named by its title or id and the bot by its name or id (`App::find_group`, `App::find_member`). A running `lorca serve` carries out the change over the local websocket; with none, the command changes the database itself and runs one sync pass
 - `lorca status` / `doctor` (which also says whether `mcp.json` reads)
 
 Bind: `127.0.0.1:4862` (`--port`, `LORCA_PORT`). Relay: `LORCA_RELAY_URL`. If the port is busy the CLI fails loudly.
