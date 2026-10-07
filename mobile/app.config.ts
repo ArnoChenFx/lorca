@@ -49,7 +49,9 @@ export default (): ExpoConfig => {
         foregroundImage: icon,
       },
       predictiveBackGestureEnabled: true,
-      versionCode: 1,
+      // The APK workflow sets LORCA_ANDROID_VERSION_CODE to its run number, so every
+      // published APK can upgrade the previous one in place.
+      versionCode: Number(process.env.LORCA_ANDROID_VERSION_CODE ?? 1),
     },
     web: {
       favicon,
