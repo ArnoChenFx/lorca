@@ -32,7 +32,9 @@ function ndkHome(): string {
 // generator's features: a cdylib's file name carries no feature hash, so builds with two feature
 // sets overwrite each other's outputs and both crates compile again on every run.
 await run(["cargo", "build", "-p", "lorca-mobile", "--features", "bindgen"]);
-const bindgen = ["cargo", "run", "-q", "-p", "lorca-mobile", "--features", "bindgen", "--bin", "uniffi-bindgen", "--", "generate", "--library", join(TARGET, "debug/liblorca_mobile.dylib")];
+// The host library is a .dylib on macOS and a .so on Linux.
+const hostLib = join(TARGET, "debug", `liblorca_mobile.${process.platform === "darwin" ? "dylib" : "so"}`);
+const bindgen = ["cargo", "run", "-q", "-p", "lorca-mobile", "--features", "bindgen", "--bin", "uniffi-bindgen", "--", "generate", "--library", hostLib];
 
 if (wantIos) {
   await run(["cargo", "build", "-p", "lorca-mobile", "--release", "--target", "aarch64-apple-ios"]);
