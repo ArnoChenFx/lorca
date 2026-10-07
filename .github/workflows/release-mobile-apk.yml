@@ -93,13 +93,22 @@ jobs:
           python3 << 'PYEOF'
           import pathlib
           p = pathlib.Path("app/build.gradle")
-          s = p.read_text()
-          old = """            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
-          """
-          assert old in s, "release signingConfig block not found in app/build.gradle; template may have changed"
-          p.write_text(s.replace(old, ""))
+          lines = p.read_text().splitlines(keepends=True)
+          out, in_release, depth, removed = [], False, 0, 0
+          for line in lines:
+              s = " ".join(line.split())
+              if not in_release and s == "release {":
+                  in_release, depth = True, 0
+              if in_release:
+                  depth += line.count("{") - line.count("}")
+                  if depth == 1 and s == "signingConfig signingConfigs.debug":
+                      removed += 1
+                      continue
+                  if depth <= 0:
+                      in_release = False
+              out.append(line)
+          assert removed == 1, f"expected to remove 1 release signingConfig, removed {removed}; template may have changed"
+          p.write_text("".join(out))
           print("release build is now unsigned")
           PYEOF
     
