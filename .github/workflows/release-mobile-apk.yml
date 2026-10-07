@@ -1,0 +1,153 @@
+# Builds the phone app (mobile/) as an Android APK and publishes it as a release of this
+# repository, whenever mobile/ changes on the mobile-apk branch (or when run by hand).
+# Releases are tagged mobile-apk-r<N>-<sha> and are never marked latest, so the
+# repository's latest release stays the CLI's, like the desktop releases.
+#
+# The whole build runs on the GitHub runner: bun installs the JS dependencies, expo
+# prebuild generates the native Android project, and Gradle assembles the release APK,
+# which the workflow then signs and uploads. Nothing is built locally.
+#
+# Signing: for installs to upgrade in place, every APK must share one signing key. Provide
+# it once through repository secrets and every build reuses it:
+#   ANDROID_KEYSTORE_BASE64  the keystore file, base64-encoded
+#   ANDROID_KEY_ALIAS        the key alias inside the keystore
+#   ANDROID_KEY_PASSWORD     the key password
+#   ANDROID_STORE_PASSWORD   the keystore password
+# Without them the workflow signs with a fresh debug keystore and says so in the release
+# notes; each such release then needs a fresh install. docs/releasing-mobile.md has the
+# one-time setup.
+name: Release mobile APK
+
+on:
+  push:
+    branches: [mobile-apk]
+    paths:
+      - "mobile/**"
+      - ".github/workflows/release-mobile-apk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One build at a time; a newer push waits for the running build instead of racing it.
+concurrency:
+  group: release-mobile-apk
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Name the release
+        id: release
+        run: |
+          short_sha=$(git rev-parse --short HEAD)
+          tag="mobile-apk-r${{ github.run_number }}-$short_sha"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "apk=lorca-android-$tag.apk" >> "$GITHUB_OUTPUT"
+          echo "version_code=${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: android-actions/setup-android@v3
+
+      - name: Install JS dependencies
+        working-directory: mobile
+        run: bun install --frozen-lockfile
+
+      - name: Generate the native project
+        working-directory: mobile
+        env:
+          LORCA_ANDROID_VERSION_CODE: ${{ steps.release.outputs.version_code }}
+        run: npx --yes expo prebuild --platform android --non-interactive --clean
+
+      - name: Assemble the release APK
+        working-directory: mobile/android
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Sign the APK
+        id: sign
+        working-directory: mobile/android/app/build/outputs/apk/release
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          unsigned_apk="app-release-unsigned.apk"
+          if [[ -n "$KEYSTORE_BASE64" ]]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > lorca.keystore
+            ks=lorca.keystore
+            alias="$KEY_ALIAS"
+            store_pass="$STORE_PASSWORD"
+            key_pass="$KEY_PASSWORD"
+            echo "signed=release keystore" >> "$GITHUB_OUTPUT"
+          else
+            keytool -genkeypair -keystore debug.keystore -alias androiddebugkey \
+              -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10950 \
+              -dname "CN=Android Debug,O=Android,C=US" -noprompt
+            ks=debug.keystore
+            alias=androiddebugkey
+            store_pass=android
+            key_pass=android
+            echo "signed=fresh debug key (fresh install only, no in-place upgrades)" >> "$GITHUB_OUTPUT"
+          fi
+          build_tools=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)
+          "$build_tools/zipalign" -f 4 "$unsigned_apk" app-aligned.apk
+          STORE_PASS="$store_pass" KEY_PASS="$key_pass" \
+            "$build_tools/apksigner" sign \
+              --ks "$ks" --ks-pass:env STORE_PASS \
+              --ks-key-alias "$alias" --key-pass:env KEY_PASS \
+              --out "${{ steps.release.outputs.apk }}" app-aligned.apk
+          "$build_tools/apksigner" verify --print-certs "${{ steps.release.outputs.apk }}"
+
+      - name: Write release notes
+        env:
+          BEFORE: ${{ github.event.before }}
+          TAG: ${{ steps.release.outputs.tag }}
+          SIGNED: ${{ steps.sign.outputs.signed }}
+        run: |
+          {
+            echo "Android APK built from \`mobile-apk\` at commit \`$GITHUB_SHA\`."
+            echo
+            echo "Signed with: $SIGNED."
+            echo
+            echo "### mobile/ changes in this build"
+            echo
+            if [[ -z "$BEFORE" || "$BEFORE" == 0000000000000000000000000000000000000000 ]]; then
+              range="HEAD~20..HEAD"
+            else
+              range="$BEFORE..HEAD"
+            fi
+            if ! changes=$(git log --format='- %h %s' "$range" -- mobile/); then
+              changes="- (manual run; change list unavailable)"
+            fi
+            if [[ -z "$changes" ]]; then
+              changes="- (no mobile/ commits in range)"
+            fi
+            echo "$changes"
+            echo
+            echo "Built by run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID."
+          } > notes.md
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          # Never the latest release: that stays the CLI's, like the desktop releases.
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --latest=false \
+            --title "Lorca Android APK ${TAG#mobile-apk-}" \
+            --notes-file notes.md \
+            "mobile/android/app/build/outputs/apk/release/${{ steps.release.outputs.apk }}"

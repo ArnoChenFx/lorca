@@ -1,0 +1,60 @@
+# Merges egoist/lorca's main into the mobile-apk branch every day (and when run by hand),
+# so the branch that builds the Android APK keeps following upstream. A push that brings
+# mobile/ changes triggers the Release mobile APK workflow on mobile-apk.
+#
+# This file has to live on the default branch: scheduled workflows only run from the
+# default branch's copy of the file. The merge target (mobile-apk) is named below.
+#
+# One-time setup: create a fine-grained personal access token with Contents read+write on
+# this repository and save it as the SYNC_PAT secret. The merge pushes with that token,
+# not the default GITHUB_TOKEN, because a GITHUB_TOKEN push would not trigger the APK
+# workflow. docs/releasing-mobile.md has the steps.
+name: Sync upstream
+
+on:
+  schedule:
+    - cron: "17 3 * * *" # 11:17 CST, daily
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  merge:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check the SYNC_PAT secret
+        run: |
+          if [[ -z "${{ secrets.SYNC_PAT }}" ]]; then
+            echo "::error::SYNC_PAT secret is not set. Create a fine-grained PAT with Contents read+write on this repository, save it as the SYNC_PAT secret, and re-run. See docs/releasing-mobile.md."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7
+        with:
+          ref: mobile-apk
+          # Persisted for the push below, so it triggers the APK workflow.
+          token: ${{ secrets.SYNC_PAT }}
+          fetch-depth: 0
+
+      - name: Merge upstream/main into mobile-apk
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/egoist/lorca.git
+          git fetch --no-tags upstream main
+          if git merge-base --is-ancestor upstream/main HEAD; then
+            echo "mobile-apk already contains upstream/main; nothing to do."
+            exit 0
+          fi
+          if git merge --no-edit upstream/main; then
+            git push origin mobile-apk
+            echo "Merged $(git rev-parse --short upstream/main) into mobile-apk."
+          else
+            git merge --abort
+            echo "::error::upstream/main does not merge cleanly into mobile-apk. Resolve the conflict locally on mobile-apk and push; the next scheduled run will continue."
+            exit 1
+          fi
