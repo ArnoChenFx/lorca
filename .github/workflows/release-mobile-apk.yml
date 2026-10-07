@@ -61,10 +61,23 @@ jobs:
           java-version: 17
       - uses: android-actions/setup-android@v4
 
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cargo-ndk and the Android NDK
+        run: |
+          cargo install cargo-ndk
+          sdkmanager "ndk;27.2.12479018"
+
       - name: Install JS dependencies
         working-directory: mobile
         run: bun install --frozen-lockfile
 
+      - name: Build the Rust core for Android
+        working-directory: mobile
+        run: bun run core android
+  
       - name: Generate the native project
         working-directory: mobile
         env:
