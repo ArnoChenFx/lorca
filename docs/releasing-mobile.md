@@ -9,7 +9,7 @@ APK 并发布到本仓库的 Release 里。整个构建都在云端 runner 上�
 
 | workflow | 所在分支 | 触发 | 做的事 |
 |---|---|---|---|
-| `sync-upstream.yml` | `main`（必须是默认分支，schedule 触发只认默认分支上的文件） | 每天 11:17（北京时间）+ 手动 | 把 `egoist/lorca` 的 `main` 合并进 `mobile-apk` 并 push |
+| `sync-upstream.yml` | `mobile-apk`（默认分支；schedule 触发只认默认分支上的文件） | 每天 11:17（北京时间）+ 手动 | 把 `egoist/lorca` 的 `main` 合并进 `mobile-apk` 并 push |
 | `release-mobile-apk.yml` | `mobile-apk` | push 到 `mobile-apk` 且改动了 `mobile/**`（或手动） | `expo prebuild` → Gradle `assembleRelease` → 签名 → 发 Release |
 
 注意：`sync-upstream` 的 push 必须能触发 `release-mobile-apk`，而用默认
