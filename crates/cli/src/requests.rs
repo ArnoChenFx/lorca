@@ -90,8 +90,10 @@ pub fn serve(app: Arc<App>, request: Request, blob_id: String) {
 /// What this Runner can be asked. The memory verbs check that the bot runs here: a request
 /// that reached the wrong machine is refused, not forwarded. The plugin verbs act on this
 /// Runner's own installs, and the `mcp.*` verbs on its mcp.json; the permission verb answers a
-/// card a bot here is waiting on; the bash verbs type into, or stop, a command a bot here left
-/// waiting; Send now has a turn here read a message it holds.
+/// card a bot here is waiting on; the bash verbs type into, stop, or background a command here;
+/// Send now has a turn here read a message it holds. The update verbs install the latest release
+/// of this CLI, or turn its automatic updates on or off. A request names no release and no
+/// download: the Runner installs only what its own signed manifest offers.
 async fn answer(app: &Arc<App>, request: &Request) -> Result<Value, String> {
     let body = &request.body;
     match request.verb.as_str() {
@@ -112,6 +114,10 @@ async fn answer(app: &Arc<App>, request: &Request) -> Result<Value, String> {
             let message_id = body["message_id"].as_str().ok_or("missing message_id")?;
             crate::turns::send_now(app, chat_id, message_id).map(|sent| json!({ "sent": sent }))
         }
+        #[cfg(feature = "cli")]
+        "update.install" => crate::update::install_now(app).await,
+        #[cfg(feature = "cli")]
+        "update.auto" => crate::update::set_auto(app, body["on"].as_bool().ok_or("missing on")?),
         other => Err(format!("Unknown request {other}")),
     }
 }

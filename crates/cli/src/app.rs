@@ -219,6 +219,10 @@ pub struct App {
     pub marketplace: crate::marketplace::Updates,
     /// Checks for a newer model catalog.
     pub catalog: crate::catalog::Updates,
+    /// Checks for a newer release of the CLI itself, which a build from `release-cli.yml`
+    /// installs over its own binary.
+    #[cfg(feature = "cli")]
+    pub updates: crate::update::Updater,
     /// Connected MCP servers.
     #[cfg(feature = "runner")]
     pub mcp: crate::plugins::mcp::Pool,
@@ -300,6 +304,8 @@ impl App {
             plugins: Mutex::new(plugins),
             marketplace,
             catalog: crate::catalog::Updates::default(),
+            #[cfg(feature = "cli")]
+            updates: crate::update::Updater::default(),
             #[cfg(feature = "runner")]
             mcp: crate::plugins::mcp::Pool::new(),
             #[cfg(feature = "runner")]
@@ -576,8 +582,22 @@ impl App {
             os_version,
             box_pubkey: keys.box_pubkey(),
             plugins: self.plugins.lock().unwrap().statuses(),
+            version: config::VERSION.into(),
+            update: self.update_status(),
             updated_at: config::now_unix(),
         })
+    }
+
+    /// This CLI's updates, when it is one that replaces itself.
+    pub fn update_status(&self) -> Option<crate::model::UpdateStatus> {
+        #[cfg(feature = "cli")]
+        {
+            self.updates.status()
+        }
+        #[cfg(not(feature = "cli"))]
+        {
+            None
+        }
     }
 
     // MARK: - Outbox
@@ -714,13 +734,15 @@ impl App {
         let (Some(dek), Some(device)) = (self.dek(), self.local_device()) else { return };
         let turns = self.turns_here();
         let fingerprint = format!(
-            "{}|{}|{}|{}|{}|{}|{}",
+            "{}|{}|{}|{}|{}|{}|{}|{}|{}",
             device.id,
             device.name,
             device.model,
             device.os,
             device.os_version,
             serde_json::to_string(&device.plugins).unwrap_or_default(),
+            device.version,
+            serde_json::to_string(&device.update).unwrap_or_default(),
             serde_json::to_string(&turns).unwrap_or_default()
         );
         let hash = keys::b64(&<sha2::Sha256 as sha2::Digest>::digest(fingerprint.as_bytes()));
@@ -1707,6 +1729,8 @@ impl App {
                     "status": status,
                     "last_seen": seen as f64,
                     "plugins": device.plugins,
+                    "version": device.version,
+                    "update": device.update,
                 })
             })
             .collect();

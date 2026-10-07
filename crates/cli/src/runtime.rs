@@ -825,6 +825,8 @@ mod tests {
             os_version: String::new(),
             box_pubkey: runner_keys.box_pubkey(),
             plugins: Vec::new(),
+            version: String::new(),
+            update: None,
             updated_at: 1,
         });
         let cancel = CancellationToken::new();
@@ -938,6 +940,8 @@ mod tests {
             os_version: String::new(),
             box_pubkey: mac_keys.box_pubkey(),
             plugins: Vec::new(),
+            version: String::new(),
+            update: None,
             updated_at: 1,
         });
         app.state.lock().unwrap().turns_online.insert("mac".into());
@@ -967,6 +971,8 @@ mod tests {
             os_version: "26.0".into(),
             box_pubkey: String::new(),
             plugins: Vec::new(),
+            version: String::new(),
+            update: None,
             updated_at: 1,
         };
         app.state.lock().unwrap().device_seen.insert("mac".into(), 1);
