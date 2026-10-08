@@ -3,8 +3,9 @@
 // inside its right edge a disc is Dictate while the field is empty and Send once there is
 // something to send; between them a multiline input grows to five lines. Focus, text, or
 // attached files expand the pill: the text takes its own row above the discs, and chips wrap
-// above the text. @-mention chips in a group. There is no hard Stop on the phone; sending a
-// message while a turn runs steers it. Where liquid glass is not available (older iOS, Android)
+// above the text. @-mention chips in a group. While a turn runs, a Stop disc sits beside
+// Send: the hard Stop, as in the desktop apps; sending a message while a turn runs still
+// steers it. Where liquid glass is not available (older iOS, Android)
 // the pill is a plain filled field.
 
 import { Button as MenuButton, Host as SwiftHost, Image as MenuImage, Menu, type ButtonProps } from "@expo/ui/swift-ui";
@@ -102,6 +103,8 @@ export function Composer({
   reply,
   onCancelReply,
   onSend,
+  working,
+  onStop,
 }: {
   members: Bot[];
   isGroup: boolean;
@@ -111,6 +114,10 @@ export function Composer({
   onCancelReply?: () => void;
   /** The text, its files, and the bots its `@Name`s picked from the chips, by id. */
   onSend: (text: string, attachments: PickedFile[], mentions: string[]) => void;
+  /** A turn is in flight in this chat: show the hard Stop disc beside Send. */
+  working: boolean;
+  /** The hard Stop: ends the turn in flight, wherever its Runner runs it. */
+  onStop: () => void;
 }) {
   useLanguage();
   const p = usePalette();
@@ -402,6 +409,23 @@ export function Composer({
       <Symbol name={primary === "send" ? "arrow.up" : "mic.fill"} size={16} color={primary === "send" ? p.userBubbleText : p.label} weight="bold" />
     </Pressable>
   );
+  // While a turn runs, a Stop disc sits beside Send: the hard Stop, as in the desktop apps.
+  // Send stays available, since sending steers the turn. Primary while Send is hidden, the
+  // way the Mac styles its stop button.
+  const stopDisc = working ? (
+    <Pressable
+      key="stop"
+      onPress={() => {
+        void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        onStop();
+      }}
+      style={({ pressed }) => [styles.disc, Platform.OS === "android" && styles.androidDisc, { backgroundColor: primary === "send" ? p.fill : p.tint, opacity: pressed ? 0.7 : 1 }]}
+      accessibilityRole="button"
+      accessibilityLabel={t("Stop")}
+    >
+      <Symbol name="stop.fill" size={14} color={primary === "send" ? p.label : p.userBubbleText} weight="bold" />
+    </Pressable>
+  ) : null;
   const dictationActions: MenuAction[] = [
     {
       id: "automatic",
@@ -492,10 +516,11 @@ export function Composer({
                 <View key="controls" style={styles.controls}>
                   {plus}
                   {listening && recording}
+                  {stopDisc}
                   {primaryDisc}
                 </View>,
               ]
-            : [plus, listening ? recording : input, primaryDisc]}
+            : [plus, listening ? recording : input, stopDisc, primaryDisc]}
         </View>
       </Surface>
       {Platform.OS === "android" && attachOpen ? (

@@ -231,6 +231,12 @@ class Engine {
     await core.request("chats.send_now", { chat_id: chatId, message_id: messageId });
   }
 
+  /// The hard Stop, as in the desktop apps: ends the turn in flight in this chat, wherever its
+  /// Runner runs it. The core seals `job_cancel` to every Runner doing the chat's work.
+  async stopTurn(chatId: string): Promise<void> {
+    await core.request("chats.stop", { chat_id: chatId });
+  }
+
   /// The page of messages before the chat's first one, as the transcript nears its top. One
   /// request per chat at a time.
   async loadOlder(chatId: string): Promise<void> {
