@@ -164,6 +164,14 @@ pub struct CustomInput {
 /// output cap, and whether it sees images; a server without one still works with the model ids
 /// the user gave.
 pub async fn connect_custom(app: &Arc<App>, input: CustomInput) -> Result<String, String> {
+    save_custom(app, input).await.map(|(kind, _)| kind)
+}
+
+/// [`connect_custom`], which also answers with a warning when the server could not be reached.
+/// A server that only some Device can reach, such as one on a Runner's own network, still saves
+/// with the model ids the user gave; a key the server refuses or a URL that is not an API still
+/// stops the save.
+pub async fn save_custom(app: &Arc<App>, input: CustomInput) -> Result<(String, Option<String>), String> {
     let name = input.name.trim().to_string();
     if name.is_empty() {
         return Err("Name the provider".into());
@@ -193,7 +201,16 @@ pub async fn connect_custom(app: &Arc<App>, input: CustomInput) -> Result<String
         }
     }
 
-    let listed = list_models(app, &name, api, &base_url, &api_key).await?;
+    let mut warning = None;
+    let listed = match list_models(app, &name, api, &base_url, &api_key).await {
+        Ok(listed) => listed,
+        Err(ListFailure::Unreachable(reason)) if !ids.is_empty() => {
+            warning = Some(format!("{reason}. Saved with the model ids you gave, for a Device that can reach it."));
+            None
+        }
+        Err(ListFailure::Unreachable(reason)) => return Err(format!("{reason}. Add the model ids yourself to save it anyway.")),
+        Err(ListFailure::Answered(message)) => return Err(message),
+    };
     let models = if ids.is_empty() {
         let listed = listed.ok_or_else(|| format!("{name} publishes no model list. Add the model ids yourself."))?;
         let chat: Vec<CustomModel> = listed.into_iter().filter(|model| !model.0).map(|model| model.1).collect();
@@ -222,7 +239,7 @@ pub async fn connect_custom(app: &Arc<App>, input: CustomInput) -> Result<String
         credentials.custom.insert(kind.clone(), provider);
     })
     .map_err(|e| e.to_string())?;
-    Ok(kind)
+    Ok((kind, warning))
 }
 
 /// The chat models a custom provider's server lists, for the apps' model picker: `None` when
@@ -232,7 +249,7 @@ pub async fn list_custom_models(app: &Arc<App>, name: &str, api: &str, base_url:
     let name = Some(name.trim()).filter(|name| !name.is_empty()).unwrap_or("The server");
     let api = CustomApi::parse(api.trim()).ok_or_else(|| format!("Unknown API {}", api.trim()))?;
     let root = custom_root(api, base_url)?;
-    let listed = list_models(app, name, api, &root, api_key.trim()).await?;
+    let listed = list_models(app, name, api, &root, api_key.trim()).await.map_err(ListFailure::message)?;
     Ok(listed.map(|models| models.into_iter().filter(|(not_chat, _)| !not_chat).map(|(_, model)| model).collect()))
 }
 
@@ -270,10 +287,25 @@ fn custom_root(api: CustomApi, base_url: &str) -> Result<String, String> {
     Ok(endpoint.iter().find_map(|path| url.strip_suffix(path)).unwrap_or(&url).to_string())
 }
 
+/// Why a custom provider's server gave no model list: it could not be reached, or it answered
+/// with something the key or the URL has to fix.
+enum ListFailure {
+    Unreachable(String),
+    Answered(String),
+}
+
+impl ListFailure {
+    fn message(self) -> String {
+        match self {
+            Self::Unreachable(message) | Self::Answered(message) => message,
+        }
+    }
+}
+
 /// The models a custom provider's server lists, each with whether it is not for chat
 /// (embeddings, speech, images); `None` when the server publishes no list. A key the server
 /// refuses, or a server that cannot be reached, fails.
-async fn list_models(app: &Arc<App>, name: &str, api: CustomApi, root: &str, api_key: &str) -> Result<Option<Vec<(bool, CustomModel)>>, String> {
+async fn list_models(app: &Arc<App>, name: &str, api: CustomApi, root: &str, api_key: &str) -> Result<Option<Vec<(bool, CustomModel)>>, ListFailure> {
     let mut request = match api {
         CustomApi::ChatCompletions | CustomApi::Responses => {
             let request = app.http.get(format!("{root}/models"));
@@ -285,12 +317,15 @@ async fn list_models(app: &Arc<App>, name: &str, api: CustomApi, root: &str, api
         }
     };
     request = request.timeout(std::time::Duration::from_secs(20));
-    let response = request.send().await.map_err(|e| format!("{name} unreachable: {}", lorca_tls::describe(&e)))?;
+    let response = request.send().await.map_err(|e| ListFailure::Unreachable(format!("{name} unreachable: {}", lorca_tls::describe(&e))))?;
     match response.status() {
-        reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN if api_key.is_empty() => Err(format!("{name} needs an API key")),
-        reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN => Err(format!("{name} rejected that key")),
+        reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN if api_key.is_empty() => Err(ListFailure::Answered(format!("{name} needs an API key"))),
+        reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN => Err(ListFailure::Answered(format!("{name} rejected that key"))),
         status if status.is_success() => {
-            let body: Value = response.json().await.map_err(|_| format!("{name} did not answer like an API at {root}. Check the base URL."))?;
+            let body: Value = response
+                .json()
+                .await
+                .map_err(|_| ListFailure::Answered(format!("{name} did not answer like an API at {root}. Check the base URL.")))?;
             Ok(listed_models(&body))
         }
         _ => Ok(None),
@@ -570,6 +605,23 @@ mod tests {
         assert_eq!(connect_custom(app, input("Anthropic", "messages", &root, &["m"])).await.unwrap_err(), "A provider named Anthropic exists already");
         assert!(connect_custom(app, input("Lab", "completions", &root, &["m"])).await.unwrap_err().starts_with("Unknown API"));
         assert!(app.credentials.lock().unwrap().custom.is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_unreachable_custom_provider_saves_with_the_ids_given_and_a_warning() {
+        let scratch = scratch_app();
+        let app = &scratch.0;
+        let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let root = format!("http://127.0.0.1:{port}");
+
+        let (kind, warning) = save_custom(app, input("Lab", "chat-completions", &root, &["qwen3:8b"])).await.unwrap();
+        assert_eq!(kind, "custom:lab");
+        assert!(warning.unwrap().starts_with("Lab unreachable:"));
+        let saved = app.credentials.lock().unwrap().custom[&kind].clone();
+        assert_eq!(saved.models.iter().map(|model| model.id.as_str()).collect::<Vec<_>>(), vec!["qwen3:8b"]);
+
+        assert!(connect_custom(app, input("Lab Two", "chat-completions", &root, &[])).await.unwrap_err().contains("Add the model ids yourself"));
+        assert_eq!(app.credentials.lock().unwrap().custom.len(), 1);
     }
 
     #[tokio::test]

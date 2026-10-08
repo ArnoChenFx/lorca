@@ -383,15 +383,15 @@ class Engine {
     }
   }
 
-  /// Adds a custom provider, or saves the one `kind` names, once the core has reached its server
-  /// with the key. With no model ids the core takes every chat model the server lists. The
-  /// provider joins the account's encrypted credentials, shared with every paired Device.
-  /// Answers its kind; rejects with what to fix.
-  async saveCustomProvider(input: { kind?: string; name: string; api: CustomAPI; baseURL: string; apiKey: string; models: string[] }): Promise<string> {
+  /// Adds a custom provider, or saves the one `kind` names. With no model ids the core takes every
+  /// chat model the server lists. A server this phone cannot reach still saves with the model ids
+  /// given, and `warning` says so. The provider joins the account's encrypted credentials, shared
+  /// with every paired Device. Answers its kind; rejects with what to fix.
+  async saveCustomProvider(input: { kind?: string; name: string; api: CustomAPI; baseURL: string; apiKey: string; models: string[] }): Promise<{ kind: string; warning?: string }> {
     const params = { ...(input.kind ? { kind: input.kind } : {}), name: input.name, api: input.api, base_url: input.baseURL, api_key: input.apiKey, models: input.models };
-    const { kind, providers } = await core.request<{ kind: string; providers: ProviderStatus[] }>("providers.connect_custom", params);
+    const { kind, providers, warning } = await core.request<{ kind: string; providers: ProviderStatus[]; warning?: string | null }>("providers.connect_custom", params);
     useStore.setState({ providers });
-    return kind;
+    return { kind, warning: warning ?? undefined };
   }
 
   /// The chat models a custom provider's server lists, in its order, with what it says of them;
