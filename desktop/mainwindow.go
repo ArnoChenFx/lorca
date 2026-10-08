@@ -6,6 +6,7 @@ import (
 
 	"github.com/egoist/lorca/desktop/model"
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/plugins/glass"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -573,11 +574,23 @@ func (m *mainWindow) view(c *ui.Context) {
 	sidebar, inspector := m.panes(width)
 
 	m.shortcuts(c)
-	root := ui.Box(c).Fill().Background(p.Content)
+	// Where the window shows its material, the sidebar is transparent over it, as the Mac's.
+	vibrant := c.Vibrancy()
+	if vibrant {
+		c.Root().Background(ui.Transparent)
+	}
+	root := ui.Box(c).Fill()
+	if !vibrant {
+		root.Background(p.Content)
+	}
 	root.Children(func() {
 		ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 			if !m.sidebarCollapsed {
-				ui.Column(c).Width(sidebar).Background(p.Sidebar).Children(func() {
+				pane := ui.Column(c).Width(sidebar)
+				if !vibrant {
+					pane.Background(p.Sidebar)
+				}
+				pane.Children(func() {
 					m.paneHeader(c).Padding(0, 8).Gap(4).Children(func() { m.leadingButtons(c, false) })
 					ui.Column(c).Grow(1).MinHeight(0).Children(func() {
 						if m.isSettings() {
@@ -590,13 +603,25 @@ func (m *mainWindow) view(c *ui.Context) {
 				ui.Box(c).Width(1).Background(p.ToolbarLine)
 			}
 			ui.Column(c).Grow(1).MinWidth(0).Background(p.Content).Children(func() {
-				m.contentHeader(c, chatID, title, subtitle, inspector == 0)
+				// A chat runs under the header, as the Mac's transcript runs under the titlebar; the
+				// other panes start below it.
+				underHeader := chatID != "" && !m.isSettings()
 				body := ui.Column(c).Grow(1).MinHeight(0)
+				if !underHeader {
+					// What scrolls under the header fades into it.
+					body.Margin(headerHeight, 0, 0, 0).DrawOver(func(painter *ui.Painter, r ui.Rect) {
+						painter.FillGradient(ui.Rect{X: r.X, Y: r.Y, W: r.W, H: 10}, ui.LinearGradient{From: p.Content, To: p.Content.Alpha(0), Angle: 180}, 0)
+					})
+				}
 				body.Children(func() { m.content(c, chatID) })
-				// What scrolls under the content's header fades into it.
-				body.DrawOver(func(painter *ui.Painter, r ui.Rect) {
-					painter.FillGradient(ui.Rect{X: r.X, Y: r.Y, W: r.W, H: 10}, ui.LinearGradient{From: p.Content, To: p.Content.Alpha(0), Angle: 180}, 0)
-				})
+				var edge ui.Element
+				if underHeader {
+					edge = ui.Box(c).Absolute().Top(0).Left(0).Right(0).Height(headerHeight).PassThrough()
+				}
+				header := m.contentHeader(c, chatID, title, subtitle, inspector == 0)
+				if underHeader && m.chat != nil {
+					edge.Material(headerEdge{scroll: m.chat.transcriptScroll, hovered: header.Hovered(), background: p.Content})
+				}
 			})
 			if inspector > 0 {
 				ui.Box(c).Width(1).Background(p.ToolbarLine)
@@ -731,9 +756,9 @@ func (m *mainWindow) inspectorToggle(c *ui.Context) {
 // picker on the Device panes, and the chat's running tasks. The inspector's toggle sits here while
 // the inspector is closed, and in the inspector's header while it is open; the rightmost header
 // keeps clear of the window controls on Windows and Linux.
-func (m *mainWindow) contentHeader(c *ui.Context, chatID, title, subtitle string, rightmost bool) {
+func (m *mainWindow) contentHeader(c *ui.Context, chatID, title, subtitle string, rightmost bool) ui.Element {
 	p := colors(c)
-	header := m.paneHeader(c)
+	header := m.paneHeader(c.Key("content-header")).Absolute().Top(0).Left(0).Right(0)
 	if rightmost {
 		header.Padding(0, max(12, c.TitleBar().Right+8), 0, 12)
 	}
@@ -769,6 +794,23 @@ func (m *mainWindow) contentHeader(c *ui.Context, chatID, title, subtitle string
 			m.inspectorToggle(c)
 		}
 	})
+	return header
+}
+
+// headerEdge is the hard scroll edge under a chat's header, as AppKit's titlebar pocket draws it:
+// none while the transcript rests at its top and the pointer is elsewhere, frosting what scrolled
+// under the header, with a hairline below it, once the transcript scrolls or the pointer is over
+// the header. It reads the offset as it paints, after the frame laid the transcript out.
+type headerEdge struct {
+	scroll     *ui.ScrollState
+	hovered    bool
+	background ui.Color
+}
+
+func (e headerEdge) PaintMaterial(p *ui.Painter, box ui.Rect, radii [4]float32) {
+	if e.hovered || e.scroll != nil && e.scroll.Y > 0 {
+		glass.ScrollEdge{Hard: true, Background: e.background}.PaintMaterial(p, box, radii)
+	}
 }
 
 // devicePicker is the Device the Plugins, Bots, and Devices panes show; the pick holds across

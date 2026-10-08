@@ -1,5 +1,10 @@
 import type { ExpoConfig } from "expo/config";
 
+// The phone app's version on both platforms. A release (`mobile-vX.Y.Z`) names it, and Android
+// orders its builds by a versionCode made from it: 1.2.3 is 1002003.
+const version = "1.0.0";
+const [major, minor, patch] = version.split(".").map(Number);
+
 export default (): ExpoConfig => {
   const development =
     process.env.LORCA_MOBILE_VARIANT === "development" ||
@@ -17,7 +22,7 @@ export default (): ExpoConfig => {
   return {
     name: appName,
     slug: "lorca",
-    version: "1.0.0",
+    version,
     scheme: development ? "lorca-dev" : "lorca",
     orientation: "portrait",
     icon,
@@ -51,7 +56,7 @@ export default (): ExpoConfig => {
       predictiveBackGestureEnabled: true,
       // The APK workflow sets LORCA_ANDROID_VERSION_CODE to its run number, so every
       // published APK can upgrade the previous one in place.
-      versionCode: Number(process.env.LORCA_ANDROID_VERSION_CODE ?? 1),
+      versionCode: Number(process.env.LORCA_ANDROID_VERSION_CODE ?? major * 1_000_000 + minor * 1_000 + patch),
     },
     web: {
       favicon,

@@ -49,6 +49,8 @@ type chatState struct {
 	// composerHeight is the composer's as the last frame laid it out, which the transcript keeps
 	// clear at its end.
 	composerHeight float32
+	// transcriptScroll is how far the transcript is scrolled, which the header's scroll edge reads.
+	transcriptScroll *ui.ScrollState
 }
 
 func (m *mainWindow) chatStateFor(chatID string) *chatState {
@@ -158,8 +160,11 @@ func (m *mainWindow) chatView(c *ui.Context, chatID string) {
 		bottom := s.composerHeight
 		transcript := ui.List(c, &s.list, len(rows), func(i int) {
 			m.chatRowView(c, chat, rows[i], s)
-		}).Fill().Padding(8, 0, bottom+14, 0).ScrollbarInsets(0, 0, bottom, 0).Label(L("Transcript"))
-		_ = transcript
+		}).Fill().Padding(headerHeight+8, 0, bottom+14, 0).ScrollbarInsets(headerHeight, 0, bottom, 0).Label(L("Transcript"))
+		// Kept with the transcript's element, which scrolls from where the state says when the two
+		// differ: a state of the chat's own would move a transcript built anew.
+		s.transcriptScroll = ui.Local(transcript, "scroll", func() ui.ScrollState { return ui.ScrollState{} })
+		transcript.TrackScroll(s.transcriptScroll)
 		// Nearing the first message: ask for the page before it.
 		if first, _ := s.list.Visible(); first < 8 && chat.HasMore {
 			store.LoadOlderMessages(chatID)
