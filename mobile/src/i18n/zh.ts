@@ -384,7 +384,10 @@ export const zh: Record<string, string> = {
   "Your bots and their chats sync from the relay once this phone hears from your Runner.": "这部手机收到 Runner 的消息后，你的智能体和聊天会从中继同步过来。",
   "Your bots run on your own computers. Get a pairing code from a computer that already has your identity: choose Pair a Device in the desktop app, or run lorca pair in a terminal. Then scan or paste the code.": "你的智能体在你自己的电脑上运行。请从已有你身份的电脑获取配对码：在桌面应用中选择“配对设备”，或在终端运行 lorca pair，然后扫描或粘贴配对码。",
   "Your browser opens a {name} sign-in. The tokens are shared with your paired Devices, encrypted with your account key; the relay cannot read them.": "浏览器会打开 {name} 登录页面。令牌会使用你的账户密钥加密并同步到已配对的设备；中继无法读取。",
-  "Saved with a warning": "已保存（附带警告）",
   "Shown on every paired Device in place of {name}. Leave it empty to show the name the machine goes by.": "在每台已配对的设备上代替 {name} 显示。留空则显示该机器本身的名称。",
   "Couldn’t rename {name}": "无法重命名 {name}",
+  "Review model": "审阅模型",
+  "The model that checks actions while Auto-review is on: any model id its provider serves, such as a decision model on a gateway. Left empty, the provider's review model runs.": "自动审查开启时，由该模型检查操作：可以是服务商提供的任意模型 ID，例如网关上的决策模型。留空则使用服务商的审阅模型。",
+  "The bot's provider": "智能体的服务商",
+  "Saved with a warning": "已保存（附带警告）",
 };

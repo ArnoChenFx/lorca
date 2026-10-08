@@ -150,6 +150,25 @@ pub fn review_model(app: &App, kind: &str) -> (String, Option<ThinkingLevel>) {
     (model.to_string(), Some(thinking))
 }
 
+/// The provider kind, model, and thinking Auto-review runs for bots of `kind`: the provider and
+/// model chosen in Auto-review's settings, each falling back to the bot's provider and that
+/// provider's review model. A model the user named runs at its catalog's lowest level, or at the
+/// server's default when the catalog does not know it.
+pub fn review_choice(app: &App, kind: &str) -> (String, String, Option<ThinkingLevel>) {
+    let auto_review = app.auto_review();
+    let provider = auto_review.review_provider.clone().filter(|provider| !provider.is_empty()).unwrap_or_else(|| kind.to_string());
+    match auto_review.review_model.as_deref().map(str::trim).filter(|model| !model.is_empty()) {
+        Some(model) => {
+            let thinking = models::find(&provider, model).or_else(|| models::find_any(model)).and_then(|known| known.levels.first().copied());
+            (provider, model.to_string(), thinking)
+        }
+        None => {
+            let (model, thinking) = review_model(app, &provider);
+            (provider, model, thinking)
+        }
+    }
+}
+
 /// A bot's thinking level as stored, or nothing for the provider's default.
 pub fn thinking_level(bot: &crate::model::Bot) -> Option<ThinkingLevel> {
     bot.thinking.as_deref().and_then(|s| s.parse().ok())
@@ -525,6 +544,30 @@ mod tests {
         add_custom(app, "custom:proxy", CustomApi::Messages, vec![model("anthropic/claude-haiku-4-5")]);
         assert_eq!(review_model(app, "custom:proxy"), ("anthropic/claude-haiku-4-5".into(), Some(ThinkingLevel::Off)));
         assert_eq!(review_model(app, "custom:gone"), (String::new(), None));
+    }
+
+    #[test]
+    fn auto_review_runs_the_provider_and_model_the_user_chose() {
+        let scratch = scratch_app();
+        let app = &scratch.0;
+        add_custom(app, "custom:proxy", CustomApi::ChatCompletions, vec![model("anthropic/claude-haiku-4-5")]);
+        let chosen = |review_provider: Option<&str>, review_model: Option<&str>| crate::model::AutoReview {
+            review_provider: review_provider.map(str::to_string),
+            review_model: review_model.map(str::to_string),
+            ..Default::default()
+        };
+
+        assert_eq!(review_choice(app, "deepseek"), ("deepseek".into(), "deepseek-flash".into(), Some(ThinkingLevel::Off)));
+        app.set_auto_review(chosen(None, Some("decision-x")));
+        assert_eq!(review_choice(app, "deepseek"), ("deepseek".into(), "decision-x".into(), None));
+        app.set_auto_review(chosen(None, Some("deepseek-flash-2025")));
+        assert_eq!(review_choice(app, "deepseek"), ("deepseek".into(), "deepseek-flash-2025".into(), Some(ThinkingLevel::Off)));
+        app.set_auto_review(chosen(Some("custom:proxy"), Some("openai/decision-7b")));
+        assert_eq!(review_choice(app, "deepseek"), ("custom:proxy".into(), "openai/decision-7b".into(), None));
+        app.set_auto_review(chosen(Some("custom:proxy"), None));
+        assert_eq!(review_choice(app, "deepseek"), ("custom:proxy".into(), "anthropic/claude-haiku-4-5".into(), Some(ThinkingLevel::Off)));
+        app.set_auto_review(chosen(Some("custom:gone"), Some("x")));
+        assert_eq!(review_choice(app, "deepseek").0, "custom:gone");
     }
 
     #[test]

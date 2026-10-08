@@ -807,5 +807,8 @@ var zh = map[string]string{
 	"Your first bot":            "你的第一个智能体",
 	"Your identity is restored": "你的身份已恢复",
 	"Zoom":                      "缩放",
-	"Shown on every paired Device in place of %@. Leave it empty to show the name the machine goes by.": "在每台已配对的设备上代替 %@ 显示。留空则显示该机器本身的名称。",
+	"Review model":              "审阅模型",
+	"The bot's provider":        "智能体的服务商",
+	"The model that checks actions while Auto-review is on: any model id its provider serves, such as a decision model on a gateway. Left empty, the provider's review model runs.": "自动审查开启时，由该模型检查操作：可以是服务商提供的任意模型 ID，例如网关上的决策模型。留空则使用服务商的审阅模型。",
+	"Shown on every paired Device in place of %@. Leave it empty to show the name the machine goes by.":                                                                             "在每台已配对的设备上代替 %@ 显示。留空则显示该机器本身的名称。",
 }

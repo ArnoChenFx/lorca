@@ -292,8 +292,10 @@ export function showsCard(tool: Extract<Body, { kind: "tool" }>): boolean {
 /// a plugin tool it adds a rule for that exact tool (`tool`).
 export type AutoReviewRule = { id: string; text: string; behavior: "allow" | "ask"; tool?: string };
 
-/// The check on effectful plugin actions and shell commands, shared through the roster.
-export type AutoReview = { is_enabled: boolean; rules: AutoReviewRule[] };
+/// The check on effectful plugin actions and shell commands, shared through the roster. The
+/// review model is the provider kind and model id that run it, each unset for the bot's own
+/// provider and that provider's review model.
+export type AutoReview = { is_enabled: boolean; rules: AutoReviewRule[]; review_provider?: string | null; review_model?: string | null };
 
 export type MessageState =
   | { kind: "thinking" }

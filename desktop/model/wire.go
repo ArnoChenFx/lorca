@@ -220,8 +220,10 @@ type WireRoutine struct {
 }
 
 type WireAutoReview struct {
-	IsEnabled bool `json:"is_enabled"`
-	Rules     []struct {
+	IsEnabled      bool    `json:"is_enabled"`
+	ReviewProvider *string `json:"review_provider"`
+	ReviewModel    *string `json:"review_model"`
+	Rules          []struct {
 		ID       string  `json:"id"`
 		Text     string  `json:"text"`
 		Behavior string  `json:"behavior"`
@@ -566,17 +568,17 @@ func ToParsedServers(wire WireParsedServers) []ParsedServer {
 }
 
 func ToDevice(wire WireDevice) *Device {
-	device := &Device{
-		ID:           wire.ID,
 	autoName := str(wire.AutoName)
 	if autoName == "" {
 		autoName = wire.Name
 	}
+	device := &Device{
+		ID:           wire.ID,
 		Name:         wire.Name,
-		Model:        wire.Model,
-		OS:           DeviceOS(wire.OS),
 		AutoName:     autoName,
 		CustomName:   str(wire.CustomName),
+		Model:        wire.Model,
+		OS:           DeviceOS(wire.OS),
 		OSVersion:    wire.OSVersion,
 		IsThisDevice: wire.IsThisDevice,
 		Status:       StatusOffline,
@@ -829,7 +831,7 @@ func ToAutoReview(wire *WireAutoReview) AutoReview {
 	if wire == nil {
 		return AutoReview{IsEnabled: true}
 	}
-	review := AutoReview{IsEnabled: wire.IsEnabled}
+	review := AutoReview{IsEnabled: wire.IsEnabled, ReviewProvider: str(wire.ReviewProvider), ReviewModel: str(wire.ReviewModel)}
 	for _, rule := range wire.Rules {
 		behavior := "allow"
 		if rule.Behavior == "ask" {

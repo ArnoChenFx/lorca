@@ -2,7 +2,7 @@ import * as Application from "expo-application";
 import { AlertDialog, Column, Host, OutlinedTextField, RadioButton, Row as ComposeRow, Text as ComposeText, TextButton } from "@expo/ui/jetpack-compose";
 import { clickable, fillMaxWidth, padding } from "@expo/ui/jetpack-compose/modifiers";
 import { Stack, useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
 import { engine } from "../../src/core/engine";
 import { loadPrefs } from "../../src/core/prefs";
@@ -103,6 +103,25 @@ export default function SettingsScreen() {
     const machineName = thisDevice?.auto_name ?? thisDevice?.name;
     if (thisDevice && name.trim() && name.trim() !== machineName)
       void engine.renameDevice(name);
+  }
+
+  const [reviewModel, setReviewModel] = useState(autoReview.review_model ?? "");
+  useEffect(() => setReviewModel(autoReview.review_model ?? ""), [autoReview.review_model]);
+  const reviewProviderChoices: MenuChoice[] = [
+    { title: t("The bot's provider"), selected: !autoReview.review_provider, dividerAfter: true, onPress: () => engine.setAutoReview({ ...autoReview, review_provider: null }) },
+    ...providers
+      .filter((provider) => provider.is_connected)
+      .map((provider) => ({
+        title: providerLabel(provider.kind, providers),
+        selected: autoReview.review_provider === provider.kind,
+        onPress: () => engine.setAutoReview({ ...autoReview, review_provider: provider.kind }),
+      })),
+  ];
+
+  function commitReviewModel() {
+    const model = reviewModel.trim() || null;
+    if (model === (autoReview.review_model ?? null)) return;
+    engine.setAutoReview({ ...autoReview, review_model: model });
   }
 
   function addRule() {
@@ -255,6 +274,32 @@ export default function SettingsScreen() {
             />
           ))}
           <Row title={t("Add rule…")} onPress={addRule} />
+        </Section>
+
+        <Section
+          title={t("Review model")}
+          footer={t("The model that checks actions while Auto-review is on: any model id its provider serves, such as a decision model on a gateway. Left empty, the provider's review model runs.")}
+        >
+          <Row
+            title={t("Provider")}
+            menu={{
+              title: t("Provider"),
+              value: autoReview.review_provider ? providerLabel(autoReview.review_provider, providers) : t("The bot's provider"),
+              choices: reviewProviderChoices,
+            }}
+          />
+          <FieldRow
+            label={t("Model")}
+            value={reviewModel}
+            placeholder={t("Default")}
+            onChangeText={setReviewModel}
+            onBlur={commitReviewModel}
+            onSubmitEditing={commitReviewModel}
+            returnKeyType="done"
+            autoCapitalize="none"
+            autoCorrect={false}
+            style={{ textAlign: "right", color: p.secondaryLabel }}
+          />
         </Section>
 
         <Section

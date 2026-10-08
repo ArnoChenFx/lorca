@@ -1516,7 +1516,7 @@ func (s *Store) SetAutoReview(value AutoReview) {
 		}
 		rules = append(rules, entry)
 	}
-	s.perform("auto_review.set", map[string]any{"is_enabled": value.IsEnabled, "rules": rules})
+	s.perform("auto_review.set", map[string]any{"is_enabled": value.IsEnabled, "rules": rules, "review_provider": value.ReviewProvider, "review_model": value.ReviewModel})
 }
 
 // SetDeviceCustomName gives a Device the name every paired Device shows it as; blank takes its own

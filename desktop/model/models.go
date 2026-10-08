@@ -765,6 +765,10 @@ func BehaviorTitle(behavior string) string {
 type AutoReview struct {
 	IsEnabled bool
 	Rules     []AutoReviewRule
+	// ReviewProvider and ReviewModel pick the model that reviews when they are not the bot's
+	// provider and its review model. Empty takes the default.
+	ReviewProvider string
+	ReviewModel    string
 }
 
 // MARK: - Plugins

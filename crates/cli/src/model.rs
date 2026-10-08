@@ -162,11 +162,19 @@ pub struct AutoReview {
     pub is_enabled: bool,
     #[serde(default)]
     pub rules: Vec<AutoReviewRule>,
+    /// The provider kind that runs the review, when it is not the bot's own. Unset, the bot's
+    /// provider runs it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_provider: Option<String>,
+    /// The model that runs the review, as its provider names it, when it is not the provider's
+    /// review model. Any id the provider serves works, so a decision model on a gateway does too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_model: Option<String>,
 }
 
 impl Default for AutoReview {
     fn default() -> Self {
-        AutoReview { is_enabled: true, rules: Vec::new() }
+        AutoReview { is_enabled: true, rules: Vec::new(), review_provider: None, review_model: None }
     }
 }
 
@@ -710,6 +718,9 @@ pub struct RosterBlob {
     pub routines: Vec<Routine>,
     #[serde(default)]
     pub auto_review: AutoReview,
+    /// Custom display names by Device id, set on any Device for any Device.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub device_names: BTreeMap<String, String>,
     pub updated_at: f64,
 }
 
@@ -718,9 +729,6 @@ pub struct RosterBlob {
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum ChatBlob {
     /// Insert or replace by message id.
-    /// Custom display names by Device id, set on any Device for any Device.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub device_names: BTreeMap<String, String>,
     Upsert { message: Message },
     Remove { chat_id: String, message_id: String },
     ClearUnread { chat_id: String },
