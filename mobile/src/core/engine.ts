@@ -540,6 +540,11 @@ class Engine {
   /// which answers "Pairing cancelled".
   async pair(pairingString: string, deviceName: string | undefined, onProgress?: (progress: PairProgress) => void, signal?: AbortSignal) {
     onProgress?.({ phase: "posting" });
+  /// Sets the custom name a Device shows as, on every paired Device; blank takes its own name back.
+  async setDeviceCustomName(id: string, customName: string) {
+    await core.request("device.set_custom_name", { id, custom_name: customName });
+  }
+
     const stop = core.onEvent((frame) => {
       if (frame.event === "pair.posted") onProgress?.({ phase: "waiting" });
     });

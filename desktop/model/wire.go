@@ -76,6 +76,8 @@ type WireDeviceUpdate struct {
 type WireDevice struct {
 	ID           string             `json:"id"`
 	Name         string             `json:"name"`
+	AutoName     *string            `json:"auto_name"`
+	CustomName   *string            `json:"custom_name"`
 	Model        string             `json:"model"`
 	OS           string             `json:"os"`
 	OSVersion    string             `json:"os_version"`
@@ -566,9 +568,15 @@ func ToParsedServers(wire WireParsedServers) []ParsedServer {
 func ToDevice(wire WireDevice) *Device {
 	device := &Device{
 		ID:           wire.ID,
+	autoName := str(wire.AutoName)
+	if autoName == "" {
+		autoName = wire.Name
+	}
 		Name:         wire.Name,
 		Model:        wire.Model,
 		OS:           DeviceOS(wire.OS),
+		AutoName:     autoName,
+		CustomName:   str(wire.CustomName),
 		OSVersion:    wire.OSVersion,
 		IsThisDevice: wire.IsThisDevice,
 		Status:       StatusOffline,

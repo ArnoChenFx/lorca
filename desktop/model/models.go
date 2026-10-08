@@ -637,8 +637,12 @@ func (s DeviceStatus) Label() string {
 // Device is a paired machine or phone. Its OS decides whether it is a Runner: only desktop
 // systems run the CLI and get bots assigned.
 type Device struct {
-	ID           string
-	Name         string
+	ID   string
+	Name string
+	// AutoName is the name the machine goes by. CustomName, when the account gave one, stands in
+	// for it in Name.
+	AutoName     string
+	CustomName   string
 	Model        string
 	OS           DeviceOS
 	OSVersion    string

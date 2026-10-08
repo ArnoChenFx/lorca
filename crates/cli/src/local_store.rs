@@ -44,6 +44,7 @@ impl LocalStore {
              CREATE TABLE IF NOT EXISTS metadata (
                  id                       INTEGER PRIMARY KEY CHECK (id = 1),
                  auto_review_json         TEXT NOT NULL,
+                 device_names_json        TEXT NOT NULL DEFAULT '{}',
                  last_seq                 INTEGER NOT NULL,
                  machine_blob_hash        TEXT,
                  credentials_uploaded     INTEGER NOT NULL
@@ -141,6 +142,14 @@ impl LocalStore {
              );
              PRAGMA user_version = 1;",
         )?;
+        let has_device_names: bool = connection.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('metadata') WHERE name = 'device_names_json'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )? > 0;
+        if !has_device_names {
+            connection.execute("ALTER TABLE metadata ADD COLUMN device_names_json TEXT NOT NULL DEFAULT '{}'", [])?;
+        }
         crate::config::set_private(path)?;
         Ok(Self {
             connection: Mutex::new(connection),
@@ -149,22 +158,23 @@ impl LocalStore {
 
     pub fn load_state(&self) -> anyhow::Result<State> {
         let connection = self.connection.lock().unwrap();
-        let metadata: Option<(String, i64, Option<String>, bool)> = connection
+        let metadata: Option<(String, String, i64, Option<String>, bool)> = connection
             .query_row(
-                "SELECT auto_review_json, last_seq, machine_blob_hash, credentials_uploaded
+                "SELECT auto_review_json, device_names_json, last_seq, machine_blob_hash, credentials_uploaded
                  FROM metadata WHERE id = 1",
                 [],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
             )
             .optional()?;
-        let (auto_review, last_seq, machine_blob_hash, credentials_uploaded) = match metadata {
-            Some((json, last_seq, machine_blob_hash, credentials_uploaded)) => (
+        let (auto_review, device_names, last_seq, machine_blob_hash, credentials_uploaded) = match metadata {
+            Some((json, names, last_seq, machine_blob_hash, credentials_uploaded)) => (
                 serde_json::from_str(&json).context("decoding Auto-review state")?,
+                serde_json::from_str(&names).context("decoding Device names")?,
                 last_seq,
                 machine_blob_hash,
                 credentials_uploaded,
             ),
-            None => (Default::default(), 0, None, false),
+            None => (Default::default(), Default::default(), 0, None, false),
         };
         Ok(State {
             devices: load_json_table(&connection, "devices")?,
@@ -172,6 +182,7 @@ impl LocalStore {
             chats: load_json_table(&connection, "chats")?,
             routines: load_json_table(&connection, "routines")?,
             auto_review,
+            device_names,
             last_seq,
             group_deletes: load_ordered_ids(&connection, "group_deletes")?,
             blob_deletes: load_ordered_ids(&connection, "blob_deletes")?,
@@ -1116,15 +1127,17 @@ fn save_state_tx(tx: &Transaction<'_>, state: &State) -> anyhow::Result<()> {
 
 fn save_metadata_tx(tx: &Transaction<'_>, state: &State) -> anyhow::Result<()> {
     tx.execute(
-        "INSERT INTO metadata (id, auto_review_json, last_seq, machine_blob_hash, credentials_uploaded)
-         VALUES (1, ?1, ?2, ?3, ?4)
+        "INSERT INTO metadata (id, auto_review_json, device_names_json, last_seq, machine_blob_hash, credentials_uploaded)
+         VALUES (1, ?1, ?2, ?3, ?4, ?5)
          ON CONFLICT(id) DO UPDATE SET
              auto_review_json = excluded.auto_review_json,
+             device_names_json = excluded.device_names_json,
              last_seq = excluded.last_seq,
              machine_blob_hash = excluded.machine_blob_hash,
              credentials_uploaded = excluded.credentials_uploaded",
         params![
             serde_json::to_string(&state.auto_review)?,
+            serde_json::to_string(&state.device_names)?,
             state.last_seq,
             state.machine_blob_hash,
             state.credentials_uploaded,
@@ -1419,6 +1432,34 @@ mod tests {
         message.id = id.into();
         message.created_at = at;
         message
+    }
+
+    #[test]
+    fn a_metadata_table_from_before_device_names_gains_the_column() {
+        let home = std::env::temp_dir().join(format!("lorca-old-metadata-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&home).unwrap();
+        let path = home.join("lorca.sqlite3");
+        Connection::open(&path)
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE metadata (
+                     id INTEGER PRIMARY KEY CHECK (id = 1),
+                     auto_review_json TEXT NOT NULL,
+                     last_seq INTEGER NOT NULL,
+                     machine_blob_hash TEXT,
+                     credentials_uploaded INTEGER NOT NULL
+                 );
+                 INSERT INTO metadata VALUES (1, '{\"is_enabled\":false}', 7, NULL, 0);",
+            )
+            .unwrap();
+
+        let store = Scratch(LocalStore::open(&path).unwrap(), home);
+        let mut state = store.0.load_state().unwrap();
+        assert_eq!((state.last_seq, state.auto_review.is_enabled), (7, false));
+        assert!(state.device_names.is_empty());
+        state.device_names.insert("runner".into(), "Build box".into());
+        store.0.save_state(&state).unwrap();
+        assert_eq!(store.0.load_state().unwrap().device_names.get("runner").map(String::as_str), Some("Build box"));
     }
 
     #[test]

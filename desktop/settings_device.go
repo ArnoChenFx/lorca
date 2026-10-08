@@ -55,6 +55,16 @@ func (s settingsPane) device(c *ui.Context, m *mainWindow) {
 			return
 		}
 		settingsDeviceHeader(c, device)
+		if device.OS != model.OSUnknown {
+			nameTitle := L("Name")
+			s.section(c, nameTitle, nil, func(k *card) {
+				name, ok := editableRow(c, k, nameTitle, device.CustomName, device.AutoName, false, true)
+				if ok && name != device.CustomName {
+					store.SetDeviceCustomName(device.ID, name)
+				}
+				noteRow(c, k, L("Shown on every paired Device in place of %@. Leave it empty to show the name the machine goes by.", device.AutoName), nil)
+			})
+		}
 		s.section(c, L("Machine"), nil, func(k *card) {
 			unknown := device.OS == model.OSUnknown
 			if unknown {

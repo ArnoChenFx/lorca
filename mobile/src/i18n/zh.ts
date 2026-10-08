@@ -384,4 +384,6 @@ export const zh: Record<string, string> = {
   "Your bots run on your own computers. Get a pairing code from a computer that already has your identity: choose Pair a Device in the desktop app, or run lorca pair in a terminal. Then scan or paste the code.": "你的智能体在你自己的电脑上运行。请从已有你身份的电脑获取配对码：在桌面应用中选择“配对设备”，或在终端运行 lorca pair，然后扫描或粘贴配对码。",
   "Your browser opens a {name} sign-in. The tokens are shared with your paired Devices, encrypted with your account key; the relay cannot read them.": "浏览器会打开 {name} 登录页面。令牌会使用你的账户密钥加密并同步到已配对的设备；中继无法读取。",
   "Saved with a warning": "已保存（附带警告）",
+  "Shown on every paired Device in place of {name}. Leave it empty to show the name the machine goes by.": "在每台已配对的设备上代替 {name} 显示。留空则显示该机器本身的名称。",
+  "Couldn’t rename {name}": "无法重命名 {name}",
 };

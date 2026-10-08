@@ -1,6 +1,8 @@
 //! Plaintext domain model. Lives on Devices; crosses the network only inside encrypted blobs.
 //! Field names match what the macOS app decodes.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 pub const MAX_GROUP_BOTS: usize = 6;
@@ -698,7 +700,8 @@ pub struct CheckReport {
 
 // MARK: - Blob payloads
 
-/// `kind = roster`: bots, chat metadata, and routines. Latest wins.
+/// `kind = roster`: bots, chat metadata, routines, and the names the account gives its Devices.
+/// Latest wins.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct RosterBlob {
     pub bots: Vec<Bot>,
@@ -715,6 +718,9 @@ pub struct RosterBlob {
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum ChatBlob {
     /// Insert or replace by message id.
+    /// Custom display names by Device id, set on any Device for any Device.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub device_names: BTreeMap<String, String>,
     Upsert { message: Message },
     Remove { chat_id: String, message_id: String },
     ClearUnread { chat_id: String },

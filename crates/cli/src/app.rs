@@ -51,6 +51,9 @@ impl Slot {
     }
 }
 
+/// The longest custom name a Device can take, as the apps' fields allow.
+pub const MAX_DEVICE_NAME_CHARS: usize = 40;
+
 /// The process's in-memory projection of the local SQLite tables.
 #[derive(Debug, Clone, Default)]
 pub struct State {
@@ -59,6 +62,8 @@ pub struct State {
     pub chats: Vec<Chat>,
     pub routines: Vec<Routine>,
     pub auto_review: AutoReview,
+    /// Custom display names by Device id, from the roster.
+    pub device_names: std::collections::BTreeMap<String, String>,
     pub last_seq: i64,
     /// Chats deleted here whose blobs the relay still has to drop.
     pub group_deletes: Vec<String>,
@@ -650,6 +655,7 @@ impl App {
                 chats: state.chats.iter().map(|c| c.meta.clone()).collect(),
                 routines: state.routines.clone(),
                 auto_review: state.auto_review.clone(),
+                device_names: state.device_names.clone(),
                 updated_at: config::now_secs(),
             }
         };
@@ -1016,6 +1022,29 @@ impl App {
 
     pub fn auto_review(&self) -> AutoReview {
         self.state.lock().unwrap().auto_review.clone()
+    }
+
+    /// Sets or clears (`None`, or blank) the custom name of a Device, this one or another, and
+    /// publishes it in the roster so every Device shows the same name.
+    pub fn set_device_custom_name(&self, id: &str, name: Option<&str>) -> anyhow::Result<()> {
+        let name = name.map(str::trim).filter(|name| !name.is_empty());
+        let this_id = self.this_device_id();
+        {
+            let mut state = self.state.lock().unwrap();
+            let known = state.devices.iter().any(|d| d.id == id) || this_id.as_deref() == Some(id);
+            if !known {
+                anyhow::bail!("Unknown Device");
+            }
+            match name {
+                Some(name) if name.chars().count() > MAX_DEVICE_NAME_CHARS => {
+                    anyhow::bail!("Keep the name under {MAX_DEVICE_NAME_CHARS} characters")
+                }
+                Some(name) => state.device_names.insert(id.to_string(), name.to_string()),
+                None => state.device_names.remove(id),
+            };
+        }
+        self.roster_changed(true);
+        Ok(())
     }
 
     /// Replaces the Auto-review setting and publishes the roster.
@@ -1710,8 +1739,9 @@ impl App {
 
     fn devices_out(&self, state: &State) -> Vec<Value> {
         let this_id = self.this_device_id();
+        let display_name = |device: &Device| state.device_names.get(&device.id).cloned().unwrap_or_else(|| device.name.clone());
         let mut devices: Vec<&Device> = state.devices.iter().collect();
-        devices.sort_by_key(|d| (Some(d.id.clone()) != this_id, d.name.to_lowercase()));
+        devices.sort_by_key(|d| (Some(d.id.clone()) != this_id, display_name(d).to_lowercase()));
         let mut out: Vec<Value> = devices
             .into_iter()
             .map(|device| {
@@ -1720,7 +1750,9 @@ impl App {
                 let status = if is_this || state.device_online.contains(&device.id) { "online" } else { "offline" };
                 json!({
                     "id": device.id,
-                    "name": device.name,
+                    "name": display_name(device),
+                    "auto_name": device.name,
+                    "custom_name": state.device_names.get(&device.id),
                     "model": device.model,
                     "os": device.os,
                     "os_version": device.os_version,
@@ -1982,6 +2014,37 @@ mod tests {
             assert!(!home.join(name).exists());
         }
         assert!(scratch.0.config.database_path().is_file());
+    }
+
+    #[test]
+    fn a_custom_device_name_shows_for_every_device_and_survives_a_restart() {
+        let scratch = scratch_app();
+        let app = &scratch.0;
+        app.state.lock().unwrap().devices.push(Device { id: "runner".into(), name: "MacBook Air".into(), os: "macos".into(), ..Default::default() });
+        let row = |app: &App| {
+            let state = app.state.lock().unwrap();
+            app.devices_out(&state).into_iter().find(|d| d["id"] == "runner").unwrap()
+        };
+        assert_eq!(row(app)["name"], "MacBook Air");
+
+        app.set_device_custom_name("runner", Some("  Build box ")).unwrap();
+        let shown = row(app);
+        assert_eq!((shown["name"].as_str(), shown["auto_name"].as_str(), shown["custom_name"].as_str()), (Some("Build box"), Some("MacBook Air"), Some("Build box")));
+        assert!(app.set_device_custom_name("runner", Some(&"x".repeat(41))).is_err());
+        assert!(app.set_device_custom_name("nobody", Some("Box")).is_err());
+
+        app.save_state_now();
+        let reloaded = App::load(Config { home: scratch.1.clone(), port: 0 }).unwrap();
+        assert_eq!(reloaded.state.lock().unwrap().device_names.get("runner").map(String::as_str), Some("Build box"));
+
+        app.set_device_custom_name("runner", Some("   ")).unwrap();
+        let cleared = row(app);
+        assert_eq!((cleared["name"].as_str(), cleared["custom_name"].is_null()), (Some("MacBook Air"), true));
+
+        let roster = RosterBlob { device_names: std::collections::BTreeMap::from([("runner".into(), "Build box".into())]), updated_at: 1.0, ..Default::default() };
+        assert_eq!(serde_json::to_value(&roster).unwrap()["device_names"]["runner"], "Build box");
+        let older: RosterBlob = serde_json::from_value(json!({ "bots": [], "chats": [], "updated_at": 1.0 })).unwrap();
+        assert!(older.device_names.is_empty());
     }
 
     #[test]

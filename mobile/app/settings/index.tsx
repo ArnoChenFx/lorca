@@ -54,7 +54,7 @@ export default function SettingsScreen() {
   const autoReview = useStore((s) => s.auto_review);
   const providers = useStore((s) => s.providers);
   const thisDevice = devices.find((d) => d.is_this_device);
-  const [name, setName] = useState(thisDevice?.name ?? "");
+  const [name, setName] = useState(thisDevice?.auto_name ?? thisDevice?.name ?? "");
   const [addingRule, setAddingRule] = useState(false);
   const [ruleText, setRuleText] = useState("");
   const [ruleBehavior, setRuleBehavior] = useState<"allow" | "ask">("allow");
@@ -99,7 +99,8 @@ export default function SettingsScreen() {
   );
 
   function commitName() {
-    if (thisDevice && name.trim() && name.trim() !== thisDevice.name)
+    const machineName = thisDevice?.auto_name ?? thisDevice?.name;
+    if (thisDevice && name.trim() && name.trim() !== machineName)
       void engine.renameDevice(name);
   }
 

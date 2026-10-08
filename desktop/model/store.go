@@ -1519,6 +1519,21 @@ func (s *Store) SetAutoReview(value AutoReview) {
 	s.perform("auto_review.set", map[string]any{"is_enabled": value.IsEnabled, "rules": rules})
 }
 
+// SetDeviceCustomName gives a Device the name every paired Device shows it as; blank takes its own
+// name back. The change shows at once and the CLI's roster event confirms it.
+func (s *Store) SetDeviceCustomName(id, name string) {
+	name = strings.TrimSpace(name)
+	if device := s.Device(id); device != nil {
+		device.CustomName = name
+		device.Name = device.AutoName
+		if name != "" {
+			device.Name = name
+		}
+		s.emit(Event{Kind: EventRosterChanged})
+	}
+	s.perform("device.set_custom_name", map[string]any{"id": id, "custom_name": name})
+}
+
 // AnswerPermission answers a question: a permission card's, or a command card's. `allow`,
 // `always`, or `deny`. The CLI confirms with the card's new state.
 func (s *Store) AnswerPermission(chatID, messageID, decision string) {
