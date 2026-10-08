@@ -158,8 +158,9 @@ export default function CustomProviderScreen() {
     setWorking(true);
     setError(null);
     try {
-      await engine.saveCustomProvider({ kind, name: providerName, api, baseURL, apiKey, models: selectedModelIds(rows, chosenDefault) });
-      router.back();
+      const { warning } = await engine.saveCustomProvider({ kind, name: providerName, api, baseURL, apiKey, models: selectedModelIds(rows, chosenDefault) });
+      if (warning) Alert.alert(t("Saved with a warning"), warning, [{ text: t("OK"), onPress: () => router.back() }], { cancelable: false });
+      else router.back();
     } catch (cause) {
       setError(messageOf(cause));
     } finally {
