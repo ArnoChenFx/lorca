@@ -271,3 +271,17 @@ func TestRenderSettingsChinese(t *testing.T) {
 		renderTo(t, tt, "settings-zh-"+string(pane))
 	}
 }
+
+func TestSetDeviceCustomName(t *testing.T) {
+	demoWindow(t)
+	const id = "dev-studio"
+	auto := store.Device(id).AutoName
+	store.SetDeviceCustomName(id, "  Build box ")
+	if device := store.Device(id); device.Name != "Build box" || device.CustomName != "Build box" || device.AutoName != auto {
+		t.Fatalf("named device %+v", device)
+	}
+	store.SetDeviceCustomName(id, "")
+	if device := store.Device(id); device.Name != auto || device.CustomName != "" {
+		t.Fatalf("cleared device %+v", device)
+	}
+}

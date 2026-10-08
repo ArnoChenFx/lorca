@@ -10,7 +10,7 @@ import { deviceIsOnline, useStore } from "../../../src/core/store";
 import { t, useLanguage } from "../../../src/i18n";
 import { BotAvatar } from "../../../src/ui/Avatar";
 import { deviceSymbol } from "../../../src/ui/devices";
-import { Row, Section } from "../../../src/ui/forms";
+import { FieldRow, Row, Section } from "../../../src/ui/forms";
 import { lastSeen } from "../../../src/ui/format";
 import { Symbol } from "../../../src/ui/Symbol";
 import { Font, usePalette } from "../../../src/ui/theme";
@@ -63,6 +63,7 @@ export default function DeviceScreen() {
   const relayUpdateRequired = useStore((s) => s.relayUpdateRequired);
   const relayUrl = useStore((s) => s.relayUrl);
   const [updating, setUpdating] = useState(false);
+  const [customName, setCustomName] = useState(device?.custom_name ?? "");
 
   if (!device) return null;
 
@@ -99,6 +100,14 @@ export default function DeviceScreen() {
     ]);
   }
 
+  function commitCustomName(target: Device) {
+    const trimmed = customName.trim();
+    if (trimmed === (target.custom_name ?? "")) return;
+    engine
+      .setDeviceCustomName(target.id, trimmed)
+      .catch((error: unknown) => Alert.alert(t("Couldn’t rename {name}", { name: deviceName(target) }), error instanceof Error ? error.message : String(error)));
+  }
+
   // A newer release than the CLI runs, not yet on its way: the Lorca CLI row installs it.
   const update = device.update;
   const offersUpdate = !!update?.latest && !update.state;
@@ -123,6 +132,24 @@ export default function DeviceScreen() {
             <Text style={[styles.statusText, { color: online ? p.green : p.secondaryLabel }]}>{online ? t("Online") : lastSeen(seen)}</Text>
           </View>
         </View>
+
+        {!device.unknown && (
+          <Section
+            title={t("Name")}
+            footer={t("Shown on every paired Device in place of {name}. Leave it empty to show the name the machine goes by.", { name: device.auto_name ?? device.name })}
+          >
+            <FieldRow
+              value={customName}
+              placeholder={device.auto_name ?? device.name}
+              onChangeText={setCustomName}
+              onBlur={() => commitCustomName(device)}
+              onSubmitEditing={() => commitCustomName(device)}
+              returnKeyType="done"
+              autoCapitalize="words"
+              style={{ textAlign: "right", color: p.secondaryLabel }}
+            />
+          </Section>
+        )}
 
         {runner && (
           <Section title={t("Bots assigned here")}>

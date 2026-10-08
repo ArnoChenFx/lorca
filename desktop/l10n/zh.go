@@ -807,4 +807,5 @@ var zh = map[string]string{
 	"Your first bot":            "你的第一个智能体",
 	"Your identity is restored": "你的身份已恢复",
 	"Zoom":                      "缩放",
+	"Shown on every paired Device in place of %@. Leave it empty to show the name the machine goes by.": "在每台已配对的设备上代替 %@ 显示。留空则显示该机器本身的名称。",
 }
