@@ -16,6 +16,8 @@ const cleared: string[] = [];
 const opened: string[] = [];
 /// The provider calls the engine made, as the core got them.
 const providerCalls: { method: string; params: Record<string, any> }[] = [];
+/// The Auto-review and Device-name calls the engine made.
+const rosterCalls: { method: string; params: Record<string, any> }[] = [];
 let handleNotification: (notification: Notification) => Promise<NotificationBehavior>;
 let openNotification: (response: NotificationResponse) => void;
 mock.module("react-native", () => ({
@@ -42,6 +44,7 @@ mock.module("../../modules/lorca-core", () => ({
   request: async (method: string, params: Record<string, any> = {}) => {
     if (method === "chats.mark_read") reads.push(params.chat_id!);
     if (method.startsWith("providers.")) providerCalls.push({ method, params });
+    if (method === "auto_review.set" || method === "device.set_custom_name") rosterCalls.push({ method, params });
     if (method === "providers.connect_custom") {
       // The core answers with the kind it gave or kept, and every status.
       const kind = params.kind ?? "custom:lab";
@@ -254,10 +257,23 @@ test("a quick command never counts, and one running before the phone heard of it
   expect(tasks()).toEqual(["server"]);
 });
 
+test("Auto-review's review model and a Device's custom name reach the core", async () => {
+  rosterCalls.length = 0;
+  engine.setAutoReview({ is_enabled: true, rules: [], review_provider: "custom:lab", review_model: "openai/decision" });
+  engine.setAutoReview({ is_enabled: true, rules: [] });
+  await engine.setDeviceCustomName("runner", "Build box");
+  expect(rosterCalls).toStrictEqual([
+    { method: "auto_review.set", params: { is_enabled: true, rules: [], review_provider: "custom:lab", review_model: "openai/decision" } },
+    { method: "auto_review.set", params: { is_enabled: true, rules: [], review_provider: null, review_model: null } },
+    { method: "device.set_custom_name", params: { id: "runner", custom_name: "Build box" } },
+  ]);
+});
+
 test("a custom provider is added without a kind and saved with one; the store takes the core's statuses", async () => {
   providerCalls.length = 0;
   const { kind, warning } = await engine.saveCustomProvider({ name: "Lab", api: "responses", baseURL: "http://lab.local:8080/v1", apiKey: "", models: ["llama4", "qwen3:8b"] });
   expect(kind).toBe("custom:lab");
+  expect(warning).toBeUndefined();
   expect(providerCalls[0]).toStrictEqual({ method: "providers.connect_custom", params: { name: "Lab", api: "responses", base_url: "http://lab.local:8080/v1", api_key: "", models: ["llama4", "qwen3:8b"] } });
   expect(useStore.getState().providers).toMatchObject([{ kind: "custom:lab", name: "Lab", api: "responses", models: [{ id: "llama4" }, { id: "qwen3:8b" }] }]);
   await engine.saveCustomProvider({ kind: "custom:lab", name: "Lab", api: "messages", baseURL: "http://lab.local:8080", apiKey: "sk-lab", models: [] });
@@ -273,7 +289,6 @@ test("custom provider statuses arrive with the roster and stay through one that 
   event({ event: "roster.changed", data: { devices: [], bots: [], chats: [chat("open"), chat("other")], providers: [lab] } });
   expect(useStore.getState().providers).toEqual([lab]);
   event({ event: "roster.changed", data: { devices: [], bots: [], chats: [chat("open"), chat("other")] } });
-  expect(warning).toBeUndefined();
   expect(useStore.getState().providers).toEqual([lab]);
 });
 

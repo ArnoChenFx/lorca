@@ -8,6 +8,18 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
+// reviewProviderOptions are the providers Auto-review can run on: the bot's own, then each connected
+// provider.
+func reviewProviderOptions() []popUpOption {
+	options := []popUpOption{{Value: "", Label: L("The bot's provider")}}
+	for _, provider := range store.Providers {
+		if provider.IsConnected {
+			options = append(options, popUpOption{Value: provider.Kind, Label: model.ProviderName(provider.Kind, store.Providers)})
+		}
+	}
+	return options
+}
+
 // autoReview is the switch and the rules, shared by every Device through the roster. Add and Edit
 // use a sheet; a card's Always allow adds a rule here.
 func (s settingsPane) autoReview(c *ui.Context) {
@@ -25,6 +37,21 @@ func (s settingsPane) autoReview(c *ui.Context) {
 				}
 			}), label)
 			noteRow(c, k, L("Lorca checks each action before it runs and asks you first when needed. Add rules to customize what bots can do automatically."), nil)
+		})
+		s.section(c, L("Review model"), nil, func(k *card) {
+			picked, changed := popUpRow(c, k, L("Provider"), popUp{Options: reviewProviderOptions(), Value: review.ReviewProvider})
+			if changed && picked != review.ReviewProvider {
+				next := store.AutoReview
+				next.ReviewProvider = picked
+				store.SetAutoReview(next)
+			}
+			modelID, ok := editableRow(c, k, L("Model"), review.ReviewModel, L("Default"), true, true)
+			if ok && modelID != review.ReviewModel {
+				next := store.AutoReview
+				next.ReviewModel = modelID
+				store.SetAutoReview(next)
+			}
+			noteRow(c, k, L("The model that checks actions while Auto-review is on: any model id its provider serves, such as a decision model on a gateway. Left empty, the provider's review model runs."), nil)
 		})
 		addRule := func() {
 			if hoverButton(c, hoverButtonOptions{Symbol: "plus", Size: 13, Tooltip: L("Add rule")}).Clicked() {

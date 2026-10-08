@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -269,6 +270,45 @@ func TestRenderSettingsChinese(t *testing.T) {
 		m.showSettings(pane)
 		settle(tt)
 		renderTo(t, tt, "settings-zh-"+string(pane))
+	}
+}
+
+func TestSettingsReviewModel(t *testing.T) {
+	m, tt := settingsWindowTester(t, 760)
+	m.showSettings(model.PaneAutoReview)
+	settle(tt)
+	field, ok := tt.Find(L("Model"))
+	if !ok {
+		t.Fatal("no review model field")
+	}
+	tt.ClickAt(field.X+field.W/2, field.Y+field.H/2)
+	tt.Type("openrouter/decision-7b")
+	tt.Key(0, ui.KeyEnter)
+	settle(tt)
+	if got := store.AutoReview.ReviewModel; got != "openrouter/decision-7b" {
+		t.Fatalf("review model %q", got)
+	}
+	if options := reviewProviderOptions(); options[0].Value != "" || len(options) < 2 {
+		t.Fatalf("options %+v", options)
+	}
+}
+
+func TestDeviceCustomNameAndReviewModelDecode(t *testing.T) {
+	var wire model.WireDevice
+	if err := json.Unmarshal([]byte(`{"id":"dev-x","name":"Build box","auto_name":"MacBook Air","custom_name":"Build box","os":"macos"}`), &wire); err != nil {
+		t.Fatal(err)
+	}
+	device := model.ToDevice(wire)
+	if device.Name != "Build box" || device.AutoName != "MacBook Air" || device.CustomName != "Build box" {
+		t.Fatalf("device %+v", device)
+	}
+
+	var review model.WireAutoReview
+	if err := json.Unmarshal([]byte(`{"is_enabled":true,"review_provider":"custom:proxy","review_model":"openai/decision-7b","rules":[]}`), &review); err != nil {
+		t.Fatal(err)
+	}
+	if got := model.ToAutoReview(&review); got.ReviewProvider != "custom:proxy" || got.ReviewModel != "openai/decision-7b" {
+		t.Fatalf("auto review %+v", got)
 	}
 }
 

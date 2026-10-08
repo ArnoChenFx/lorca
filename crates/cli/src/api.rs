@@ -670,6 +670,20 @@ pub async fn dispatch(app: &Arc<App>, method: &str, params: Value) -> Result<Val
                     })
                     .collect();
             }
+            // The model that runs the review. Blank or null takes the bot's provider, and its
+            // review model, again.
+            if let Some(provider) = params.get("review_provider") {
+                auto_review.review_provider = match provider.as_str().map(str::trim).filter(|kind| !kind.is_empty()) {
+                    Some(kind) if !app.credentials.lock().unwrap().kinds().iter().any(|known| known == kind) => {
+                        return Err(format!("{kind} is not a provider"));
+                    }
+                    Some(kind) => Some(kind.to_string()),
+                    None => None,
+                };
+            }
+            if let Some(model) = params.get("review_model") {
+                auto_review.review_model = model.as_str().map(str::trim).filter(|model| !model.is_empty()).map(str::to_string);
+            }
             app.set_auto_review(auto_review.clone());
             Ok(json!({ "auto_review": auto_review }))
         }

@@ -365,7 +365,12 @@ class Engine {
   /// gives a new rule its id.
   setAutoReview(value: AutoReview) {
     useStore.setState({ auto_review: value });
-    void core.request("auto_review.set", { is_enabled: value.is_enabled, rules: value.rules });
+    void core.request("auto_review.set", {
+      is_enabled: value.is_enabled,
+      rules: value.rules,
+      review_provider: value.review_provider ?? null,
+      review_model: value.review_model ?? null,
+    });
   }
 
   // MARK: - Providers
@@ -535,16 +540,16 @@ class Engine {
     await core.request("device.rename", { name });
   }
 
-  /// Joins the identity the pairing string names. The core posts the request (`pair.posted`
-  /// marks that) and waits for the other Device to accept; `signal` aborts the wait in the core too,
-  /// which answers "Pairing cancelled".
-  async pair(pairingString: string, deviceName: string | undefined, onProgress?: (progress: PairProgress) => void, signal?: AbortSignal) {
-    onProgress?.({ phase: "posting" });
   /// Sets the custom name a Device shows as, on every paired Device; blank takes its own name back.
   async setDeviceCustomName(id: string, customName: string) {
     await core.request("device.set_custom_name", { id, custom_name: customName });
   }
 
+  /// Joins the identity the pairing string names. The core posts the request (`pair.posted`
+  /// marks that) and waits for the other Device to accept; `signal` aborts the wait in the core too,
+  /// which answers "Pairing cancelled".
+  async pair(pairingString: string, deviceName: string | undefined, onProgress?: (progress: PairProgress) => void, signal?: AbortSignal) {
+    onProgress?.({ phase: "posting" });
     const stop = core.onEvent((frame) => {
       if (frame.event === "pair.posted") onProgress?.({ phase: "waiting" });
     });
