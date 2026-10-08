@@ -415,11 +415,12 @@ func editableRow(c *ui.Context, k *card, label, value, placeholder string, mono,
 
 type switchRowResult struct {
 	Clicked bool
+	Toggled bool
 }
 
 // switchRow is a row with an icon for its state, a title over a detail line, and a switch: a
 // routine that pauses or resumes. A click anywhere but the switch opens its details.
-func switchRow(c *ui.Context, k *card, symbolName string, tint ui.Color, title, detail string, on *bool, toggleTooltip, tooltip string, change func(bool)) (ui.Element, switchRowResult) {
+func switchRow(c *ui.Context, k *card, symbolName string, tint ui.Color, title, detail string, on *bool, toggleTooltip, tooltip string) (ui.Element, switchRowResult) {
 	p := colors(c)
 	var result switchRowResult
 	r := k.row(rowBox(c).MinHeight(44).Label(title).Cursor(ui.CursorPointer))
@@ -433,9 +434,8 @@ func switchRow(c *ui.Context, k *card, symbolName string, tint ui.Color, title, 
 			ui.Text(c, title).FontSize(12.5).FontWeight(500).SingleLine()
 			ui.Text(c, detail).FontSize(textCaption).TextColor(p.Label2).SingleLine()
 		})
-		s := toggleSwitch(c, on, true).Tooltip(toggleTooltip).Label(toggleTooltip).
-			OnClick(func() { change(*on) })
-		if s.Clicked() {
+		result.Toggled = toggleSwitch(c, on, true).Tooltip(toggleTooltip).Label(toggleTooltip).Changed()
+		if result.Toggled {
 			result.Clicked = false
 		}
 	})

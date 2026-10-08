@@ -127,6 +127,38 @@ func TestRenderMcpServerSheetStates(t *testing.T) {
 	}
 }
 
+func TestMcpServerSheetKeepsJSONDraft(t *testing.T) {
+	_, tt := sheetATester(t, func(m *mainWindow) { m.presentMcpServer(sheetAWorkbench(), "filesystem") })
+	if err := tt.Click("JSON"); err != nil {
+		t.Fatal(err)
+	}
+	sheetASettle(tt)
+	if err := tt.Click("The server's JSON"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Key(ui.Cmd, ui.KeyA)
+	tt.Type(`{"command":"edited-server"}`)
+	sheetAWait(tt, 400*time.Millisecond)
+	if !tt.HasText("A command: edited-server") || !tt.HasText("Save") {
+		t.Fatal("the JSON edit was not read")
+	}
+	// Selecting the current mode again keeps the draft rather than rebuilding it from the form.
+	if err := tt.Click("JSON"); err != nil {
+		t.Fatal(err)
+	}
+	sheetASettle(tt)
+	if !tt.HasText("A command: edited-server") || !tt.HasText("Save") {
+		t.Fatal("selecting JSON again replaced the draft")
+	}
+	if err := tt.Click("Save"); err != nil {
+		t.Fatal(err)
+	}
+	sheetASettle(tt)
+	if got := sheetAServer(t, "filesystem").Entry.Command(); got != "edited-server" {
+		t.Fatalf("saved command %q", got)
+	}
+}
+
 func TestMcpServerSheetAdds(t *testing.T) {
 	m, tt := sheetATester(t, func(m *mainWindow) { m.presentMcpServer(sheetAWorkbench(), "") })
 	for _, text := range []string{"Add MCP Server", "Name", "Type", "Command", "Environment", "About", "Add"} {
@@ -156,6 +188,16 @@ func TestMcpServerSheetAdds(t *testing.T) {
 		t.Fatal(err)
 	}
 	tt.Frame()
+	tt.Key(0, ui.KeyRight)
+	tt.Frame()
+	if !tt.HasText("Headers") {
+		t.Fatal("the right arrow did not select URL")
+	}
+	tt.Key(0, ui.KeyLeft)
+	tt.Frame()
+	if !tt.HasText("Environment") {
+		t.Fatal("the left arrow did not select Command")
+	}
 
 	// A variable row, its secret value hidden behind an eye.
 	if err := tt.Click("Add Variable"); err != nil {

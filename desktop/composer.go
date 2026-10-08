@@ -378,11 +378,11 @@ func (m *mainWindow) composerView(c *ui.Context, chat *model.Chat, members []*mo
 				caret, _ := input.TextSelection()
 				if caret != s.caretAt {
 					s.caretAt = caret
-					c.Invalidate()
+					c.AnimationFrame()
 				}
 				if input.Changed() {
 					// The text changed by hand: picks whose name went keep no hold.
-					c.Invalidate()
+					c.AnimationFrame()
 				}
 			})
 			trailing := ui.Row(c.Key("trailing")).RowStart(controlsRow).ColumnStart(3).Gap(4)

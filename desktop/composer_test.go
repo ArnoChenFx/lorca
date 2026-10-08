@@ -2,6 +2,7 @@ package main
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/egoist/lorca/desktop/model"
@@ -22,6 +23,53 @@ func TestMentionRuns(t *testing.T) {
 	}
 	if runs := mentionRuns([]rune("no mentions"), bots); len(runs) != 0 {
 		t.Errorf("found %+v", runs)
+	}
+}
+
+func TestComposerClearUpdatesTranscriptWithoutMoreInput(t *testing.T) {
+	m := demoWindow(t)
+	tt := ui.NewTester(m.frame(m.view), 1000, 700)
+	runPosts()
+	chat := store.Chat(m.chat.chatID)
+	chat.Messages[len(chat.Messages)-1].Body.Text = "Latest reply."
+	for range 3 {
+		tt.Frame()
+	}
+	latest, ok := tt.Find("Latest reply.")
+	if !ok {
+		t.Fatal("the latest reply is not visible")
+	}
+	placeholder := chatPlaceholder(chat, store.BotsIn(chat))
+	compact, ok := tt.Find(placeholder)
+	if !ok {
+		t.Fatal("the composer is not visible")
+	}
+	if err := tt.Click(placeholder); err != nil {
+		t.Fatal(err)
+	}
+	tt.Type(strings.Repeat("Draft line with some words.\n", 7))
+	for range 3 {
+		tt.Frame()
+	}
+	expanded, ok := tt.Find(placeholder)
+	if !ok || expanded.H <= compact.H {
+		t.Fatal("the multiline draft did not expand the composer")
+	}
+	renderTo(t, tt, "composer-expanded")
+	tt.Key(ui.Cmd, ui.KeyA)
+	tt.Command("delete")
+	// Tester settles only the frames the app requests. Do not inject another frame after clearing.
+	renderTo(t, tt, "composer-cleared")
+	if m.chat.composer.draft != "" {
+		t.Fatal("the draft was not cleared")
+	}
+	cleared, ok := tt.Find(placeholder)
+	if !ok || cleared.H != compact.H {
+		t.Fatalf("composer height after clearing %.1f, want %.1f", cleared.H, compact.H)
+	}
+	got, ok := tt.Find("Latest reply.")
+	if !ok || got.Y < latest.Y-1 || got.Y > latest.Y+1 {
+		t.Fatalf("latest reply stayed at %.1f after clearing, want %.1f", got.Y, latest.Y)
 	}
 }
 

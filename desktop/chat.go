@@ -179,7 +179,13 @@ func (m *mainWindow) chatView(c *ui.Context, chatID string) {
 		}
 		composer := m.composerView(c, chat, members, s)
 		if h := composer.Bounds().H; h > 0 {
-			s.composerHeight = h
+			if h != s.composerHeight {
+				s.composerHeight = h
+				// Bounds is the previous frame's. Build again to apply the new transcript inset.
+				c.AnimationFrame()
+			}
+		} else {
+			c.AnimationFrame()
 		}
 	})
 }

@@ -705,5 +705,5 @@ func marketStatusLine(c *ui.Context, text string) ui.Element {
 
 // marketKindFilter is All, Plugins, and Bots, when both kinds are there.
 func marketKindFilter(c *ui.Context, kind *int) {
-	segmented(c, kind, L("Filter results"), nil, L("All"), L("Plugins"), L("Bots"))
+	segmented(c, kind, L("Filter results"), L("All"), L("Plugins"), L("Bots"))
 }

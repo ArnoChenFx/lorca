@@ -17,15 +17,17 @@ var (
 	settingsUpdaterState   = currentUpdaterState
 )
 
-// settingsSwitch writes a derived setting after bound input updates the switch.
-func settingsSwitch(c *ui.Context, on *bool, label string, disabled bool, change func(bool)) {
+// settingsSwitch reports a user change after applying bound input.
+func settingsSwitch(c *ui.Context, on *bool, label string, disabled bool) bool {
+	changed := false
 	holder := ui.Row(c)
 	if disabled {
 		holder.Disabled(true)
 	}
 	holder.Children(func() {
-		toggleSwitch(c, on, true).Label(label).OnClick(func() { change(*on) })
+		changed = toggleSwitch(c, on, true).Label(label).Changed()
 	})
+	return changed
 }
 
 func (s settingsPane) general(c *ui.Context) {
@@ -36,15 +38,15 @@ func (s settingsPane) general(c *ui.Context) {
 			sendOnReturn, timestamps := sendOnReturnEntry().row, timestampsEntry().row
 			s.mark(c, accessoryRow(c, k, sendOnReturn, "", func() {
 				on := saved.SendOnReturn
-				settingsSwitch(c, &on, sendOnReturn, false, func(on bool) {
+				if settingsSwitch(c, &on, sendOnReturn, false) {
 					setPrefs(PreferencesPatch{SendOnReturn: &on})
-				})
+				}
 			}), sendOnReturn)
 			s.mark(c, accessoryRow(c, k, timestamps, "", func() {
 				on := saved.ShowTimestamps
-				settingsSwitch(c, &on, timestamps, false, func(on bool) {
+				if settingsSwitch(c, &on, timestamps, false) {
 					setPrefs(PreferencesPatch{ShowTimestamps: &on})
-				})
+				}
 			}), timestamps)
 		})
 		s.section(c, L("Appearance"), nil, func(k *card) {
@@ -92,15 +94,15 @@ func (s settingsPane) general(c *ui.Context) {
 				checks, downloads := automaticChecksEntry().row, automaticDownloadsEntry().row
 				s.mark(c, accessoryRow(c, k, checks, "", func() {
 					on := updater.AutomaticChecks
-					settingsSwitch(c, &on, checks, false, func(on bool) {
+					if settingsSwitch(c, &on, checks, false) {
 						setAutomaticUpdates(on, updater.AutomaticDownloads)
-					})
+					}
 				}), checks)
 				s.mark(c, accessoryRow(c, k, downloads, "", func() {
 					on := updater.AutomaticDownloads
-					settingsSwitch(c, &on, downloads, !updater.AutomaticChecks, func(on bool) {
+					if settingsSwitch(c, &on, downloads, !updater.AutomaticChecks) {
 						setAutomaticUpdates(updater.AutomaticChecks, on)
-					})
+					}
 				}), downloads)
 			})
 		}

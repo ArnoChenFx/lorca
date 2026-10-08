@@ -494,7 +494,7 @@ func copyButton(c *ui.Context, text string, o copyOptions) ui.Element {
 }
 
 // segmented is a segmented control: one choice of a few, each a segment as wide as its label.
-func segmented(c *ui.Context, selected *int, label string, selectValue func(int), labels ...string) ui.Element {
+func segmented(c *ui.Context, selected *int, label string, labels ...string) ui.Element {
 	p := colors(c)
 	parts := ui.SegmentedBase(c, selected, len(labels))
 	parts.Track.Padding(2).Radius(7).Background(p.Chip).Label(label)
@@ -502,9 +502,6 @@ func segmented(c *ui.Context, selected *int, label string, selectValue func(int)
 		for i, text := range labels {
 			// Each segment is as wide as its words.
 			seg := parts.Segment(i).Height(22).Padding(0, 10).Radius(5).FontSize(12).TextColor(p.Label).Justify(ui.Center).Shrink(0)
-			if selectValue != nil {
-				seg.OnClick(func() { selectValue(*selected) })
-			}
 			if i == *selected {
 				seg.Background(p.Popover).Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, 0.12))
 			}

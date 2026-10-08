@@ -18,11 +18,11 @@ func (s settingsPane) autoReview(c *ui.Context) {
 			label := autoReviewSwitchEntry().row
 			s.mark(c, accessoryRow(c, k, label, "", func() {
 				on := review.IsEnabled
-				settingsSwitch(c, &on, label, false, func(on bool) {
+				if settingsSwitch(c, &on, label, false) {
 					next := store.AutoReview
 					next.IsEnabled = on
 					store.SetAutoReview(next)
-				})
+				}
 			}), label)
 			noteRow(c, k, L("Lorca checks each action before it runs and asks you first when needed. Add rules to customize what bots can do automatically."), nil)
 		})
