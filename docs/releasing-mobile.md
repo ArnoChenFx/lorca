@@ -22,7 +22,10 @@ APK 并发布到本仓库的 Release 里。整个构建都在云端 runner 上�
 1. GitHub → Settings → Developer settings → Personal access tokens →
    Fine-grained tokens → Generate new token。
 2. Repository access 只选这个 fork 仓库，Permissions 里给
-   **Contents** 的 **Read and write**。
+   **Contents** 的 **Read and write**，外加 **Workflows** 的 **Read and write**。
+   上游改动有时会碰到 `.github/workflows/` 下的文件（比如 release-desktop.yml），
+   没有 Workflows 权限的话，合并完了 push 会被 GitHub 直接拒绝。
+   如果用 classic token，记得勾选 `workflow` scope。
 3. 复制 token，到 fork 仓库 → Settings → Secrets and variables →
    Actions → New repository secret，名字填 `SYNC_PAT`。
 
