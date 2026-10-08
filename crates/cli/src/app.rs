@@ -528,6 +528,17 @@ impl App {
         Ok(())
     }
 
+    /// Sets a custom display name for a Device (this Device or another one).
+    pub fn set_device_custom_name(&self, id: &str, custom_name: Option<String>) -> anyhow::Result<()> {
+        let mut state = self.state.lock().unwrap();
+        let device = state.devices.iter_mut().find(|d| d.id == id).ok_or_else(|| anyhow::anyhow!("Device not found"))?;
+        device.custom_name = custom_name.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        drop(state);
+        self.save_state();
+        self.emit(self.roster_summary());
+        Ok(())
+    }
+
     /// Forgets the identity on this Device: keys, credentials, and everything synced. The
     /// relay keeps the account; another Device or the backup phrase brings it back.
     pub fn forget_identity(&self) -> anyhow::Result<()> {
@@ -574,9 +585,12 @@ impl App {
         // The model and the OS version are this host's as it is now, so an OS update reaches the
         // roster; the name is the user's to change, and `os` decided the Device's role at pairing.
         let (_, _, os_version, model) = host_facts();
+        // Preserve the custom_name if it's already set in the roster
+        let custom_name = self.state.lock().unwrap().devices.iter().find(|d| d.id == keys.pubkey()).and_then(|d| d.custom_name.clone());
         Some(Device {
             id: keys.pubkey(),
             name: machine.name.clone(),
+            custom_name,
             model,
             os: machine.os.clone(),
             os_version,

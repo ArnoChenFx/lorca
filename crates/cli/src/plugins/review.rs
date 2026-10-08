@@ -127,7 +127,7 @@ pub async fn decide(
 }
 
 /// Reviews one action of the turn that `trigger` started. With Auto-review off it asks; on,
-/// the review model of the bot's provider
+/// the review model of the bot's provider (or the configured custom review model)
 /// ([`review_model`](crate::providers::review_model)) judges it against the user's
 /// plain-language rules, the built-in checks, and the request behind the turn ([`request`]).
 pub async fn review(app: &Arc<App>, bot: &Bot, chat_id: &str, trigger: &Trigger, action: Action<'_>, cancel: &CancellationToken) -> Outcome {
@@ -135,8 +135,11 @@ pub async fn review(app: &Arc<App>, bot: &Bot, chat_id: &str, trigger: &Trigger,
     if !auto_review.is_enabled {
         return Outcome::Ask { reason: None, rule: None };
     }
-    let (model, thinking) = crate::providers::review_model(app, &bot.provider);
-    let provider = match crate::providers::provider_for(app, &bot.provider, Some(&model), thinking) {
+    
+    // Determine which provider to use for review
+    let review_provider_kind = auto_review.review_provider.as_deref().unwrap_or(&bot.provider);
+    let (model, thinking) = crate::providers::review_model(app, review_provider_kind);
+    let provider = match crate::providers::provider_for(app, review_provider_kind, Some(&model), thinking) {
         Ok(provider) => provider,
         Err(error) => return Outcome::ask(format!("Auto-review could not check this action ({error}).")),
     };

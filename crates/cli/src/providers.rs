@@ -135,8 +135,23 @@ pub fn default_model(kind: &str) -> &'static str {
 /// itself runs, with thinking off where the model allows it and at its lowest effort where it
 /// does not. A custom provider's is its first
 /// model, the one the user put at the top, at the catalog's lowest level for a model the
-/// catalog knows and the server's default for any other. Empty when `kind` has none.
+/// catalog knows and the server's default for any other. When the user has configured a custom
+/// review model in AutoReview settings, that overrides the default. Empty when `kind` has none.
 pub fn review_model(app: &App, kind: &str) -> (String, Option<ThinkingLevel>) {
+    // Check if a custom review model is configured
+    let auto_review = app.auto_review();
+    if let (Some(review_provider), Some(review_model)) = (&auto_review.review_provider, &auto_review.review_model) {
+        // Use the configured review model
+        let thinking = if let Some(thinking_str) = &auto_review.review_thinking {
+            thinking_str.parse().ok()
+        } else {
+            // Use the lowest thinking level for the configured model
+            models::find_any(review_model).and_then(|known| known.levels.first().copied())
+        };
+        return (review_model.clone(), thinking);
+    }
+
+    // Fall back to default behavior
     if is_custom(kind) {
         let credentials = app.credentials.lock().unwrap();
         let Some(model) = credentials.custom.get(kind).and_then(|p| p.models.first().map(|m| m.id.clone())) else {

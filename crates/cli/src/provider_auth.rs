@@ -162,7 +162,7 @@ pub struct CustomInput {
 /// Checks a custom provider's server and saves the provider for the account, answering with
 /// its kind. The model list the server publishes checks the key and tells each model's window,
 /// output cap, and whether it sees images; a server without one still works with the model ids
-/// the user gave.
+/// the user gave. When the server is unreachable, the provider is still saved with a warning.
 pub async fn connect_custom(app: &Arc<App>, input: CustomInput) -> Result<String, String> {
     let name = input.name.trim().to_string();
     if name.is_empty() {
@@ -193,18 +193,30 @@ pub async fn connect_custom(app: &Arc<App>, input: CustomInput) -> Result<String
         }
     }
 
-    let listed = list_models(app, &name, api, &base_url, &api_key).await?;
+    // Try to list models, but allow saving even if the server is unreachable
+    let listed = list_models(app, &name, api, &base_url, &api_key).await;
     let models = if ids.is_empty() {
-        let listed = listed.ok_or_else(|| format!("{name} publishes no model list. Add the model ids yourself."))?;
-        let chat: Vec<CustomModel> = listed.into_iter().filter(|model| !model.0).map(|model| model.1).collect();
-        if chat.is_empty() {
-            return Err(format!("{name} lists no models. Add the model ids yourself."));
+        match listed {
+            Ok(Some(models_list)) => {
+                let chat: Vec<CustomModel> = models_list.into_iter().filter(|model| !model.0).map(|model| model.1).collect();
+                if chat.is_empty() {
+                    return Err(format!("{name} lists no models. Add the model ids yourself."));
+                }
+                chat
+            }
+            Ok(None) => {
+                return Err(format!("{name} publishes no model list. Add the model ids yourself."));
+            }
+            Err(err) => {
+                // Server is unreachable - require manual model specification
+                return Err(format!("{name} is currently unreachable: {err}. Add the model ids yourself to save it anyway."));
+            }
         }
-        chat
     } else {
-        let listed = listed.unwrap_or_default();
+        // User provided model IDs explicitly - use them even if server is unreachable
+        let listed_models = listed.ok().flatten().unwrap_or_default();
         ids.into_iter()
-            .map(|id| match listed.iter().find(|(_, model)| model.id == id) {
+            .map(|id| match listed_models.iter().find(|(_, model)| model.id == id) {
                 Some((_, model)) => model.clone(),
                 None => CustomModel { id, name: None, context_window: None, max_output: None, images: None },
             })

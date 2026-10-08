@@ -37,6 +37,9 @@ pub struct Device {
     /// The machine signing public key, base64url.
     pub id: String,
     pub name: String,
+    /// A custom display name set by the user. When present, shown instead of `name`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_name: Option<String>,
     pub model: String,
     pub os: String,
     pub os_version: String,
@@ -101,6 +104,11 @@ impl Device {
     pub fn is_runner(&self) -> bool {
         matches!(self.os.as_str(), "macos" | "linux" | "windows")
     }
+
+    /// The name to display: custom_name if set, otherwise the auto-generated name.
+    pub fn display_name(&self) -> &str {
+        self.custom_name.as_deref().unwrap_or(&self.name)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -160,11 +168,19 @@ pub struct AutoReview {
     pub is_enabled: bool,
     #[serde(default)]
     pub rules: Vec<AutoReviewRule>,
+    /// Custom provider and model for auto-review. When set, overrides the default review model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_model: Option<String>,
+    /// Thinking level for the review model. When unset, uses the model's lowest level.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_thinking: Option<String>,
 }
 
 impl Default for AutoReview {
     fn default() -> Self {
-        AutoReview { is_enabled: true, rules: Vec::new() }
+        AutoReview { is_enabled: true, rules: Vec::new(), review_provider: None, review_model: None, review_thinking: None }
     }
 }
 
