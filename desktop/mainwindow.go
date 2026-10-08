@@ -574,11 +574,23 @@ func (m *mainWindow) view(c *ui.Context) {
 	sidebar, inspector := m.panes(width)
 
 	m.shortcuts(c)
-	root := ui.Box(c).Fill().Background(p.Content)
+	// Where the window shows its material, the sidebar is transparent over it, as the Mac's.
+	vibrant := c.Vibrancy()
+	if vibrant {
+		c.Root().Background(ui.Transparent)
+	}
+	root := ui.Box(c).Fill()
+	if !vibrant {
+		root.Background(p.Content)
+	}
 	root.Children(func() {
 		ui.Row(c).Fill().AlignItems(ui.Stretch).Children(func() {
 			if !m.sidebarCollapsed {
-				ui.Column(c).Width(sidebar).Background(p.Sidebar).Children(func() {
+				pane := ui.Column(c).Width(sidebar)
+				if !vibrant {
+					pane.Background(p.Sidebar)
+				}
+				pane.Children(func() {
 					m.paneHeader(c).Padding(0, 8).Gap(4).Children(func() { m.leadingButtons(c, false) })
 					ui.Column(c).Grow(1).MinHeight(0).Children(func() {
 						if m.isSettings() {
