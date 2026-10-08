@@ -102,6 +102,7 @@ export const zh: Record<string, string> = {
   "Could not create the group": "无法创建群聊",
   "Could not remove the photo": "无法移除照片",
   "Could not send": "无法发送",
+  "Could not stop": "无法停止",
   "Could not update the bot": "无法更新智能体",
   "Could not use that photo": "无法使用这张照片",
   "Couldn’t unpair {name}": "无法取消配对 {name}",
