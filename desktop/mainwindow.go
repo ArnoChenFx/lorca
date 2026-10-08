@@ -635,9 +635,15 @@ func (m *mainWindow) paneHeader(c *ui.Context) ui.Element {
 // inspector 268 to 320; dragging the sidebar's well past its narrowest collapses it, as a split
 // view's collapsible pane.
 func (m *mainWindow) divider(c *ui.Context, x float32, sidebar bool) {
-	h := ui.Box(c).Absolute().Top(0).Bottom(0).Left(x - 3).Width(7).Cursor(ui.CursorResizeEW).Label(L("Divider"))
+	key := "inspector-divider"
+	if sidebar {
+		key = "sidebar-divider"
+	}
+	h := ui.Box(c.Key(key)).Absolute().Top(0).Bottom(0).Left(x - 3).Width(7).Cursor(ui.CursorResizeEW).Label(L("Divider"))
 	dragging := ui.Local(h, "drag", func() dividerDrag { return dividerDrag{} })
-	if h.Pressed() {
+	// Dragged registers capture and stays held outside the handle; Pressed only covers its bounds.
+	dx, _, held := h.Dragged()
+	if held {
 		if !dragging.active {
 			dragging.active = true
 			dragging.offset = 0
@@ -647,19 +653,17 @@ func (m *mainWindow) divider(c *ui.Context, x float32, sidebar bool) {
 				dragging.from = m.inspectorWidth
 			}
 		}
-		if dx, _, ok := h.Dragged(); ok {
-			dragging.offset += dx
-			if sidebar {
-				wanted := dragging.from + dragging.offset
-				if wanted < sidebarMin/2 {
-					dragging.active = false
-					m.toggleSidebar()
-					return
-				}
-				m.sidebarWidth = clamp(wanted, sidebarMin, sidebarMax)
-			} else {
-				m.inspectorWidth = clamp(dragging.from-dragging.offset, inspectorMin, inspectorMax)
+		dragging.offset += dx
+		if sidebar {
+			wanted := dragging.from + dragging.offset
+			if wanted < sidebarMin/2 {
+				dragging.active = false
+				m.toggleSidebar()
+				return
 			}
+			m.sidebarWidth = clamp(wanted, sidebarMin, sidebarMax)
+		} else {
+			m.inspectorWidth = clamp(dragging.from-dragging.offset, inspectorMin, inspectorMax)
 		}
 	} else if dragging.active {
 		dragging.active = false

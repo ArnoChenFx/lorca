@@ -553,7 +553,6 @@ func (s *providerCustomSheet) modelsView(c *ui.Context) {
 		if searchField(c, &s.search, L("Search or add a model ID")).Submitted() {
 			s.searchReturn()
 		}
-		toggled := ""
 		list := ui.Scroll(c).Height(196).Radius(9).Border(1, p.BotBubbleBorder).Background(p.BotBubble).Label(L("Models"))
 		list.Children(func() {
 			if adding != "" {
@@ -570,9 +569,8 @@ func (s *providerCustomSheet) modelsView(c *ui.Context) {
 				})
 			}
 			for _, each := range rows {
-				if providerModelRow(c, each, s.checklist.Selected[each.ID], s.busy) {
-					toggled = each.ID
-				}
+				providerModelRow(c, each, s.checklist.Selected[each.ID], s.busy,
+					func() { s.checklist = s.checklist.Toggle(each.ID) })
 			}
 			if isEmpty {
 				if message := s.overlay(); message != "" {
@@ -585,9 +583,6 @@ func (s *providerCustomSheet) modelsView(c *ui.Context) {
 				}
 			}
 		})
-		if toggled != "" {
-			s.checklist = s.checklist.Toggle(toggled)
-		}
 		// The row keeps its height while nothing is picked.
 		picked := s.picked()
 		ui.Row(c).Height(22).Gap(6).Justify(ui.SpaceBetween).Children(func() {
@@ -614,14 +609,13 @@ func (s *providerCustomSheet) modelsView(c *ui.Context) {
 }
 
 // providerModelRow is a model to pick: a click anywhere on it toggles it, as the Mac's checklist
-// does. It reports a user change after applying bound input.
-func providerModelRow(c *ui.Context, each model.CustomModel, checked, disabled bool) bool {
+// does. Change runs after the view is built with the new choice.
+func providerModelRow(c *ui.Context, each model.CustomModel, checked, disabled bool, change func()) {
 	p := colors(c)
-	toggled := false
 	ui.Box(c.Key(each.ID)).Children(func() {
 		on := checked
 		name := each.DisplayName()
-		row := ui.CheckboxBase(c, &on).Height(34).Padding(0, 10).Gap(6).Label(name).Disabled(disabled)
+		row := ui.CheckboxBase(c, &on).Height(34).Padding(0, 10).Gap(6).Label(name).Disabled(disabled).OnChange(change)
 		row.Children(func() {
 			box := ui.Box(c).Size(14, 14).Radius(3.5).Shrink(0).Center()
 			if checked {
@@ -646,9 +640,7 @@ func providerModelRow(c *ui.Context, each model.CustomModel, checked, disabled b
 				})
 			}
 		})
-		toggled = row.Changed()
 	})
-	return toggled
 }
 
 // MARK: - Connect a built-in provider

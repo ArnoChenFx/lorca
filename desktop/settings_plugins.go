@@ -175,8 +175,6 @@ func (s settingsPane) mcpServers(c *ui.Context, device *model.Device) {
 	}
 
 	runnerID := device.ID
-	var toggled *model.McpServer
-	toggledOn := false
 	s.section(c, L("MCP Servers on %@", device.Name), nil, func(k *card) {
 		if mcp.file == nil {
 			label, tint := L("Loading…"), &p.Label2
@@ -192,13 +190,10 @@ func (s settingsPane) mcpServers(c *ui.Context, device *model.Device) {
 		}
 		for _, server := range file.Servers {
 			ui.Column(c.Key(server.Name)).Children(func() {
-				on := server.Enabled
-				rowElement, row := settingsMcpRow(c, k, server, &on)
+				rowElement, clicked := settingsMcpRow(c, k, server,
+					func(on bool) { s.setMcpEnabled(runnerID, server, on) })
 				s.mark(c, rowElement, server.Name)
-				switch {
-				case row.Toggled:
-					toggled, toggledOn = &server, on
-				case row.Clicked:
+				if clicked {
 					s.w.presentMcpServer(device, server.Name)
 				}
 			})
@@ -230,9 +225,6 @@ func (s settingsPane) mcpServers(c *ui.Context, device *model.Device) {
 			s.reloadMcp(runnerID)
 		}
 	})
-	if toggled != nil {
-		s.setMcpEnabled(runnerID, *toggled, toggledOn)
-	}
 }
 
 // reloadMcp has the Runner read its mcp.json again, after an edit made outside Lorca.
@@ -274,16 +266,11 @@ func (s settingsPane) setMcpEnabled(runnerID string, server model.McpServer, on 
 	})
 }
 
-type settingsMcpRowResult struct {
-	Clicked bool
-	Toggled bool
-}
-
 // settingsMcpRow is one server: its symbol in the color of how it stands, its name, its state and
-// address, and a switch, unless it cannot run. A click elsewhere opens it.
-func settingsMcpRow(c *ui.Context, k *card, server model.McpServer, on *bool) (ui.Element, settingsMcpRowResult) {
+// address, and a switch, unless it cannot run. It reports clicks outside the switch; change runs
+// after the view is built with the switch's new value.
+func settingsMcpRow(c *ui.Context, k *card, server model.McpServer, change func(bool)) (ui.Element, bool) {
 	p := colors(c)
-	var result settingsMcpRowResult
 	r := k.row(rowBox(c).MinHeight(44).Label(server.Name).Cursor(ui.CursorPointer))
 	if description := server.Entry.Description(); description != "" {
 		r.Tooltip(description)
@@ -291,7 +278,7 @@ func settingsMcpRow(c *ui.Context, k *card, server model.McpServer, on *bool) (u
 	if r.Hovered() {
 		r.Background(p.RowHover)
 	}
-	result.Clicked = r.Clicked()
+	clicked := r.Clicked()
 	r.Children(func() {
 		state, tone := model.McpStateText(server)
 		stateColor := p.tone(tone)
@@ -311,15 +298,17 @@ func settingsMcpRow(c *ui.Context, k *card, server model.McpServer, on *bool) (u
 			).FontSize(textCaption).SingleLine()
 		})
 		if server.Problem == "" {
+			on := server.Enabled
 			tooltip := L("Turn %@ on", server.Name)
-			if *on {
+			if on {
 				tooltip = L("Turn %@ off", server.Name)
 			}
-			result.Toggled = toggleSwitch(c, on, true).Tooltip(tooltip).Label(server.Name).Changed()
-			if result.Toggled {
-				result.Clicked = false
+			toggle := toggleSwitch(c, &on, true).Tooltip(tooltip).Label(server.Name).
+				OnChange(func() { change(on) })
+			if toggle.Changed() {
+				clicked = false
 			}
 		}
 	})
-	return r, result
+	return r, clicked
 }

@@ -621,23 +621,20 @@ func (s *mcpSheet) view(c *ui.Context, sh *sheet) {
 		if s.asJSON {
 			mode = 1
 		}
-		var modeControl ui.Element
 		ui.Row(c).Justify(ui.End).Margin(0, 0, -4, 0).Children(func() {
-			modeControl = segmented(c, &mode, L("Edit as"), L("Form"), L("JSON"))
+			segmented(c, &mode, L("Edit as"), L("Form"), L("JSON")).OnChange(func() {
+				if mode == 1 {
+					s.showJSON("")
+				} else {
+					s.showForm()
+				}
+			})
 		})
 		s.formView(c)
 		if !s.asJSON && s.saved == nil {
 			providerNote(c, L("Paste the JSON a server's README gives, or a whole mcpServers block from Claude Desktop or Cursor, into any field."), nil)
 		}
 		providerStatusLine(c, s.status)
-		// Build the current fields before switching modes so pending edits reach the new view.
-		if modeControl.Changed() {
-			if mode == 1 {
-				s.showJSON("")
-			} else {
-				s.showForm()
-			}
-		}
 	})
 	if result.Confirmed {
 		s.confirm(sh)
@@ -684,10 +681,11 @@ func (s *mcpSheet) formView(c *ui.Context) {
 		if s.form.Remote {
 			kind = 1
 		}
-		var kindControl ui.Element
 		providerFormRow(c, labelWidth, L("Type"), func() {
 			ui.Row(c).Children(func() {
-				kindControl = segmented(c, &kind, L("Type"), L("Command"), L("URL"))
+				segmented(c, &kind, L("Type"), L("Command"), L("URL")).OnChange(func() {
+					s.form.Remote = kind == 1
+				})
 			})
 		})
 		if s.form.Remote {
@@ -710,9 +708,6 @@ func (s *mcpSheet) formView(c *ui.Context) {
 		providerFormRow(c, labelWidth, L("About"), func() {
 			textField(c, &s.form.Description, fieldOptions{Placeholder: L("What it is for, which bots read (optional)"), Disabled: s.busy, Label: L("About")})
 		})
-		if kindControl.Changed() {
-			s.form.Remote = kind == 1
-		}
 	})
 }
 
@@ -912,7 +907,6 @@ func (s *mcpSheet) statusView(c *ui.Context) {
 		return
 	}
 	section(c, L("Tools"), sectionCaption, nil, func(k *card) {
-		toggled, shown := "", false
 		ui.Scroll(c).MaxHeight(172).Children(func() {
 			rows := &card{line: p.Separator}
 			for _, tool := range server.Tools {
@@ -939,14 +933,10 @@ func (s *mcpSheet) statusView(c *ui.Context) {
 					if tool.Hidden {
 						tooltip = L("Hidden from bots")
 					}
-					if toggleSwitch(c, &on, true).Label(L("Offer %@ to bots", tool.Name)).Tooltip(tooltip).Disabled(s.busy).Changed() {
-						toggled, shown = tool.Name, on
-					}
+					toggleSwitch(c, &on, true).Label(L("Offer %@ to bots", tool.Name)).Tooltip(tooltip).Disabled(s.busy).
+						OnChange(func() { s.showTool(tool.Name, on) })
 				})
 			}
 		})
-		if toggled != "" {
-			s.showTool(toggled, shown)
-		}
 	})
 }

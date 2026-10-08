@@ -331,7 +331,6 @@ func (m *mainWindow) inspectorMemory(c *ui.Context, bot *model.Bot) {
 func (m *mainWindow) inspectorRoutines(c *ui.Context, bot *model.Bot) {
 	p := colors(c)
 	routines := store.RoutinesFor(bot.ID)
-	toggled, enabled := "", false
 	section(c, L("Routines"), sectionCaption, nil, func(k *card) {
 		if len(routines) == 0 {
 			noteRow(c, k, L("Routines are recurring tasks this bot runs on a schedule. Ask it in chat to set one up."), nil)
@@ -351,23 +350,16 @@ func (m *mainWindow) inspectorRoutines(c *ui.Context, bot *model.Bot) {
 			}
 			on := routine.IsEnabled
 			id, botID := routine.ID, bot.ID
-			var result switchRowResult
 			ui.Box(c.Key(routine.ID)).Children(func() {
-				_, result = switchRow(c, k, symbolName, tint, routine.Name, routine.Detail(), &on, toggle, routine.Prompt)
-			})
-			if result.Toggled {
-				toggled, enabled = id, on
-			}
-			if result.Clicked {
-				if current := store.Bot(botID); current != nil {
-					m.presentRoutine(id, current, m.prefill)
+				if switchRow(c, k, symbolName, tint, routine.Name, routine.Detail(), &on, toggle, routine.Prompt,
+					func(on bool) { store.SetRoutineEnabled(id, on) }) {
+					if current := store.Bot(botID); current != nil {
+						m.presentRoutine(id, current, m.prefill)
+					}
 				}
-			}
+			})
 		}
 	})
-	if toggled != "" {
-		store.SetRoutineEnabled(toggled, enabled)
-	}
 }
 
 // prefill puts a text in the composer of the chat on screen, with the keyboard there.
