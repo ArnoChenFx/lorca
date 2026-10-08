@@ -329,6 +329,14 @@ export default function ChatScreen() {
     const layout = index < 0 ? undefined : list.getLayout(index);
     // The sent message has not reached the list yet: keep what is there.
     if (!layout) return null;
+    if (Platform.OS !== "ios") {
+      // Android never scrolls the anchor under the header (syncInsetTop only does that on
+      // iOS), so a header-pinning blank here would be dead scrollable space below the
+      // content. The anchor has done its job once the message is laid out: it held
+      // FlashList's auto-scroll for the send commit, and the message sits at the end.
+      releaseAnchor();
+      return restingSpace();
+    }
     const tail = list.getChildContainerDimensions().height - layout.y;
     const blank = layoutHeight.current - topInsetRef.current - tail;
     if (blank <= restingSpace()) {
@@ -974,6 +982,15 @@ export default function ChatScreen() {
             placeholder={placeholder}
             reply={replying}
             onCancelReply={() => setReplying(null)}
+            working={isWorking}
+            onStop={() => {
+              void engine.stopTurn(id).catch((error) => {
+                Alert.alert(
+                  t("Could not stop"),
+                  error instanceof Error ? error.message : String(error),
+                );
+              });
+            }}
             onSend={(text, files, mentions) => {
               // The anchor is measured against the screen without the keyboard.
               void KeyboardController.dismiss();
