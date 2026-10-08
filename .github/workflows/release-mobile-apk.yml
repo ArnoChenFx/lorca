@@ -156,8 +156,8 @@ jobs:
           "$build_tools/zipalign" -f 4 "$unsigned_apk" app-aligned.apk
           STORE_PASS="$store_pass" KEY_PASS="$key_pass" \
             "$build_tools/apksigner" sign \
-              --ks "$ks" --ks-pass:env STORE_PASS \
-              --ks-key-alias "$alias" --key-pass:env KEY_PASS \
+              --ks "$ks" --ks-pass "env:STORE_PASS" \
+              --ks-key-alias "$alias" --key-pass "env:KEY_PASS" \
               --out "${{ steps.release.outputs.apk }}" app-aligned.apk
           "$build_tools/apksigner" verify --print-certs "${{ steps.release.outputs.apk }}"
 
