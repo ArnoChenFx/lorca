@@ -177,6 +177,16 @@ pub fn check_connection(app: &Arc<App>, bot: &Bot, connection: &str, tool: &str,
     }
 }
 
+/// The plugin as a whole, for a tool of Lorca's own that works with it (`browser_session` for
+/// Browser): any grant to the plugin covers it, whichever of the plugin's tools the grant lists.
+pub fn check_plugin(app: &Arc<App>, bot: &Bot, connection: &str, tool: &str) -> Result<(), AccessDenied> {
+    let current = current(app, bot, tool, Some(connection))?;
+    match current.permissions.as_ref().filter(|policy| !policy.allows_connection(connection)) {
+        Some(_) => Err(AccessDenied { tool: tool.into(), connection_id: Some(connection.into()), capability: None, reason: format!("{} is off for this bot", connection_name(app, connection)), grantable: true }),
+        None => Ok(()),
+    }
+}
+
 /// What the user calls an installed plugin: its status name, which tells two accounts of one
 /// service apart.
 fn connection_name(app: &App, connection: &str) -> String {

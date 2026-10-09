@@ -104,7 +104,7 @@ func TestIntegrationFirstAccountWithoutAName(t *testing.T) {
 func TestIntegrationRenameKeepsTheAccount(t *testing.T) {
 	_, tt := sheetTester(t, func(m *mainWindow) {
 		gmailAccounts(sheetAWorkbench())
-		m.presentPlugin("gmail-00000000000000000000000000000001", sheetAWorkbench())
+		m.presentPlugin("gmail-00000000000000000000000000000001", sheetAWorkbench(), "", "")
 	})
 	sheetASettle(tt)
 	settleTransitions(tt)
@@ -157,7 +157,7 @@ func TestIntegrationAccountSheetIsOneCard(t *testing.T) {
 		t.Run(c.title, func(t *testing.T) {
 			_, tt := sheetTester(t, func(m *mainWindow) {
 				gmailAccounts(sheetAWorkbench())
-				m.presentPlugin("gmail-0000000000000000000000000000000"+c.id, sheetAWorkbench())
+				m.presentPlugin("gmail-0000000000000000000000000000000"+c.id, sheetAWorkbench(), "", "")
 			})
 			sheetASettle(tt)
 			settleTransitions(tt)

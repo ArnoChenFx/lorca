@@ -469,7 +469,7 @@ func (mk *marketplace) remember(runnerID string, status model.InstalledPlugin) {
 // named account's own): its sign-in, its setup, and Remove.
 func (mk *marketplace) manage(pluginID string) {
 	if on := mk.runner(); on != nil {
-		mk.m.presentPlugin(pluginID, on)
+		mk.m.presentPlugin(pluginID, on, "", "")
 	}
 }
 

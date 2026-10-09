@@ -707,7 +707,9 @@ final class InspectorViewController: NSViewController {
 
     @objc private func openPlugin(_ sender: NSClickGestureRecognizer) {
         guard let id = sender.view?.identifier?.rawValue, let bot = pluginBotID.flatMap(store.bot), let runner = store.device(bot.runnerID) else { return }
-        PluginViewController.present(pluginID: id, runner: runner, bot: bot, from: self)
+        var chatID: Chat.ID?
+        if case let .chat(chat) = selection { chatID = chat }
+        PluginViewController.present(pluginID: id, runner: runner, bot: bot, chatID: chatID, from: self)
     }
 
     @objc private func addBot() {

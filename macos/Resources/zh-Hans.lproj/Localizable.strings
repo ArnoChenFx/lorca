@@ -965,3 +965,37 @@
 "Show Latest discards your changes and shows the current version to review." = "“显示最新”会舍弃你的修改，显示当前版本供你审核。";
 "Show Latest" = "显示最新";
 "The arguments need to be a JSON object." = "参数需要是一个 JSON 对象。";
+
+/* Browser profiles */
+"Profiles" = "配置文件";
+"Add Profile" = "添加配置文件";
+"Closed|browser" = "已关闭";
+"Open|browser" = "已打开";
+"Taking over…" = "正在接管…";
+"You have control" = "由你控制";
+"Open it on %@ to sign in. %@ can open it too." = "在 %1$@ 上打开它来登录。%2$@ 也能打开它。";
+"%@'s browser calls use this profile." = "%@ 的浏览器操作使用这个配置文件。";
+"Waiting for %@'s current step in the browser to finish." = "正在等 %@ 在浏览器中的当前一步完成。";
+"%@'s browser calls wait until you return the browser." = "%@ 的浏览器操作会等到你交还浏览器。";
+"Opening…" = "正在打开…";
+"Returning…" = "正在交还…";
+"Closing…" = "正在关闭…";
+"Open Browser" = "打开浏览器";
+"Open on %@" = "在 %@ 上打开";
+"Return to Bot" = "交还给智能体";
+"Take Screenshot" = "截图";
+"Take Over" = "接管";
+"Close Browser" = "关闭浏览器";
+"A profile keeps sign-ins for %@'s browser. Add one, then open it on %@ to sign in." = "配置文件为 %1$@ 的浏览器保留登录状态。添加一个，然后在 %2$@ 上打开它并登录。";
+"Delete the “%@” profile?" = "删除配置文件“%@”？";
+"Its browser closes, and the sites it signed in to are signed out for %@." = "它的浏览器会关闭，%@ 在其中登录的网站都会退出登录。";
+"New Profile" = "新建配置文件";
+"%@ keeps the sign-ins you make in it." = "你在其中的登录会为 %@ 保留。";
+"Work|browser profile" = "工作";
+"Couldn't open the browser" = "无法打开浏览器";
+"Couldn't take over the browser" = "无法接管浏览器";
+"Couldn't hand the browser back" = "无法交还浏览器";
+"Couldn't take a screenshot" = "无法截图";
+"Couldn't close the browser" = "无法关闭浏览器";
+"Couldn't delete the profile" = "无法删除配置文件";
+"Couldn't add the profile" = "无法添加配置文件";

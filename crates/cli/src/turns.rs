@@ -158,6 +158,12 @@ pub(crate) async fn run_job(app: &Arc<App>, job: &Job, cancel: CancellationToken
         Arc::new(InstallPlugin { app: app.clone(), chat_id: chat.meta.id.clone(), bot: bot.clone(), unattended }),
         Arc::new(ConnectPlugin { app: app.clone(), chat_id: chat.meta.id.clone(), bot: bot.clone() }),
     ];
+    // A bot's browser profiles come with the Browser plugin on its Runner, when its Access
+    // allows Browser.
+    let browser = app.plugins.lock().unwrap().get(crate::browser::PLUGIN_ID).is_some();
+    if browser && bot.permissions.as_ref().is_none_or(|policy| policy.allows_connection(crate::browser::PLUGIN_ID)) {
+        tools.push(Arc::new(crate::browser::SessionTool { app: app.clone(), bot: bot.clone() }));
+    }
     tools.extend(memory_tools(app, &store, &chat));
     tools.push(Arc::new(Recall { app: app.clone(), store: store.clone(), bot: bot.clone() }));
     // Commands run in terminals of their own, kept on this Runner past the turn when they
@@ -613,6 +619,9 @@ impl LoopHooks for TurnHooks {
             if let Err(denied) = crate::permissions::check_tool(&self.app, &self.bot, &ctx.tool_call.name) {
                 return Some(crate::permissions::refuse(&self.app, &self.chat_id, &self.bot, denied));
             }
+        }
+        if let Some(refused) = crate::browser::review_call(&self.app, &self.bot, &self.chat_id, &self.trigger, self.unattended, &ctx).await {
+            return Some(refused);
         }
         if let Some(refused) = crate::plugins::mcp::review_call(&self.app, &self.plugin_tools, &self.chat_id, &self.trigger, &self.bot, self.unattended, &ctx).await {
             return Some(refused);

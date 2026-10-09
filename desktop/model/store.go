@@ -200,6 +200,7 @@ type Store struct {
 
 	mockMarketplace *Marketplace
 	mockMcp         map[string][]McpServer
+	mockBrowser     map[string][]BrowserProfile
 }
 
 type pendingEvent struct {
@@ -1338,6 +1339,10 @@ func (s *Store) PluginDetail(pluginID, runnerID string, done func(PluginDetail, 
 					detail.Servers = append(detail.Servers, PluginDetailServer{Name: server.Name, Kind: "http", URL: server.Address, OAuth: server.SignsIn, SignedIn: status.State == PluginReady})
 				}
 			}
+		}
+		if pluginID == BrowserPluginID {
+			// Browser runs on the Runner and signs in to nothing itself.
+			detail = PluginDetail{Status: status, Homepage: "https://github.com/microsoft/playwright-mcp", Skills: []NamedText{{Name: "Reading a page", Description: "How to read a page without filling the context."}}}
 		}
 		s.post(func() { done(detail, nil) })
 		return
@@ -2663,6 +2668,7 @@ func (s *Store) ResetMockData() {
 		}
 	}
 	s.Devices = mockDevices()
+	s.mockBrowser = nil
 	s.Bots = mockBots()
 	s.Chats = mockChats()
 	s.Routines = mockRoutines()

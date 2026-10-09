@@ -415,7 +415,7 @@ func (m *mainWindow) inspectorPlugins(c *ui.Context, bot *model.Bot) {
 				}
 			})
 			if row.Clicked && runner != nil {
-				m.presentPlugin(pluginID, runner)
+				m.presentPlugin(pluginID, runner, bot.ID, m.selectedChatID())
 			}
 		}
 		if len(plugins) == 0 {
