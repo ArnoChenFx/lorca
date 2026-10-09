@@ -22,3 +22,7 @@ A bot’s DM Profile card has the Mac's Access row (`disclosureRow`), which open
 ## Shared project context
 
 A group's inspector has the Mac's Project section, and a row opens the same entry sheet (`project.go`): the entries a row each, a + menu that adds one, Check Now under a link, Open for a file, and the Mac's conflict alert when another Device saved first. `model/project_context.go` makes the `projects.*` calls; their replies come back on the store's main-thread queue, a sheet closed meanwhile ignores them, and `projects.changed` lists the group again. [Shared project context](project-context.md#the-apps) describes both apps.
+
+## Workflows
+
+The last onboarding page has Choose a Workflow… under Open Lorca, and the marketplace lists Workflows first; a workflow's page is the Mac's, as marketplace pages in `desktop/workflows.go` over `desktop/model/workflows.go`: [Workflow onboarding](workflows.md#the-apps).

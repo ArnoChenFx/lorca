@@ -1,7 +1,7 @@
 import AppKit
 
-/// The marketplace, after Grok Bot's: featured plugins and bots, everything else by category,
-/// one search over both, and a page for each plugin and bot. A sheet with a way back: the home
+/// The marketplace, after Grok Bot's: workflows, featured plugins and bots, everything else by
+/// category, one search over all of them, and a page for each workflow, plugin, and bot. A sheet with a way back: the home
 /// page leads to a plugin, a bot, a full list, or the plugins the Runner has. Plugins install
 /// on the Runner picked in the top bar, for every bot there; a bot is added to that Runner, and
 /// the sheet closes on the new bot's chat, where the bot sets itself up.
@@ -19,6 +19,7 @@ final class MarketplaceViewController: NSViewController {
     /// Runner elsewhere reports its plugins through the relay a moment later.
     private var installed: [Device.ID: [MarketplacePlugin.ID: InstalledPlugin]] = [:]
 
+    private let workflowsOnly: Bool
     private let size: NSSize
     private let onOpenChat: (Chat.ID) -> Void
     private var pages: [MarketplacePage] = []
@@ -30,7 +31,9 @@ final class MarketplaceViewController: NSViewController {
     private let noticeLabel = Build.label("", font: .systemFont(ofSize: 12.5), lines: 2)
     private var noticeTask: Task<Void, Never>?
 
-    init(runnerID: Device.ID?, size: NSSize, onOpenChat: @escaping (Chat.ID) -> Void) {
+    /// `workflowsOnly` opens on the workflows alone, for onboarding.
+    init(runnerID: Device.ID?, size: NSSize, workflowsOnly: Bool = false, onOpenChat: @escaping (Chat.ID) -> Void) {
+        self.workflowsOnly = workflowsOnly
         self.size = size
         self.onOpenChat = onOpenChat
         super.init(nibName: nil, bundle: nil)
@@ -101,7 +104,7 @@ final class MarketplaceViewController: NSViewController {
         ])
         view = container
         updateRunnerPopup()
-        show(MarketplaceHomePage(market: self), animated: false)
+        show(workflowsOnly ? MarketplaceWorkflowListPage(market: self) : MarketplaceHomePage(market: self), animated: false)
         load()
     }
 
@@ -239,6 +242,16 @@ final class MarketplaceViewController: NSViewController {
 
     func openPlugin(_ plugin: MarketplacePlugin) {
         show(MarketplacePluginPage(market: self, pluginID: plugin.id))
+    }
+
+    func openWorkflow(_ pack: WorkflowPack) {
+        show(MarketplaceWorkflowPage(market: self, pack: pack))
+    }
+
+    /// Closes the sheet on the workflow's chat, where its sample is and its runs will be.
+    func finishWorkflow(chatID: Chat.ID?) {
+        dismiss(nil)
+        if let chatID { onOpenChat(chatID) }
     }
 
     func openBot(_ template: BotTemplate) {

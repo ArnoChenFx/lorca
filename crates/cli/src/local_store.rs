@@ -71,6 +71,11 @@ impl LocalStore {
                  position INTEGER NOT NULL,
                  json     TEXT NOT NULL
              );
+             CREATE TABLE IF NOT EXISTS workflow_setups (
+                 id       TEXT PRIMARY KEY NOT NULL,
+                 position INTEGER NOT NULL,
+                 json     TEXT NOT NULL
+             );
              CREATE TABLE IF NOT EXISTS routines (
                  id       TEXT PRIMARY KEY NOT NULL,
                  position INTEGER NOT NULL,
@@ -210,6 +215,7 @@ impl LocalStore {
             bots: load_json_table(&connection, "bots")?,
             chats: load_json_table(&connection, "chats")?,
             routines: load_json_table(&connection, "routines")?,
+            workflows: load_json_table(&connection, "workflow_setups")?,
             auto_review,
             shared_links: load_json_table(&connection, "shared_links")?,
             last_seq,
@@ -1167,6 +1173,7 @@ impl LocalStore {
             "bots",
             "chats",
             "routines",
+            "workflow_setups",
             "shared_links",
             "event_subscriptions",
             "event_inbox",
@@ -1311,6 +1318,10 @@ fn save_state_tx(tx: &Transaction<'_>, state: &State) -> anyhow::Result<()> {
             .iter()
             .map(|routine| (routine.id.clone(), serde_json::to_string(routine)))
             .collect::<Vec<_>>(),
+    )?;
+    sync_json_table(
+        tx, "workflow_setups",
+        state.workflows.iter().map(|setup| (setup.id.clone(), serde_json::to_string(setup))).collect::<Vec<_>>(),
     )?;
     sync_json_table(
         tx,

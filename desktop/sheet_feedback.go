@@ -344,7 +344,7 @@ func (m *mainWindow) feedbackListView(c *ui.Context, s *sheet, st *feedbackListS
 					current = strconv.FormatInt(*f.ReviewEvery, 10)
 				}
 				options := []popUpOption{{Value: "", Label: L("When asked")}, {Value: "86400", Label: L("Daily")}, {Value: "604800", Label: L("Weekly")}}
-				if picked, changed := popUpRow(c.Key("interval"), k, L("Look for changes"), popUp{Value: current, Options: options, Label: L("Look for changes")}); changed {
+				if picked, changed := popUpRow(c.Key("interval"), k, L("Look for changes"), popUp{Value: current, Options: options, Label: L("Look for changes")}, false); changed {
 					var every *int64
 					if seconds, err := strconv.ParseInt(picked, 10, 64); err == nil {
 						every = &seconds

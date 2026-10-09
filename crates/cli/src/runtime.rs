@@ -665,6 +665,7 @@ async fn run_job_here(app: &Arc<App>, job: Job, cancel: CancellationToken) -> Tu
 
 /// Runs a job with its working record already installed.
 async fn run_job_started(app: &Arc<App>, job: Job, cancel: CancellationToken) -> TurnOutcome {
+    crate::workflows::sample_started(app, &job);
     let admitted = match crate::handoffs::begin_job(app, &job) {
         Ok(admitted) => admitted,
         Err(error) => {
@@ -693,6 +694,7 @@ async fn run_job_started(app: &Arc<App>, job: Job, cancel: CancellationToken) ->
         app.notice(&job.chat_id, "This Device does not run bots; assign the bot to a Runner.");
         TurnOutcome::Skipped
     };
+    crate::workflows::sample_finished(app, &job, outcome);
     if let Err(error) = crate::handoffs::finish_job(app, &job, outcome, report_cancel.is_cancelled()) {
         tracing::error!(%error, job_id = %job.id, "reporting handoff outcome");
     }

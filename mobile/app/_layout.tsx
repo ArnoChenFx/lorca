@@ -97,6 +97,7 @@ export default function RootLayout() {
               <Stack.Screen name="new-bot" options={sheet} />
               <Stack.Screen name="template" options={sheet} />
               <Stack.Screen name="new-group" options={sheet} />
+              <Stack.Screen name="workflows" options={nestedSheet} />
               <Stack.Screen name="settings" options={nestedSheet} />
               <Stack.Screen
                 name="attachment/[id]"

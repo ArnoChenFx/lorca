@@ -541,6 +541,8 @@ pub fn serve(app: &Arc<App>, method: &str, params: &Value) -> Result<Value, Stri
                 // A workflow feedback review looks again when the user asks or at its next
                 // interval; there is no turn to go on with.
                 (_, Some(job)) if job.kind == crate::feedback::REVIEW_JOB => {}
+                // A workflow's sample runs again from its page, as a new sample.
+                (_, Some(job)) if job.kind == crate::workflows::SAMPLE_JOB => {}
                 // An event's delivery goes back to its subscription's inbox, which admits it
                 // again in its order, as the same Job.
                 (_, Some(job)) if job.kind == "event" => {

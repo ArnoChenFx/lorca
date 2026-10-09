@@ -18,6 +18,8 @@ Routines take an IANA `timezone` and a `missed_run_policy` (`coalesce` or `skip`
 
 `handoffs.list/get/follow_up/cancel/report` inspect and manage durable delegated work through the same local API. Their request and report shapes, source-chat destination and per-attempt job comparison are described in [Handoffs](handoffs.md#inspection-follow-up-and-recovery).
 
+Workflows add `workflows.start` / `workflows.get` / `workflows.configure` / `workflows.connection` / `workflows.sample` / `workflows.review` / `workflows.enable` / `workflows.cancel`, each answering the setup's view; `marketplace` answers `packs` beside `plugins` and `bots`. The roster's optional `workflows` array carries the setups, merged one by one, and a sample is a `workflow_sample` job on the existing sealed job path: [Workflow onboarding](workflows.md).
+
 The app may choose ids (`bots.create.id`, `chats.create.id`, `chats.send.message_id`) so its optimistic rows match the CLI’s events.
 
 [Bot templates](templates.md) use `templates.contents`, `templates.export.preview` / `templates.export`, `templates.share` / `templates.unshare` for links, and `templates.import.preview` / `templates.import`, which take a `path` or a `link`. The final operations take `reviewed: true` and the preview's `expected_digest`, and refuse contents that changed since. File paths belong to the local CLI. The snapshot and `roster.changed` carry the account's `shared_links`, which the roster blob holds with their keys.

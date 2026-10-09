@@ -408,6 +408,7 @@ type WireBotTemplate struct {
 }
 
 type WireMarketplace struct {
+	Packs   []WorkflowPack          `json:"packs"`
 	Plugins []WireMarketplacePlugin `json:"plugins"`
 	Bots    []WireBotTemplate       `json:"bots"`
 }
@@ -1000,7 +1001,7 @@ func ToBotTemplate(wire WireBotTemplate) BotTemplate {
 }
 
 func ToMarketplace(wire WireMarketplace) Marketplace {
-	var out Marketplace
+	out := Marketplace{Packs: wire.Packs}
 	for _, plugin := range wire.Plugins {
 		out.Plugins = append(out.Plugins, ToMarketplacePlugin(plugin))
 	}

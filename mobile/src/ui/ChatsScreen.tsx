@@ -202,6 +202,9 @@ export function ChatsScreen({ sidebar = false }: { sidebar?: boolean }) {
               <Stack.Toolbar.MenuAction icon="square.and.arrow.down" onPress={() => router.push("/template")}>
                 {t("New Bot from Template…")}
               </Stack.Toolbar.MenuAction>
+              <Stack.Toolbar.MenuAction icon="point.3.connected.trianglepath.dotted" onPress={() => router.push("/workflows")}>
+                {t("New Workflow")}
+              </Stack.Toolbar.MenuAction>
             </Stack.Toolbar.Menu>
           </Stack.Toolbar>
         </>
@@ -221,6 +224,9 @@ export function ChatsScreen({ sidebar = false }: { sidebar?: boolean }) {
               </Stack.Toolbar.MenuAction>
               <Stack.Toolbar.MenuAction icon={AndroidIcons.download} onPress={() => router.push("/template")}>
                 {t("New Bot from Template…")}
+              </Stack.Toolbar.MenuAction>
+              <Stack.Toolbar.MenuAction icon={AndroidIcons.workflow} onPress={() => router.push("/workflows")}>
+                {t("New Workflow")}
               </Stack.Toolbar.MenuAction>
             </Stack.Toolbar.Menu>
           </Stack.Toolbar>

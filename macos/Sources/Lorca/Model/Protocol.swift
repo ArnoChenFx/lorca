@@ -344,6 +344,7 @@ enum Wire {
     }
 
     struct Marketplace: Decodable {
+        var packs: [WorkflowPack]?
         var plugins: [MarketplacePlugin]
         var bots: [BotTemplate]
     }

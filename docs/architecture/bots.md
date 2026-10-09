@@ -37,6 +37,8 @@ A routine is a task a bot runs on a schedule in its direct chat, on its assigned
 
 A service's events start work in a bot's DM too, through [event subscriptions](event-triggers.md) on its Runner: each runs the subscription's own task, unattended as a routine's run is, and one that targets a routine waits while the routine is paused.
 
+A workflow adds the routines it needs paused, and `routines.set_enabled` keeps one it added off until the user has read the workflow's sample; a routine of the user's that a workflow reuses keeps its own state: [Workflow onboarding](workflows.md).
+
 ## Memory
 
 A bot made from a [template](templates.md#import) gets a DM, the template's memories as its `MEMORY.md`, and its routines paused, and runs no turn or routine check; the user turns routines on from the inspector.

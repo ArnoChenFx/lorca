@@ -214,8 +214,10 @@ type Store struct {
 	outputRequests map[string]bool
 	staleOutputs   map[string]bool
 
-	mockMarketplace *Marketplace
-	mockMcp         map[string][]McpServer
+	mockWorkflows        map[string]*demoSetup
+	mockWorkflowAccounts map[string][]WorkflowAccount
+	mockMarketplace      *Marketplace
+	mockMcp              map[string][]McpServer
 	// mockFeedback is the demo's workflow feedback, changed in place by the same calls.
 	mockFeedback map[string]BotFeedback
 	mockBrowser  map[string][]BrowserProfile
@@ -1298,6 +1300,7 @@ func (s *Store) Marketplace(done func(Marketplace, error)) {
 	if s.IsMock {
 		if s.mockMarketplace == nil {
 			market := mockMarketplace()
+			market.Packs = demoWorkflowPacks()
 			s.mockMarketplace = &market
 		}
 		market := *s.mockMarketplace

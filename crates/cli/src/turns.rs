@@ -200,6 +200,10 @@ async fn run_budgeted_job(app: &Arc<App>, job: &Job, cancel: CancellationToken) 
         Arc::new(InstallPlugin { app: app.clone(), chat_id: chat.meta.id.clone(), bot: bot.clone(), unattended }),
         Arc::new(ConnectPlugin { app: app.clone(), chat_id: chat.meta.id.clone(), bot: bot.clone() }),
     ];
+    if job.kind == crate::workflows::SAMPLE_JOB {
+        // A setup's sample cannot create teammates, hand off, install integrations, or arm schedules.
+        tools.retain(|tool| matches!(tool.name(), "list_teammates" | "search_plugins"));
+    }
     tools.push(Arc::new(crate::attention::AttentionTool {
         app: app.clone(), bot_id: bot.id.clone(), chat_id: chat.meta.id.clone(), hops: job.hops,
         handled: attention_handled.clone(), requesting_bot_id: job.from_bot_id.clone().filter(|_| job.kind == "message"),
@@ -212,6 +216,10 @@ async fn run_budgeted_job(app: &Arc<App>, job: &Job, cancel: CancellationToken) 
     }
     tools.extend(memory_tools(app, &store, &chat));
     tools.extend(crate::playbook_tools::tools(app, &bot.id, &chat.meta.id));
+    if job.kind == crate::workflows::SAMPLE_JOB {
+        // It reads the user's skills as its routine will, and proposes none.
+        tools.retain(|tool| tool.name() != "propose_playbook");
+    }
     tools.push(Arc::new(Recall { app: app.clone(), store: store.clone(), bot: bot.clone() }));
     if crate::project_context::project_for_turn(app, &chat.meta.id, &bot.id).is_some() {
         tools.push(Arc::new(crate::project_context::ProjectContextTool { app: app.clone(), chat_id: chat.meta.id.clone(), bot: bot.clone() }));
@@ -1663,6 +1671,7 @@ fn system_prompt(app: &Arc<App>, chat: &Chat, bot: &Bot, job: &Job, store: &Memo
          including you (your id is {}), to behave differently, change its profile with edit_bot.\n",
         bot.id
     ));
+    prompt.push_str(&crate::workflows::context_for_turn(app, &bot.id, job));
     prompt.push_str(&crate::handoffs::prompt(app, job));
     prompt.push_str(&routines_prompt(app, bot));
     prompt.push_str(&crate::attention::prompt(app, &bot.id, &chat.meta.id, job.kind == "attention_report"));

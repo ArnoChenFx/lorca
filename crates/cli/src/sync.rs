@@ -911,6 +911,7 @@ fn apply_roster(app: &Arc<App>, mut roster: RosterBlob) {
     let normalized_descriptions = roster.bots.iter_mut().fold(false, |changed, bot| bot.normalize_description() || changed);
     let this_device = app.this_device_id();
     let kept_checks;
+    let kept_workflows;
     let kept_permissions;
     let removed_bots: Vec<String>;
     {
@@ -918,6 +919,7 @@ fn apply_roster(app: &Arc<App>, mut roster: RosterBlob) {
         let local_updated = state.chats.iter().map(|_| 0.0).fold(0.0, f64::max);
         let _ = local_updated;
         kept_checks = this_device.is_some_and(|this| crate::routines::keep_checks(&state.routines, &mut roster.routines, &roster.bots, &this));
+        kept_workflows = crate::workflows::merge(&mut state.workflows, roster.workflows);
         kept_permissions = crate::permissions::keep_policies(&state.bots, &mut roster.bots);
         removed_bots = state.bots.iter().filter(|bot| !roster.bots.iter().any(|kept| kept.id == bot.id)).map(|bot| bot.id.clone()).collect();
         state.bots = roster.bots;
@@ -952,7 +954,7 @@ fn apply_roster(app: &Arc<App>, mut roster: RosterBlob) {
     }
     #[cfg(feature = "runner")]
     app.shell_sessions.close_orphans(app);
-    app.roster_changed(normalized_descriptions || kept_checks || kept_permissions);
+    app.roster_changed(normalized_descriptions || kept_checks || kept_permissions || kept_workflows);
 }
 
 fn apply_chat_op(app: &Arc<App>, op: ChatBlob) {
