@@ -6,6 +6,8 @@ and the update window shows it.
 
 ## [Unreleased]
 
+- Open Lorca, on onboarding's last step, opens the main window; before, the app quit there.
+
 ## [0.1.4]
 
 - A computer that runs the Lorca command line without the app keeps it up to date by itself: it
