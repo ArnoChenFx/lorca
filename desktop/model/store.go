@@ -2387,27 +2387,33 @@ func (s *Store) DisconnectProvider(kind ProviderKind, done func(error)) {
 }
 
 // ConnectSystemOne checks System One's key at its root and saves its key, model, and root for the
-// account (`providers.connect_system_one`). A blank key keeps the saved one.
-func (s *Store) ConnectSystemOne(options SystemOneCredentials, done func(error)) {
+// account (`providers.connect_system_one`). A blank key keeps the saved one. A service out of reach
+// or a key it refuses still saves: done gets the warning the CLI answers with, else "".
+func (s *Store) ConnectSystemOne(options SystemOneCredentials, done func(warning string, err error)) {
 	baseURL := strings.TrimSpace(options.BaseURL)
 	model := strings.TrimSpace(options.Model)
 	if s.IsMock {
 		s.SystemOne = &SystemOne{BaseURL: baseURL, Model: model, Detail: "•••• · " + baseURL}
 		s.rosterTouched("")
-		s.post(func() { done(nil) })
+		s.post(func() { done("", nil) })
 		return
 	}
-	Async(s, func() (*SystemOne, error) {
+	type connected struct {
+		saved   *SystemOne
+		warning string
+	}
+	Async(s, func() (connected, error) {
 		reply, err := call[struct {
 			SystemOne *WireSystemOne `json:"system_one"`
+			Warning   string         `json:"warning"`
 		}](s, "providers.connect_system_one", map[string]any{"base_url": baseURL, "api_key": strings.TrimSpace(options.APIKey), "model": model})
-		return ToSystemOne(reply.SystemOne), err
-	}, func(saved *SystemOne, err error) {
+		return connected{saved: ToSystemOne(reply.SystemOne), warning: reply.Warning}, err
+	}, func(result connected, err error) {
 		if err == nil {
-			s.SystemOne = saved
+			s.SystemOne = result.saved
 			s.emit(Event{Kind: EventRosterChanged})
 		}
-		done(err)
+		done(result.warning, err)
 	})
 }
 

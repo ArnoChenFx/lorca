@@ -13,7 +13,7 @@ import (
 
 // presentSystemOne opens the System One sheet, filled from the saved service when there is one.
 func (w *appWindow) presentSystemOne() {
-	s := &systemOneSheet{baseURL: model.SystemOneServices[0].URL, model: model.DefaultSystemOneModel}
+	s := &systemOneSheet{w: w, baseURL: model.SystemOneServices[0].URL, model: model.DefaultSystemOneModel}
 	if saved := store.SystemOne; saved != nil {
 		s.editing = true
 		s.baseURL = saved.BaseURL
@@ -24,6 +24,7 @@ func (w *appWindow) presentSystemOne() {
 
 // systemOneSheet is the state of the sheet that connects System One.
 type systemOneSheet struct {
+	w                   *appWindow
 	baseURL, model, key string
 	editing             bool
 	busy, closed        bool
@@ -40,13 +41,19 @@ func (s *systemOneSheet) confirm(sh *sheet) {
 	}
 	s.busy = true
 	s.status = &providerStatus{text: L("Checking the key with %@…", "System One"), tone: model.ToneSecondary, spinning: true}
-	store.ConnectSystemOne(model.SystemOneCredentials{BaseURL: s.baseURL, APIKey: s.key, Model: s.model}, func(err error) {
+	store.ConnectSystemOne(model.SystemOneCredentials{BaseURL: s.baseURL, APIKey: s.key, Model: s.model}, func(warning string, err error) {
 		if s.closed {
 			return
 		}
 		if err != nil {
 			s.busy = false
 			s.status = &providerStatus{text: model.ErrorText(err), tone: model.ToneRed}
+			return
+		}
+		if warning != "" {
+			s.w.showAlert(alertOptions{Message: L("Saved with a warning"), Informative: warning, Style: alertWarning}, func(int) {
+				sh.dismiss()
+			})
 			return
 		}
 		sh.dismiss()

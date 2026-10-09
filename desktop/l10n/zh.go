@@ -176,6 +176,7 @@ var zh = map[string]string{
 	"Check for Updates…":              "检查更新…",
 	"Checking %@…":                    "正在检查 %@…",
 	"Checking the key with %@…":       "正在向 %@ 验证密钥…",
+	"Saved with a warning":            "已保存（附带警告）",
 	"Checking the team":               "正在查看团队",
 	"Chef|first bot name":             "幕僚长",
 	"Chief of staff. Plans the work and delegates each task to the right teammate, proposing a new one when none fits. Does hands-on work when necessary.": "统筹规划工作，把每项任务交给合适的队友，没有合适的就提议新建一个。必要时亲自动手。",

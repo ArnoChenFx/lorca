@@ -348,7 +348,7 @@ func TestSystemOneIsAReviewModelNotAProvider(t *testing.T) {
 			t.Fatal("System One is offered before it is connected")
 		}
 	}
-	store.ConnectSystemOne(model.SystemOneCredentials{BaseURL: "https://api.typesafe.ai", APIKey: "sk-one", Model: "jev-latest"}, func(error) {})
+	store.ConnectSystemOne(model.SystemOneCredentials{BaseURL: "https://api.typesafe.ai", APIKey: "sk-one", Model: "jev-latest"}, func(string, error) {})
 	if store.SystemOne == nil || store.SystemOne.Model != "jev-latest" {
 		t.Fatalf("system one %+v", store.SystemOne)
 	}
