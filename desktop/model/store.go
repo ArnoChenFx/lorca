@@ -74,6 +74,8 @@ const (
 	// EventRunningTasksChanged is a command in the chat that has run long enough to count as a
 	// running task.
 	EventRunningTasksChanged
+	// EventOutputsChanged is the chat's published outputs that changed.
+	EventOutputsChanged
 	EventConnectionChanged
 	EventIdentityChanged
 )
@@ -183,6 +185,13 @@ type Store struct {
 	// attachmentFiles is where each attachment's bytes are on this computer.
 	attachmentFiles    map[string]string
 	fetchingAttachment map[string]bool
+	// attachmentErrors is why a fetch failed, kept until a retry so a scroll does not ask again.
+	attachmentErrors map[string]string
+	// outputMessages is every version of each shown chat's outputs, oldest first; outputRequests
+	// are the chats whose list is on its way.
+	outputMessages map[string][]*Message
+	outputRequests map[string]bool
+	staleOutputs   map[string]bool
 
 	mockMarketplace *Marketplace
 	mockMcp         map[string][]McpServer
@@ -209,6 +218,10 @@ func NewStore(transport Transport, post func(func()), mock bool) *Store {
 		thinkingBots:       map[string]string{},
 		attachmentFiles:    map[string]string{},
 		fetchingAttachment: map[string]bool{},
+		attachmentErrors:   map[string]string{},
+		outputMessages:     map[string][]*Message{},
+		outputRequests:     map[string]bool{},
+		staleOutputs:       map[string]bool{},
 		mockMcp:            map[string][]McpServer{},
 		isBootstrapping:    true,
 	}
@@ -368,6 +381,15 @@ func (s *Store) bootstrap(generation int) {
 }
 
 func (s *Store) apply(snapshot WireSnapshot) {
+	if next := str(snapshot.IdentityID); next != s.IdentityID {
+		clear(s.attachmentFiles)
+		clear(s.fetchingAttachment)
+		clear(s.attachmentErrors)
+	}
+	// A resync may bring outputs this app missed; they are asked for again when next shown.
+	for chatID := range s.outputMessages {
+		s.staleOutputs[chatID] = true
+	}
 	has := snapshot.HasIdentity
 	s.HasIdentity = &has
 	s.IsIdentityDevice = snapshot.IsIdentityDevice
@@ -537,6 +559,7 @@ func (s *Store) handle(name string, data json.RawMessage) {
 		chat.Messages = slices.DeleteFunc(slices.Clone(chat.Messages), func(m *Message) bool { return m.ID == payload.MessageID })
 		delete(s.commandStarts, payload.MessageID)
 		s.emit(Event{Kind: EventMessageRemoved, ChatID: payload.ChatID, MessageID: payload.MessageID})
+		s.noteOutput(nil, payload.MessageID, payload.ChatID)
 
 	case "chat.removed":
 		payload, ok := decode[struct {
@@ -547,6 +570,8 @@ func (s *Store) handle(name string, data json.RawMessage) {
 		}
 		s.Chats = slices.DeleteFunc(slices.Clone(s.Chats), func(c *Chat) bool { return c.ID == payload.ChatID })
 		s.runningJobs = slices.DeleteFunc(s.runningJobs, func(job runningJob) bool { return job.chatID == payload.ChatID })
+		delete(s.outputMessages, payload.ChatID)
+		delete(s.staleOutputs, payload.ChatID)
 		s.emit(Event{Kind: EventChatsChanged})
 
 	case "job.started":
@@ -649,6 +674,7 @@ func (s *Store) upsert(message *Message, chatID string) {
 		return
 	}
 	s.noteCommand(message, chatID)
+	s.noteOutput(message, "", chatID)
 	if index := slices.IndexFunc(chat.Messages, func(m *Message) bool { return m.ID == message.ID }); index >= 0 {
 		messages := slices.Clone(chat.Messages)
 		messages[index] = message
@@ -2124,20 +2150,28 @@ func (s *Store) LocalFile(attachment Attachment, chatID, messageID string) strin
 }
 
 func (s *Store) fetchAttachment(attachment Attachment, landed func()) {
-	if s.IsMock || s.fetchingAttachment[attachment.ID] {
+	if s.IsMock || s.fetchingAttachment[attachment.ID] || s.attachmentErrors[attachment.ID] != "" {
 		return
 	}
 	s.fetchingAttachment[attachment.ID] = true
+	identity := s.IdentityID
 	Async(s, func() (string, error) {
 		reply, err := call[struct {
 			Path string `json:"path"`
 		}](s, "files.path", map[string]any{"attachment": map[string]any{"id": attachment.ID, "name": attachment.Name, "mime": attachment.Mime, "size": attachment.Size}})
+		if err == nil && reply.Path == "" {
+			err = &RequestError{L("File unavailable")}
+		}
 		return reply.Path, err
 	}, func(path string, err error) {
+		if identity != s.IdentityID {
+			return
+		}
+		delete(s.fetchingAttachment, attachment.ID)
 		if err != nil {
-			// Left in the fetching set: the relay does not have it, and every scroll would ask
-			// again. A relaunch retries.
+			s.attachmentErrors[attachment.ID] = ErrorText(err)
 			log.Printf("fetching %s failed: %s", attachment.Name, ErrorText(err))
+			landed()
 			return
 		}
 		s.attachmentFiles[attachment.ID] = path

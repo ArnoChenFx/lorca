@@ -879,3 +879,22 @@
 "Shell commands" = "Shell 命令";
 "Shell commands run as you on %@ and can reach anything you can there." = "Shell 命令在 %@ 上以你的身份运行，能访问你在那里能访问的一切。";
 "needs more access" = "需要更多访问权限";
+
+// Outputs
+"Outputs" = "输出";
+"Test result" = "测试结果";
+"Before screenshot" = "改动前截图";
+"After screenshot" = "改动后截图";
+"Passed" = "通过";
+"Not verified" = "未验证";
+"Couldn't download · Retry" = "无法下载 · 重试";
+"Open Link" = "打开链接";
+"Copy Link" = "拷贝链接";
+"Couldn't get this file" = "无法取得这个文件";
+"Link" = "链接";
+"Versions" = "版本";
+"This file couldn't be downloaded." = "这个文件无法下载。";
+"Downloading…" = "正在下载…";
+"Result" = "结果";
+"Version %d" = "版本 %d";
+"Save As…" = "存储为…";

@@ -1079,6 +1079,87 @@ struct Attachment: Hashable, Identifiable {
     }
 }
 
+/// A file or document link a bot published in a chat: one version of it. `id` names the output
+/// across its versions; the message that carries it is the version.
+struct Output: Hashable, Decodable {
+    var id: String
+    var name: String
+    var mime: String
+    var botId: String
+    var version: Int
+    var url: String?
+    var evidence: Evidence?
+
+    /// What the bot says it checked: a test run, a screenshot from before or after a change, or
+    /// another check, and how it went.
+    struct Evidence: Hashable, Decodable {
+        var kind: String
+        var summary: String
+        var status: String
+        var command: String?
+
+        var title: String {
+            switch kind {
+            case "test_result": L("Test result")
+            case "before_screenshot": L("Before screenshot")
+            case "after_screenshot": L("After screenshot")
+            default: L("Check")
+            }
+        }
+
+        var statusText: String {
+            switch status {
+            case "passed": L("Passed")
+            case "failed": L("Failed")
+            default: L("Not verified")
+            }
+        }
+
+        var failed: Bool { status == "failed" }
+    }
+
+    /// The document a link output points at; only an https address without credentials opens.
+    var documentURL: URL? {
+        guard let url, let parsed = URL(string: url), parsed.scheme == "https", parsed.host != nil,
+            parsed.user == nil, parsed.password == nil else { return nil }
+        return parsed
+    }
+
+    /// The SF Symbol for what the output is.
+    var symbolName: String {
+        if url != nil { return "link" }
+        if mime.hasPrefix("image/") { return "photo" }
+        if mime.hasPrefix("video/") { return "film" }
+        if mime.hasPrefix("audio/") { return "waveform" }
+        if mime == "application/pdf" { return "doc.richtext" }
+        if mime.hasPrefix("text/") || mime == "application/json" { return "doc.text" }
+        return "doc"
+    }
+}
+
+/// An output and its versions, newest first. Each version is a message of its own.
+struct OutputSeries: Hashable, Identifiable {
+    var versions: [Message]
+
+    var id: String { output.id }
+    var latest: Message { versions[0] }
+    var output: Output { latest.output! }
+
+    /// The chat's output messages as one series per output, the latest published first.
+    static func group(_ messages: [Message]) -> [OutputSeries] {
+        var order: [String] = []
+        var byID: [String: [Message]] = [:]
+        for message in messages {
+            guard let output = message.output else { continue }
+            if byID[output.id] == nil { order.append(output.id) }
+            byID[output.id, default: []].append(message)
+        }
+        return order
+            .map { OutputSeries(versions: byID[$0]!.sorted { $0.output!.version > $1.output!.version }) }
+            .sorted { $0.latest.createdAt > $1.latest.createdAt }
+    }
+}
+
 struct Message: Identifiable, Hashable {
     enum Author: Hashable {
         case you
@@ -1119,6 +1200,7 @@ struct Message: Identifiable, Hashable {
     var replyTo: ReplyQuote?
     /// A message of the user's the bot's turn holds for its next step; Send now has it read now.
     var queued = false
+    var output: Output?
 
     init(
         id: String = "msg-\(UUID().uuidString.lowercased())",
@@ -1127,7 +1209,8 @@ struct Message: Identifiable, Hashable {
         state: State = .complete,
         createdAt: Date = Date(),
         attachments: [Attachment] = [],
-        replyTo: ReplyQuote? = nil
+        replyTo: ReplyQuote? = nil,
+        output: Output? = nil
     ) {
         self.id = id
         self.author = author
@@ -1136,6 +1219,7 @@ struct Message: Identifiable, Hashable {
         self.createdAt = createdAt
         self.attachments = attachments
         self.replyTo = replyTo
+        self.output = output
     }
 
     /// A finished text message, the user's or a bot's, which a reply can answer.

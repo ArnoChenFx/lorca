@@ -500,6 +500,10 @@ enum Wire {
         var path: String
     }
 
+    struct OutputList: Decodable {
+        var outputs: [Message]
+    }
+
     struct Body: Decodable {
         var kind: String
         var text: String?
@@ -558,6 +562,7 @@ enum Wire {
         var state: State
         var createdAt: Double
         var queued: Bool?
+        var output: Output?
     }
 
     struct RosterChanged: Decodable {
@@ -748,7 +753,8 @@ extension Wire.Message {
             attachments: (self.body.attachments ?? []).map {
                 Attachment(id: $0.id, name: $0.name, mime: $0.mime, size: $0.size, width: $0.width, height: $0.height)
             },
-            replyTo: self.body.replyTo.map { ReplyQuote(messageID: $0.messageId, author: $0.author.toModel(), text: $0.text) })
+            replyTo: self.body.replyTo.map { ReplyQuote(messageID: $0.messageId, author: $0.author.toModel(), text: $0.text) },
+            output: output)
         message.queued = queued ?? false
         return message
     }
