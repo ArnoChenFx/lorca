@@ -6,6 +6,8 @@ and the update window shows it.
 
 ## [Unreleased]
 
+## [0.1.5]
+
 - Open Lorca, on onboarding's last step, opens the main window; before, the app quit there.
 
 ## [0.1.4]
