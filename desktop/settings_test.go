@@ -282,10 +282,10 @@ func TestSettingsReviewModel(t *testing.T) {
 		t.Fatal("no review model field")
 	}
 	tt.ClickAt(field.X+field.W/2, field.Y+field.H/2)
-	tt.Type("openrouter/decision-7b")
+	tt.Type("openrouter/trial-7b")
 	tt.Key(0, ui.KeyEnter)
 	settle(tt)
-	if got := store.AutoReview.ReviewModel; got != "openrouter/decision-7b" {
+	if got := store.AutoReview.ReviewModel; got != "openrouter/trial-7b" {
 		t.Fatalf("review model %q", got)
 	}
 	if options := reviewProviderOptions(); options[0].Value != "" || len(options) < 2 {
@@ -304,11 +304,69 @@ func TestDeviceCustomNameAndReviewModelDecode(t *testing.T) {
 	}
 
 	var review model.WireAutoReview
-	if err := json.Unmarshal([]byte(`{"is_enabled":true,"review_provider":"custom:proxy","review_model":"openai/decision-7b","rules":[]}`), &review); err != nil {
+	if err := json.Unmarshal([]byte(`{"is_enabled":true,"review_provider":"custom:proxy","review_model":"openai/trial-7b","rules":[]}`), &review); err != nil {
 		t.Fatal(err)
 	}
-	if got := model.ToAutoReview(&review); got.ReviewProvider != "custom:proxy" || got.ReviewModel != "openai/decision-7b" {
+	if got := model.ToAutoReview(&review); got.ReviewProvider != "custom:proxy" || got.ReviewModel != "openai/trial-7b" {
 		t.Fatalf("auto review %+v", got)
+	}
+}
+
+func TestSystemOneIsAReviewModelNotAProvider(t *testing.T) {
+	if got, ok := model.ParseReviewThreshold(""); !ok || got != nil {
+		t.Fatalf("empty threshold %v %v", got, ok)
+	}
+	for text, want := range map[string]bool{"0.8": true, " 1 ": true, "0.5": true, "0.4": false, "1.5": false, "high": false, "NaN": false} {
+		if _, ok := model.ParseReviewThreshold(text); ok != want {
+			t.Fatalf("threshold %q accepted %v, want %v", text, ok, want)
+		}
+	}
+
+	var wire model.WireAutoReview
+	if err := json.Unmarshal([]byte(`{"is_enabled":true,"review_provider":"systemone","review_threshold":0.8,"rules":[]}`), &wire); err != nil {
+		t.Fatal(err)
+	}
+	if got := model.ToAutoReview(&wire); got.ReviewProvider != model.SystemOneKind || got.ReviewThreshold == nil || *got.ReviewThreshold != 0.8 {
+		t.Fatalf("auto review %+v", got)
+	}
+
+	var roster model.WireRosterChanged
+	if err := json.Unmarshal([]byte(`{"system_one":{"base_url":"https://openrouter.ai/api","model":"typesafe/jev-1.13","detail":"sk-…one"}}`), &roster); err != nil {
+		t.Fatal(err)
+	}
+	if got := model.ToSystemOne(roster.SystemOne); got == nil || got.Model != "typesafe/jev-1.13" || got.BaseURL != "https://openrouter.ai/api" {
+		t.Fatalf("system one %+v", got)
+	}
+	if model.ToSystemOne(nil) != nil {
+		t.Fatal("nothing connected is nil")
+	}
+
+	demoWindow(t)
+	store.SystemOne = nil
+	for _, option := range reviewProviderOptions() {
+		if option.Value == model.SystemOneKind {
+			t.Fatal("System One is offered before it is connected")
+		}
+	}
+	store.ConnectSystemOne(model.SystemOneCredentials{BaseURL: "https://api.typesafe.ai", APIKey: "sk-one", Model: "jev-latest"}, func(error) {})
+	if store.SystemOne == nil || store.SystemOne.Model != "jev-latest" {
+		t.Fatalf("system one %+v", store.SystemOne)
+	}
+	offered := false
+	for _, option := range reviewProviderOptions() {
+		offered = offered || option.Value == model.SystemOneKind
+	}
+	if !offered {
+		t.Fatal("connected System One is not offered for review")
+	}
+	for _, credential := range store.Providers {
+		if credential.Kind == model.SystemOneKind {
+			t.Fatal("System One is listed among the chat providers")
+		}
+	}
+	store.DisconnectSystemOne(func(error) {})
+	if store.SystemOne != nil {
+		t.Fatal("System One stays connected after its disconnect")
 	}
 }
 

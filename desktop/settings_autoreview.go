@@ -2,6 +2,7 @@ package main
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/egoist/lorca/desktop/model"
@@ -16,6 +17,9 @@ func reviewProviderOptions() []popUpOption {
 		if provider.IsConnected {
 			options = append(options, popUpOption{Value: provider.Kind, Label: model.ProviderName(provider.Kind, store.Providers)})
 		}
+	}
+	if store.SystemOne != nil {
+		options = append(options, popUpOption{Value: model.SystemOneKind, Label: "System One"})
 	}
 	return options
 }
@@ -45,13 +49,34 @@ func (s settingsPane) autoReview(c *ui.Context) {
 				next.ReviewProvider = picked
 				store.SetAutoReview(next)
 			}
-			modelID, ok := editableRow(c, k, L("Model"), review.ReviewModel, L("Default"), true, true)
-			if ok && modelID != review.ReviewModel {
-				next := store.AutoReview
-				next.ReviewModel = modelID
-				store.SetAutoReview(next)
+			systemOneModel, action := L("Not set up"), L("Set up…")
+			if store.SystemOne != nil {
+				systemOneModel, action = store.SystemOne.Model, L("Edit…")
 			}
-			noteRow(c, k, L("The model that checks actions while Auto-review is on: any model id its provider serves, such as a decision model on a gateway. Left empty, the provider's review model runs."), nil)
+			if _, result := actionRow(c, k, "System One", actionRowOptions{Value: systemOneModel, Mono: true, Action: action}); result.Action {
+				s.w.presentSystemOne()
+			}
+			if review.ReviewProvider == model.SystemOneKind {
+				threshold := ""
+				if review.ReviewThreshold != nil {
+					threshold = strconv.FormatFloat(*review.ReviewThreshold, 'f', -1, 64)
+				}
+				value, ok := editableRow(c, k, L("Threshold"), threshold, strconv.FormatFloat(model.DefaultReviewThreshold, 'f', -1, 64), true, true)
+				if parsed, valid := model.ParseReviewThreshold(value); ok && valid && !model.SameThreshold(parsed, review.ReviewThreshold) {
+					next := store.AutoReview
+					next.ReviewThreshold = parsed
+					store.SetAutoReview(next)
+				}
+				noteRow(c, k, L("System One gives how likely an action is safe. An action runs without a question when that probability reaches the threshold, from 0.5 to 1; left empty, it is %@.", strconv.FormatFloat(model.DefaultReviewThreshold, 'f', -1, 64)), nil)
+			} else {
+				modelID, ok := editableRow(c, k, L("Model"), review.ReviewModel, L("Default"), true, true)
+				if ok && modelID != review.ReviewModel {
+					next := store.AutoReview
+					next.ReviewModel = modelID
+					store.SetAutoReview(next)
+				}
+				noteRow(c, k, L("The model that checks actions while Auto-review is on: a model id its provider serves. Left empty, the provider's review model runs."), nil)
+			}
 		})
 		addRule := func() {
 			if hoverButton(c, hoverButtonOptions{Symbol: "plus", Size: 13, Tooltip: L("Add rule")}).Clicked() {

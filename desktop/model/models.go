@@ -769,6 +769,9 @@ type AutoReview struct {
 	// provider and its review model. Empty takes the default.
 	ReviewProvider string
 	ReviewModel    string
+	// ReviewThreshold is how sure System One must be to run an action unasked, when it reviews.
+	// Nil takes the default.
+	ReviewThreshold *float64
 }
 
 // MARK: - Plugins

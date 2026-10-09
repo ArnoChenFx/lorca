@@ -219,11 +219,19 @@ type WireRoutine struct {
 	CreatedAt    float64  `json:"created_at"`
 }
 
+// WireSystemOne is System One as the CLI reports it: its root, model, and key masked.
+type WireSystemOne struct {
+	BaseURL string `json:"base_url"`
+	Model   string `json:"model"`
+	Detail  string `json:"detail"`
+}
+
 type WireAutoReview struct {
-	IsEnabled      bool    `json:"is_enabled"`
-	ReviewProvider *string `json:"review_provider"`
-	ReviewModel    *string `json:"review_model"`
-	Rules          []struct {
+	IsEnabled       bool     `json:"is_enabled"`
+	ReviewProvider  *string  `json:"review_provider"`
+	ReviewModel     *string  `json:"review_model"`
+	ReviewThreshold *float64 `json:"review_threshold"`
+	Rules           []struct {
 		ID       string  `json:"id"`
 		Text     string  `json:"text"`
 		Behavior string  `json:"behavior"`
@@ -291,6 +299,7 @@ type WireSnapshot struct {
 	Routines            []WireRoutine     `json:"routines"`
 	AutoReview          *WireAutoReview   `json:"auto_review"`
 	Providers           []WireProvider    `json:"providers"`
+	SystemOne           *WireSystemOne    `json:"system_one"`
 	Models              []WireModel       `json:"models"`
 	RunningChatIDs      []string          `json:"running_chat_ids"`
 	RunningTurns        []WireRunningTurn `json:"running_turns"`
@@ -303,6 +312,7 @@ type WireRosterChanged struct {
 	Routines   []WireRoutine   `json:"routines"`
 	AutoReview *WireAutoReview `json:"auto_review"`
 	Providers  []WireProvider  `json:"providers"`
+	SystemOne  *WireSystemOne  `json:"system_one"`
 	// Models are the catalog's models again, so a newer catalog the CLI installs reaches the pickers.
 	Models []WireModel `json:"models"`
 }
@@ -831,7 +841,7 @@ func ToAutoReview(wire *WireAutoReview) AutoReview {
 	if wire == nil {
 		return AutoReview{IsEnabled: true}
 	}
-	review := AutoReview{IsEnabled: wire.IsEnabled, ReviewProvider: str(wire.ReviewProvider), ReviewModel: str(wire.ReviewModel)}
+	review := AutoReview{IsEnabled: wire.IsEnabled, ReviewProvider: str(wire.ReviewProvider), ReviewModel: str(wire.ReviewModel), ReviewThreshold: wire.ReviewThreshold}
 	for _, rule := range wire.Rules {
 		behavior := "allow"
 		if rule.Behavior == "ask" {

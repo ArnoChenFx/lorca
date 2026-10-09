@@ -134,6 +134,9 @@ type Store struct {
 	AutoReview AutoReview
 	// Providers are the account's provider credentials, the same on every Device.
 	Providers []ProviderCredential
+	// SystemOne is the account's System One, the review model that is not a chat provider; nil
+	// when none is connected.
+	SystemOne *SystemOne
 	// Models are what the CLI's catalog offers, for the Model and Thinking pickers.
 	Models []ProviderModel
 
@@ -408,6 +411,7 @@ func (s *Store) apply(snapshot WireSnapshot) {
 	}
 	s.AutoReview = ToAutoReview(snapshot.AutoReview)
 	s.Providers = ToProviders(snapshot.Providers)
+	s.SystemOne = ToSystemOne(snapshot.SystemOne)
 	s.Models = ToModels(snapshot.Models)
 	s.runningJobs = nil
 	for _, turn := range snapshot.RunningTurns {
@@ -482,6 +486,7 @@ func (s *Store) handle(name string, data json.RawMessage) {
 		if roster.Providers != nil {
 			s.Providers = ToProviders(roster.Providers)
 		}
+		s.SystemOne = ToSystemOne(roster.SystemOne)
 		if roster.Models != nil {
 			s.Models = ToModels(roster.Models)
 		}
@@ -1516,7 +1521,7 @@ func (s *Store) SetAutoReview(value AutoReview) {
 		}
 		rules = append(rules, entry)
 	}
-	s.perform("auto_review.set", map[string]any{"is_enabled": value.IsEnabled, "rules": rules, "review_provider": value.ReviewProvider, "review_model": value.ReviewModel})
+	s.perform("auto_review.set", map[string]any{"is_enabled": value.IsEnabled, "rules": rules, "review_provider": value.ReviewProvider, "review_model": value.ReviewModel, "review_threshold": value.ReviewThreshold})
 }
 
 // SetDeviceCustomName gives a Device the name every paired Device shows it as; blank takes its own
@@ -2379,6 +2384,51 @@ func (s *Store) DisconnectProvider(kind ProviderKind, done func(error)) {
 	Async(s, func() (struct{}, error) {
 		return struct{}{}, s.request("providers.disconnect", map[string]any{"kind": kind}, nil)
 	}, func(_ struct{}, err error) { done(err) })
+}
+
+// ConnectSystemOne checks System One's key at its root and saves its key, model, and root for the
+// account (`providers.connect_system_one`). A blank key keeps the saved one.
+func (s *Store) ConnectSystemOne(options SystemOneCredentials, done func(error)) {
+	baseURL := strings.TrimSpace(options.BaseURL)
+	model := strings.TrimSpace(options.Model)
+	if s.IsMock {
+		s.SystemOne = &SystemOne{BaseURL: baseURL, Model: model, Detail: "•••• · " + baseURL}
+		s.rosterTouched("")
+		s.post(func() { done(nil) })
+		return
+	}
+	Async(s, func() (*SystemOne, error) {
+		reply, err := call[struct {
+			SystemOne *WireSystemOne `json:"system_one"`
+		}](s, "providers.connect_system_one", map[string]any{"base_url": baseURL, "api_key": strings.TrimSpace(options.APIKey), "model": model})
+		return ToSystemOne(reply.SystemOne), err
+	}, func(saved *SystemOne, err error) {
+		if err == nil {
+			s.SystemOne = saved
+			s.emit(Event{Kind: EventRosterChanged})
+		}
+		done(err)
+	})
+}
+
+// DisconnectSystemOne removes System One's key for the account, and with it the review that runs on
+// it (`providers.disconnect`).
+func (s *Store) DisconnectSystemOne(done func(error)) {
+	if s.IsMock {
+		s.SystemOne = nil
+		s.rosterTouched("")
+		s.post(func() { done(nil) })
+		return
+	}
+	Async(s, func() (struct{}, error) {
+		return struct{}{}, s.request("providers.disconnect", map[string]any{"kind": SystemOneKind}, nil)
+	}, func(_ struct{}, err error) {
+		if err == nil {
+			s.SystemOne = nil
+			s.emit(Event{Kind: EventRosterChanged})
+		}
+		done(err)
+	})
 }
 
 // ModelQuery is the server ListCustomModels asks.
