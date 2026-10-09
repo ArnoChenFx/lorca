@@ -74,6 +74,7 @@ pub async fn dispatch(app: &Arc<App>, method: &str, params: Value) -> Result<Val
         return crate::attention::dispatch(app, method, params, None);
     }
     match method {
+        method if method.starts_with("events.") => crate::event_triggers::dispatch(app, method, params).await,
         "projects.get" | "projects.save" | "projects.refresh" | "projects.asset" | "projects.asset_path" => {
             crate::project_context::dispatch(app, method, params).await
         }

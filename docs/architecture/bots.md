@@ -35,6 +35,8 @@ Every bot maintains structured reviews, blockers, commitments and changes throug
 
 A routine is a task a bot runs on a schedule in its direct chat, on its assigned Runner. The roster carries its schedule, timezone, missed-run policy, and check health. See [Routines](routines.md) for scheduling, read-only checks, recovery, and how the apps show them.
 
+A service's events start work in a bot's DM too, through [event subscriptions](event-triggers.md) on its Runner: each runs the subscription's own task, unattended as a routine's run is, and one that targets a routine waits while the routine is paused.
+
 ## Memory
 
 Groups also keep [shared project context](project-context.md): a current brief, goals, constraints, decisions, references, and assets with provenance and freshness. Every assigned member receives that group's bounded index and reads full entries with `project_context`. Corrections and source refreshes survive transcript compaction. Selection is the current group id and membership, while each bot retains its own memory below.
