@@ -640,11 +640,32 @@ pub async fn dispatch(app: &Arc<App>, method: &str, params: Value) -> Result<Val
             Box::pin(crate::plugins::mcp_json::on_runner(app, runner_id.as_deref(), method, params)).await
         }
         // Auto-review: the check on plugin and shell actions, shared through the roster.
-        // `rules` replaces the list; a rule without an id gets one.
+        // `rules` replaces the list; a rule without an id gets one. `provider` picks a
+        // connected provider to review with (empty or null for the bot's own). `models` sets a
+        // provider's review model by kind, or with null or "" puts back its default; the
+        // providers it leaves out keep theirs.
         "auto_review.set" => {
             let mut auto_review = app.auto_review();
             if let Some(enabled) = params["is_enabled"].as_bool() {
                 auto_review.is_enabled = enabled;
+            }
+            if let Some(provider) = params.get("provider") {
+                let provider = provider.as_str().map(str::trim).filter(|kind| !kind.is_empty());
+                if let Some(kind) = provider {
+                    let credentials = app.credentials.lock().unwrap();
+                    if !credentials.connected_kinds().iter().any(|connected| connected == kind) {
+                        return Err(format!("{} is not connected", credentials.label(kind)));
+                    }
+                }
+                auto_review.provider = provider.map(str::to_string);
+            }
+            if let Some(models) = params["models"].as_object() {
+                for (kind, model) in models {
+                    match model.as_str().map(str::trim).filter(|model| !model.is_empty()) {
+                        Some(model) => auto_review.models.insert(kind.clone(), model.to_string()),
+                        None => auto_review.models.remove(kind),
+                    };
+                }
             }
             if let Some(rules) = params["rules"].as_array() {
                 auto_review.rules = rules

@@ -225,12 +225,17 @@ type WireAutoReview struct {
 		Behavior string  `json:"behavior"`
 		Tool     *string `json:"tool"`
 	} `json:"rules"`
+	// Provider is the provider that reviews, absent for the bot's own; Models the review models
+	// picked by provider.
+	Provider *string           `json:"provider"`
+	Models   map[string]string `json:"models"`
 }
 
 type WireProvider struct {
 	Kind        string            `json:"kind"`
 	IsConnected bool              `json:"is_connected"`
 	Detail      string            `json:"detail"`
+	ReviewModel *string           `json:"review_model"`
 	BaseURL     *string           `json:"base_url"`
 	Name        *string           `json:"name"`
 	API         *string           `json:"api"`
@@ -248,8 +253,8 @@ type WireCustomModel struct {
 	Levels        []string `json:"levels"`
 }
 
-// WireModelList is `providers.list_models`: the chat models a server lists, in its order. Listed
-// is false when the server publishes no list.
+// WireModelList is `providers.list_models`: the models a server lists that its protocol can run,
+// in its order. Listed is false when the server publishes no list.
 type WireModelList struct {
 	Listed bool              `json:"listed"`
 	Models []WireCustomModel `json:"models"`
@@ -262,13 +267,14 @@ type WireRunningTurn struct {
 	RoutineID *string `json:"routine_id"`
 }
 
-// WireModel is a model the CLI's catalog offers, in the catalog's order: each provider's first is
-// its default.
+// WireModel is a model the CLI's catalog offers, in the catalog's order: each provider's first
+// that does not decide is its default.
 type WireModel struct {
 	Provider string   `json:"provider"`
 	ID       string   `json:"id"`
 	Name     string   `json:"name"`
 	Levels   []string `json:"levels"`
+	Decides  bool     `json:"decides"`
 }
 
 type WireSnapshot struct {
@@ -822,6 +828,17 @@ func ToAutoReview(wire *WireAutoReview) AutoReview {
 		return AutoReview{IsEnabled: true}
 	}
 	review := AutoReview{IsEnabled: wire.IsEnabled}
+	if provider := str(wire.Provider); IsProviderKind(provider) {
+		review.Provider = provider
+	}
+	for kind, model := range wire.Models {
+		if IsProviderKind(kind) && model != "" {
+			if review.Models == nil {
+				review.Models = map[ProviderKind]string{}
+			}
+			review.Models[kind] = model
+		}
+	}
 	for _, rule := range wire.Rules {
 		behavior := "allow"
 		if rule.Behavior == "ask" {
@@ -840,7 +857,7 @@ func ToProviders(wire []WireProvider) []ProviderCredential {
 		if !IsProviderKind(provider.Kind) {
 			continue
 		}
-		credential := ProviderCredential{Kind: provider.Kind, IsConnected: provider.IsConnected, Detail: provider.Detail, BaseURL: str(provider.BaseURL)}
+		credential := ProviderCredential{Kind: provider.Kind, IsConnected: provider.IsConnected, Detail: provider.Detail, BaseURL: str(provider.BaseURL), ReviewModel: str(provider.ReviewModel)}
 		if IsCustomKind(provider.Kind) {
 			credential.Name = str(provider.Name)
 			if api := str(provider.API); IsCustomAPI(api) {
@@ -870,7 +887,7 @@ func ToCustomModel(wire WireCustomModel) CustomModel {
 func ToModels(wire []WireModel) []ProviderModel {
 	out := make([]ProviderModel, 0, len(wire))
 	for _, model := range wire {
-		out = append(out, ProviderModel{Provider: model.Provider, ID: model.ID, Label: model.Name, Levels: model.Levels})
+		out = append(out, ProviderModel{Provider: model.Provider, ID: model.ID, Label: model.Name, Levels: model.Levels, Decides: model.Decides})
 	}
 	return out
 }
