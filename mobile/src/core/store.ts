@@ -5,7 +5,7 @@
 import { useMemo } from "react";
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
-import { runsInTerminal, type AutoReview, type Bot, type Chat, type ChatMeta, type ChatUsage, type Device, type Message, type ProviderModel, type ProviderStatus, type RelayProblem, type Routine } from "./model";
+import { groupOutputs, runsInTerminal, taskOrder, type AutoReview, type DurableTask, type OutputSeries, type Bot, type Chat, type ChatMeta, type ChatUsage, type Device, type Message, type ProviderModel, type ProviderStatus, type RelayProblem, type Routine } from "./model";
 import { t } from "../i18n";
 import { savePrefs } from "./prefs";
 
@@ -70,6 +70,13 @@ export interface StoreState {
   activeSince: number;
   /// Attachment id → file URI, for the bytes this phone has.
   files: Record<string, string>;
+  /// Attachment id → why its bytes could not be fetched, kept until the user retries, so a
+  /// scroll does not ask again.
+  fileErrors: Record<string, string>;
+  /// Chat id → every version of its outputs the core listed when the chat's details last opened.
+  outputs: Record<string, Message[]>;
+  /// The account's durable tasks, each at the newest revision this phone has.
+  tasks: DurableTask[];
   dictation_lang?: string;
 }
 
@@ -97,6 +104,9 @@ function empty(): Omit<StoreState, "ready" | "dictation_lang" | "appActive" | "a
     pendingTasks: {},
     openChatId: null,
     files: {},
+    fileErrors: {},
+    outputs: {},
+    tasks: [],
   };
 }
 
@@ -151,6 +161,7 @@ export function replaceSnapshot(snapshot: {
   bots: Bot[];
   chats: Chat[];
   routines?: Routine[];
+  tasks?: DurableTask[];
   auto_review?: AutoReview;
   providers?: ProviderStatus[];
   models?: ProviderModel[];
@@ -182,6 +193,7 @@ export function replaceSnapshot(snapshot: {
       return { ...c, ...kept, unread_count: c.unread_count ?? 0 };
     }),
     routines: snapshot.routines ?? [],
+    tasks: snapshot.tasks ?? [],
     auto_review: snapshot.auto_review ?? { is_enabled: true, rules: [] },
     providers: snapshot.providers ?? [],
     models: snapshot.models ?? [],
@@ -302,6 +314,7 @@ export function removeMessage(chatId: string, messageId: string) {
   useStore.setState((s) => ({
     chats: s.chats.map((chat) => (chat.id === chatId ? { ...chat, messages: chat.messages.filter((m) => m.id !== messageId) } : chat)),
     pendingTasks: omit(s.pendingTasks, messageId),
+    outputs: s.outputs[chatId] ? { ...s.outputs, [chatId]: s.outputs[chatId].filter((m) => m.id !== messageId) } : s.outputs,
   }));
 }
 
@@ -311,6 +324,7 @@ export function removeChat(chatId: string) {
     statuses: omit(s.statuses, chatId),
     thinking: omit(s.thinking, chatId),
     retries: omit(s.retries, chatId),
+    outputs: omit(s.outputs, chatId),
   }));
 }
 
@@ -332,7 +346,12 @@ export function markRead(chatId: string) {
 }
 
 export function markFile(id: string, uri: string) {
-  useStore.setState((s) => (s.files[id] === uri ? s : { files: { ...s.files, [id]: uri } }));
+  useStore.setState((s) => (s.files[id] === uri ? s : { files: { ...s.files, [id]: uri }, fileErrors: omit(s.fileErrors, id) }));
+}
+
+/// The attachment's bytes could not be fetched, or (`null`) may be asked for again.
+export function markFileError(id: string, error: string | null) {
+  useStore.setState((s) => ({ fileErrors: error === null ? omit(s.fileErrors, id) : { ...s.fileErrors, [id]: error } }));
 }
 
 export function setRunning(jobId: string, running: Running | null) {
@@ -387,6 +406,15 @@ function pick<T>(record: Record<string, T>, keys: Set<string>): Record<string, T
 
 export function useChat(id: string): Chat | undefined {
   return useStore((s) => s.chats.find((c) => c.id === id));
+}
+
+/// The chat's outputs, the latest published first: the output messages loaded in the chat and
+/// what `outputs.list` answered for it, one series per output with every version.
+export function useOutputs(chatId: string | undefined): OutputSeries[] {
+  const messages = useStore((s) => (chatId ? s.chats.find((c) => c.id === chatId)?.messages : undefined));
+  const listed = useStore((s) => (chatId ? s.outputs[chatId] : undefined));
+  // The loaded message first: it is the newer copy of one the list also has.
+  return useMemo(() => groupOutputs([...(messages ?? []), ...(listed ?? [])]), [messages, listed]);
 }
 
 export function useBots(): Bot[] {
@@ -447,4 +475,34 @@ export function useRoutines(botId: string | undefined): Routine[] {
   const routines = useStore(useShallow((s) => s.routines.filter((r) => r.bot_id === botId).sort((a, b) => a.created_at - b.created_at)));
   const running = useStore(useShallow((s) => Object.values(s.running).flatMap((r) => (r.routineId ? [r.routineId] : []))));
   return useMemo(() => routines.map((r) => (r.is_running || !running.includes(r.id) ? r : { ...r, is_running: true })), [routines, running]);
+}
+
+/// Takes a task from a reply or an event unless this phone already has a newer revision of it.
+export function acceptDurableTask(task: DurableTask) {
+  useStore.setState((s) => {
+    const index = s.tasks.findIndex((each) => each.id === task.id);
+    if (index < 0) return { tasks: [...s.tasks, task] };
+    if (s.tasks[index].revision >= task.revision) return {};
+    const tasks = s.tasks.slice();
+    tasks[index] = task;
+    return { tasks };
+  });
+}
+
+/// The chat's durable tasks, what waits on the user first, then open work, each newest first.
+export function useDurableTasks(chatId: string | undefined): DurableTask[] {
+  const tasks = useStore((s) => s.tasks);
+  return useMemo(
+    () =>
+      chatId
+        ? tasks
+            .filter((task) => task.chat_ids.includes(chatId))
+            .sort((a, b) => taskOrder(a.state) - taskOrder(b.state) || b.updated_at - a.updated_at)
+        : [],
+    [tasks, chatId],
+  );
+}
+
+export function useDurableTask(id: string | undefined): DurableTask | undefined {
+  return useStore((s) => s.tasks.find((task) => task.id === id));
 }

@@ -12,7 +12,7 @@ use crate::app::{OutboxItem, SentJob, Slot, State};
 use crate::model::{Author, Body, LiveTurn, Message};
 
 pub struct LocalStore {
-    connection: Mutex<Connection>,
+    pub(crate) connection: Mutex<Connection>,
 }
 
 pub struct Upsert {
@@ -141,6 +141,7 @@ impl LocalStore {
              );
              PRAGMA user_version = 1;",
         )?;
+        crate::tasks::storage::initialize(&connection)?;
         crate::config::set_private(path)?;
         Ok(Self {
             connection: Mutex::new(connection),
@@ -377,6 +378,19 @@ impl LocalStore {
         let mut statement = connection
             .prepare("SELECT message_json FROM messages WHERE chat_id = ?1 ORDER BY position")?;
         let rows = statement.query_map([chat_id], |row| row.get::<_, String>(0))?;
+        collect_messages(rows)
+    }
+
+    /// Immutable output-version rows, without materializing unrelated tool transcripts.
+    pub fn outputs(&self, chat_id: &str, task_id: Option<&str>) -> anyhow::Result<Vec<Message>> {
+        let connection = self.connection.lock().unwrap();
+        let mut statement = connection.prepare(
+            "SELECT message_json FROM messages WHERE chat_id = ?1
+             AND json_type(message_json, '$.output') = 'object'
+             AND (?2 IS NULL OR json_extract(message_json, '$.output.task_id') = ?2)
+             ORDER BY position",
+        )?;
+        let rows = statement.query_map(params![chat_id, task_id], |row| row.get::<_, String>(0))?;
         collect_messages(rows)
     }
 
@@ -1027,6 +1041,9 @@ impl LocalStore {
             "outbox",
             "sent_jobs",
             "device_turns",
+            "durable_tasks",
+            "task_receipts",
+            "task_runs",
         ] {
             tx.execute(&format!("DELETE FROM {table}"), [])?;
         }
@@ -1036,7 +1053,7 @@ impl LocalStore {
     }
 }
 
-fn queue_outbox_tx(tx: &Transaction<'_>, item: &OutboxItem) -> anyhow::Result<()> {
+pub(crate) fn queue_outbox_tx(tx: &Transaction<'_>, item: &OutboxItem) -> anyhow::Result<()> {
     let waiting: Option<i64> = match item.slot.as_ref() {
         Some(slot) => tx
             .query_row(
