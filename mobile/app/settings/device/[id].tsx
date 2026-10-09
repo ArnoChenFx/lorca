@@ -126,7 +126,7 @@ export default function DeviceScreen() {
                 plugin.account_name ? (
                   <Row key={plugin.id} title={plugin.name} detail={pluginStateWord(plugin)} icon={plugin.icon ?? "puzzlepiece.extension"} chevron onPress={() => router.push({ pathname: "/settings/account/[id]", params: { id: plugin.id, runner: device.id } })} />
                 ) : (
-                  <Row key={plugin.id} title={plugin.name} subtitle={plugin.state === "error" ? plugin.detail || plugin.description : plugin.description} detail={pluginStateWord(plugin)} icon={plugin.icon ?? "puzzlepiece.extension"} />
+                  <Row key={plugin.id} title={plugin.name} subtitle={plugin.state === "error" ? plugin.detail || plugin.description : plugin.description} detail={pluginStateWord(plugin)} icon={plugin.icon ?? "puzzlepiece.extension"} chevron onPress={() => router.push({ pathname: "/settings/account/[id]", params: { id: plugin.id, runner: device.id } })} />
                 ),
               )
             )}

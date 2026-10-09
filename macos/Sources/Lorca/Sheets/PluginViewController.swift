@@ -13,6 +13,8 @@ final class PluginViewController: SheetViewController {
     private var browserProfiles: BrowserProfilesSection?
 
     private let status = SectionView(title: L("Status"))
+    /// How often all bots on the Runner may call this plugin; opens the Call Limit sheet.
+    private let callLimitRow = DisclosureRow(key: L("Call limit"))
     /// A named account's name, such as Work, which its bots know it by.
     private let nameRow = EditableRow(key: L("Name"), placeholder: L("Work"))
     private let signIn = SectionView(title: L("Sign-in"))
@@ -78,6 +80,13 @@ final class PluginViewController: SheetViewController {
             actions.widthAnchor.constraint(equalTo: contentStack.widthAnchor),
         ])
         setButtons(confirm: L("Done"), cancel: nil)
+        callLimitRow.onClick = { [weak self] in
+            guard let self else { return }
+            let sheet = ConnectorLimitsViewController(
+                pluginID: self.pluginID, name: self.runner.plugins.first { $0.id == self.pluginID }?.name ?? self.pluginID, runner: self.runner)
+            sheet.onSaved = { [weak self] in self?.loadCallLimit() }
+            self.presentAsSheet(sheet)
+        }
         status.setRows([KeyValueRow(key: L("State"), value: L("Loading…"), tint: .secondaryLabelColor)])
         signIn.isHidden = true
         variables.isHidden = true
@@ -115,7 +124,19 @@ final class PluginViewController: SheetViewController {
         }
     }
 
+    private func loadCallLimit() {
+        Task { [weak self] in
+            guard let self, let limits = try? await self.store.callLimits(self.pluginID, on: self.runner.id) else { return }
+            if let retryAt = limits.retryAt, retryAt > Date() {
+                self.callLimitRow.setValue(L("Waiting until %@", Format.time(retryAt)), tint: .secondaryLabelColor)
+            } else {
+                self.callLimitRow.setValue(limits.summary, tint: .secondaryLabelColor)
+            }
+        }
+    }
+
     private func load() {
+        loadCallLimit()
         loads += 1
         let load = loads
         Task { [weak self] in
@@ -139,11 +160,12 @@ final class PluginViewController: SheetViewController {
     private func render(_ detail: PluginDetail) {
         setSheetTitle(detail.status.name)
         // A named account (Gmail · Work) has one card, Account: its name and its sign-in, which
-        // says how it stands. Its service's page has the site.
+        // says how it stands, and its call limit. Its service's page has the site.
         let accountName = detail.status.accountName
         var statusRows: [NSView] = []
         if accountName == nil {
             statusRows.append(KeyValueRow(key: L("State"), value: detail.status.detail, tint: detail.status.stateColor))
+            statusRows.append(callLimitRow)
         }
         let rules = store.autoReview.rules.filter { $0.tool?.hasPrefix("\(pluginID)/") == true }
         if !rules.isEmpty {
@@ -218,6 +240,7 @@ final class PluginViewController: SheetViewController {
         if accountName != nil, detail.status.state == .error, !detail.status.detail.isEmpty {
             signInRows.append(NoteRow(text: detail.status.detail))
         }
+        if accountName != nil { signInRows.append(callLimitRow) }
         signIn.isHidden = signInRows.isEmpty
         signIn.setRows(signInRows)
 

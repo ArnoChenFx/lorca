@@ -91,6 +91,7 @@ type pluginSheet struct {
 	profiles *browserProfiles
 
 	detail    *model.PluginDetail
+	callLimit *model.CallLimits
 	loadError string
 	// loads is the newest load: only it renders, so an older answer arriving late (a sealed request
 	// to another Runner) never covers a newer one, such as the detail with a sign-in code.
@@ -113,7 +114,16 @@ func (s *pluginSheet) name() string {
 	return s.pluginID
 }
 
+func (s *pluginSheet) loadCallLimit() {
+	store.CallLimits(s.pluginID, s.runner.ID, false, func(limits model.CallLimits, err error) {
+		if !s.closed && err == nil {
+			s.callLimit = &limits
+		}
+	})
+}
+
 func (s *pluginSheet) load() {
+	s.loadCallLimit()
 	s.loads++
 	load := s.loads
 	store.PluginDetail(s.pluginID, s.runner.ID, func(detail model.PluginDetail, err error) {
@@ -306,8 +316,8 @@ func (s *pluginSheet) view(c *ui.Context, sh *sheet) {
 	}
 }
 
-// statusSection is the plugin's state, the rules that let its tools run without asking, and its
-// site.
+// statusSection is the plugin's state and call limit, the rules that let its tools run without
+// asking, and its site.
 func (s *pluginSheet) statusSection(c *ui.Context) {
 	p := colors(c)
 	// A named account (Gmail · Work) says how it stands in its Account card, and its service's page
@@ -330,6 +340,7 @@ func (s *pluginSheet) statusSection(c *ui.Context) {
 		if !named {
 			tint := p.tone(detail.Status.State.Tone())
 			keyValueRow(c, k, L("State"), detail.Status.Detail, false, &tint)
+			s.callLimitRow(c, k)
 		}
 		if len(rules) > 0 {
 			prefix := s.pluginID + "/"
@@ -436,7 +447,26 @@ func (s *pluginSheet) signInSection(c *ui.Context) {
 		if named && status.State == model.PluginError && status.Detail != "" {
 			noteRow(c, k, status.Detail, nil)
 		}
+		if named {
+			s.callLimitRow(c, k)
+		}
 	})
+}
+
+// callLimitRow is how often all bots on the Runner may call this plugin, or how long the service
+// asked them to wait; it opens the Call Limit sheet. It ends the Status card, or a named
+// account's Account card.
+func (s *pluginSheet) callLimitRow(c *ui.Context, k *card) {
+	limit := ""
+	if s.callLimit != nil {
+		limit = s.callLimit.Summary()
+		if until, waiting := s.callLimit.Waiting(); waiting {
+			limit = L("Waiting until %@", model.Clock(until))
+		}
+	}
+	if disclosureRow(c.Key("call-limit"), k, L("Call limit"), limit, nil) {
+		s.w.presentCallLimit(s.pluginID, s.name(), s.runner, s.loadCallLimit)
+	}
 }
 
 func (s *pluginSheet) isNamedAccount() bool {

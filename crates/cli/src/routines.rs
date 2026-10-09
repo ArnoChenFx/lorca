@@ -244,6 +244,7 @@ pub fn describe(schedule_text: &str, timezone: Option<&str>, missed_run_policy: 
 /// Starts a run of the routine now, here or on the bot's Runner through the relay. Refuses
 /// while a run is going on.
 pub fn run_now(app: &Arc<App>, id: &str) -> Result<(), String> {
+    app.budgets.admit(app, "routine", id)?;
     let routine = app.routine(id).ok_or("Unknown routine")?;
     if routine.paused_reason.as_deref() == Some("authentication") {
         return Err(signed_out_text(&routine));
@@ -345,6 +346,7 @@ pub fn tick(app: &Arc<App>) {
         .into_iter()
         .filter(|r| r.next_run_at().is_some_and(|t| t <= now))
         .filter(|r| app.bot(&r.bot_id).is_some_and(|b| b.runner_id == this) && !app.is_routine_running(&r.id) && !app.routine_checks.is_running(&r.id))
+        .filter(|r| app.budgets.admit(app, "routine", &r.id).is_ok())
         .collect();
     if due.is_empty() {
         return;
@@ -549,6 +551,16 @@ pub async fn check_now(app: &Arc<App>, routine: &Routine, cancel: &CancellationT
 #[cfg(feature = "runner")]
 pub async fn run_check(app: &Arc<App>, routine: &Routine, cancel: &CancellationToken) -> CheckRun {
     let failed = |error: String| CheckRun { found: None, error: Some(error.clone()), result: error };
+    let budget = match crate::budgets::for_routine(app, routine) { Ok(budget) => budget, Err(error) => return failed(error) };
+    match budget.run(cancel, run_budgeted_check(app, routine, cancel)).await {
+        Ok(run) => run,
+        Err(error) => failed(error),
+    }
+}
+
+#[cfg(feature = "runner")]
+async fn run_budgeted_check(app: &Arc<App>, routine: &Routine, cancel: &CancellationToken) -> CheckRun {
+    let failed = |error: String| CheckRun { found: None, error: Some(error.clone()), result: error };
     let Some(code) = routine.check.as_deref() else { return CheckRun { found: None, error: None, result: String::new() } };
     let Some(bot) = app.bot(&routine.bot_id) else { return failed("The routine's bot is gone.".into()) };
     let dm = match app.dm_with(&bot.id, None) {
@@ -563,7 +575,7 @@ pub async fn run_check(app: &Arc<App>, routine: &Routine, cancel: &CancellationT
         crate::scripts::ModelsAsk::new(app, &dm.meta.id, &bot.provider).map(|ask| Arc::new(ask) as Arc<dyn HostFunction>).into_iter().collect();
     let options = CodemodeOptions { mcp_types: !crate::plugins::mcp::plugin_briefs(app).is_empty(), timeout: CHECK_TIMEOUT, ..CodemodeOptions::default() };
     let codemode = CodemodeTool::new(catalog.clone(), options).with_store(store).with_functions(functions);
-    let runner = CheckRunner { app: app.clone(), catalog, bot, chat_id: dm.meta.id.clone() };
+    let runner = CheckRunner { app: app.clone(), catalog, bot, chat_id: dm.meta.id.clone(), budget: crate::budgets::current() };
     match codemode.run_script(&format!("check-{}", routine.id), code, cancel.clone(), &runner).await {
         Err(error) => failed(error.0),
         Ok(run) => {
@@ -608,12 +620,16 @@ struct CheckRunner {
     catalog: Arc<crate::plugins::mcp::PluginCatalog>,
     bot: Bot,
     chat_id: String,
+    budget: Option<crate::budgets::BudgetContext>,
 }
 
 #[cfg(feature = "runner")]
 #[async_trait::async_trait]
 impl ToolRunner for CheckRunner {
     async fn run(&self, tool: Arc<dyn Tool>, tool_call_id: String, args: Value, cancel: CancellationToken) -> ToolOutcome {
+        if let Some(reason) = self.budget.as_ref().and_then(|budget| budget.check().err()) {
+            return ToolOutcome { result: ToolResult { is_error: true, ..ToolResult::text(reason) }, is_error: true, blocked: true };
+        }
         let allowed = if CHECK_FILE_TOOLS.contains(&tool.name()) {
             crate::permissions::check_tool(&self.app, &self.bot, tool.name())
         } else {

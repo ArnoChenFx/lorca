@@ -983,3 +983,45 @@ export function taskSymbol(state: DurableTaskState): string {
 export function taskOrder(state: DurableTaskState): number {
   return { blocked: 0, awaiting_review: 1, working: 2, queued: 3, completed: 4, cancelled: 4 }[state];
 }
+
+/// What a DM's turns, a task's runs, or a routine's runs may use on the bot's Runner. A missing
+/// limit is none; zero allows nothing.
+export interface BudgetLimits {
+  max_usd?: number | null;
+  max_tokens?: number | null;
+  max_runtime_secs?: number | null;
+  max_retries?: number | null;
+  max_connector_calls?: number | null;
+}
+
+/// One allowance as its Runner keeps it. `chat` holds the limits each new turn in a DM starts
+/// with; `job` is one turn; `task` and `routine` all of their runs.
+export interface BudgetState {
+  kind: "chat" | "job" | "task" | "routine";
+  id: string;
+  runner_id: string;
+  chat_id: string;
+  limits: BudgetLimits;
+  usage: {
+    tokens: number;
+    api_cost_usd: number;
+    subscription_estimate_usd: number;
+    unknown_price_calls: number;
+    runtime_secs: number;
+    retries: number;
+    connector_calls: number;
+  };
+  state: "ready" | "running" | "complete" | "budget_exhausted" | "interrupted";
+  /// The limit it stopped at: usd, tokens, runtime, retries, connector_calls, or unknown_price.
+  reached?: string | null;
+  updated_at: number;
+}
+
+/// A plugin account's call limit on its Runner, shared by every bot there.
+export interface CallLimits {
+  limits: { max_calls: number; window_secs: number; max_concurrency: number };
+  /// When the service asked the calls to wait until, in seconds.
+  retry_at?: number | null;
+  plugin_id: string;
+  service_id: string;
+}

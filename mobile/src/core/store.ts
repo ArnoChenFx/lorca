@@ -5,7 +5,7 @@
 import { useMemo } from "react";
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
-import { groupOutputs, reviewIsOpen, runsInTerminal, taskOrder, type AutoReview, type DurableTask, type ReviewItem, type OutputSeries, type Bot, type Chat, type ChatMeta, type ChatUsage, type Device, type Message, type ProviderModel, type ProviderStatus, type RelayProblem, type Routine } from "./model";
+import { groupOutputs, reviewIsOpen, runsInTerminal, taskOrder, type AutoReview, type BudgetState, type DurableTask, type ReviewItem, type OutputSeries, type Bot, type Chat, type ChatMeta, type ChatUsage, type Device, type Message, type ProviderModel, type ProviderStatus, type RelayProblem, type Routine } from "./model";
 import { t } from "../i18n";
 import { savePrefs } from "./prefs";
 
@@ -79,6 +79,8 @@ export interface StoreState {
   tasks: DurableTask[];
   /// What the account's bots left for review, each at the newest revision this phone has.
   reviews: ReviewItem[];
+  /// Every Runner's limits and what its turns, tasks, and routines used of them.
+  budgets: BudgetState[];
   dictation_lang?: string;
 }
 
@@ -110,6 +112,7 @@ function empty(): Omit<StoreState, "ready" | "dictation_lang" | "appActive" | "a
     outputs: {},
     tasks: [],
     reviews: [],
+    budgets: [],
   };
 }
 
@@ -166,6 +169,7 @@ export function replaceSnapshot(snapshot: {
   routines?: Routine[];
   tasks?: DurableTask[];
   reviews?: ReviewItem[];
+  budgets?: BudgetState[];
   auto_review?: AutoReview;
   providers?: ProviderStatus[];
   models?: ProviderModel[];
@@ -199,6 +203,7 @@ export function replaceSnapshot(snapshot: {
     routines: snapshot.routines ?? [],
     tasks: snapshot.tasks ?? [],
     reviews: snapshot.reviews ?? [],
+    budgets: snapshot.budgets ?? [],
     auto_review: snapshot.auto_review ?? { is_enabled: true, rules: [] },
     providers: snapshot.providers ?? [],
     models: snapshot.models ?? [],
@@ -480,6 +485,27 @@ export function useRoutines(botId: string | undefined): Routine[] {
   const routines = useStore(useShallow((s) => s.routines.filter((r) => r.bot_id === botId).sort((a, b) => a.created_at - b.created_at)));
   const running = useStore(useShallow((s) => Object.values(s.running).flatMap((r) => (r.routineId ? [r.routineId] : []))));
   return useMemo(() => routines.map((r) => (r.is_running || !running.includes(r.id) ? r : { ...r, is_running: true })), [routines, running]);
+}
+
+/// Every Runner's limits, as `budgets.changed` sends them.
+export function setBudgets(budgets: BudgetState[]) {
+  useStore.setState({ budgets });
+}
+
+/// The allowance of a DM (`chat`), a task, or a routine on its Runner.
+export function useBudget(kind: BudgetState["kind"], id: string | undefined, runnerId: string | undefined): BudgetState | undefined {
+  return useStore((s) => s.budgets.find((b) => b.kind === kind && b.id === id && b.runner_id === runnerId));
+}
+
+/// The DM's newest turn when it stopped at a limit or was interrupted: the one to resume.
+export function useStoppedTurn(chatId: string | undefined, runnerId: string | undefined): BudgetState | undefined {
+  return useStore((s) => {
+    let newest: BudgetState | undefined;
+    for (const b of s.budgets) {
+      if (b.kind === "job" && b.chat_id === chatId && b.runner_id === runnerId && (!newest || b.updated_at > newest.updated_at)) newest = b;
+    }
+    return newest && (newest.state === "budget_exhausted" || newest.state === "interrupted") ? newest : undefined;
+  });
 }
 
 /// Takes a task from a reply or an event unless this phone already has a newer revision of it.

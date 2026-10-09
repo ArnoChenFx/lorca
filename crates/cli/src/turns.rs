@@ -58,7 +58,28 @@ fn memory_flush_enabled() -> bool {
 
 // MARK: - The turn
 
+/// Refuses a tool call once the turn's limits are used up. Checked before review and again
+/// after it, so a review that spends the rest can't let one more call through.
+fn over_limits() -> Option<BeforeToolCallResult> {
+    let reason = crate::budgets::current()?.check().err()?;
+    Some(BeforeToolCallResult { block: true, reason: Some(reason), args: None, terminate: true })
+}
+
 pub(crate) async fn run_job(app: &Arc<App>, job: &Job, cancel: CancellationToken) -> TurnOutcome {
+    let budget = match crate::budgets::for_job(app, job) {
+        Ok(context) => context,
+        Err(reason) => {
+            app.notice(&job.chat_id, &reason);
+            return TurnOutcome::Skipped;
+        }
+    };
+    match budget.run(&cancel, run_budgeted_job(app, job, cancel.clone())).await {
+        Ok(outcome) => outcome,
+        Err(reason) => { app.notice(&job.chat_id, reason); TurnOutcome::Skipped }
+    }
+}
+
+async fn run_budgeted_job(app: &Arc<App>, job: &Job, cancel: CancellationToken) -> TurnOutcome {
     let Some(bot) = app.bot(&job.bot_id) else { return TurnOutcome::Skipped };
     if app.chat(&job.chat_id).is_none() {
         return TurnOutcome::Skipped;
@@ -281,6 +302,7 @@ pub(crate) async fn run_job(app: &Arc<App>, job: &Job, cancel: CancellationToken
         unattended,
         plugin_tools: plugin_tools.clone(),
         steering: steering.clone(),
+        cancel: cancel.clone(),
     });
     let config = AgentLoopConfig {
         provider: provider.clone(),
@@ -449,6 +471,7 @@ struct TurnHooks {
     /// Direct chats drain this queue at the agent loop's safe steering boundaries. Group rooms
     /// steer by yielding between member jobs so a new mention can reorder the replacement room.
     steering: Option<AgentMessageQueue>,
+    cancel: CancellationToken,
 }
 
 /// How the model sees a transcript that may open with a compaction summary.
@@ -586,6 +609,9 @@ impl LoopHooks for QuietHooks {
     }
 
     async fn before_tool_call(&self, ctx: BeforeToolCallContext<'_>) -> Option<BeforeToolCallResult> {
+        if let Some(refused) = over_limits() {
+            return Some(refused);
+        }
         (!MEMORY_TOOLS.contains(&ctx.tool_call.name.as_str())).then(|| BeforeToolCallResult {
             block: true,
             reason: Some("Only memory_update and memory_log run during housekeeping.".into()),
@@ -615,6 +641,9 @@ impl LoopHooks for TurnHooks {
     }
 
     async fn before_tool_call(&self, ctx: BeforeToolCallContext<'_>) -> Option<BeforeToolCallResult> {
+        if let Some(refused) = over_limits() {
+            return Some(refused);
+        }
         if !self.plugin_tools.is_plugin_tool(&ctx.tool_call.name) {
             if let Err(denied) = crate::permissions::check_tool(&self.app, &self.bot, &ctx.tool_call.name) {
                 return Some(crate::permissions::refuse(&self.app, &self.chat_id, &self.bot, denied));
@@ -626,7 +655,10 @@ impl LoopHooks for TurnHooks {
         if let Some(refused) = crate::plugins::mcp::review_call(&self.app, &self.plugin_tools, &self.chat_id, &self.trigger, &self.bot, self.unattended, &ctx).await {
             return Some(refused);
         }
-        crate::local_review::before_tool_call(
+        if let Some(refused) = over_limits() {
+            return Some(refused);
+        }
+        let decision = crate::local_review::before_tool_call(
             &self.app,
             &self.chat_id,
             &self.trigger,
@@ -635,7 +667,11 @@ impl LoopHooks for TurnHooks {
             self.unattended,
             ctx,
         )
-        .await
+        .await;
+        if let Some(refused) = over_limits() {
+            return Some(refused);
+        }
+        decision
     }
 
     async fn prepare_next_turn(&self, ctx: PrepareNextTurnContext<'_>) -> Option<TurnUpdate> {
@@ -646,7 +682,7 @@ impl LoopHooks for TurnHooks {
         if self.window > 0 && self.settings.enabled {
             let size = estimate_context_tokens(&context.messages).tokens + estimate_text_tokens(&context.system_prompt);
             if compaction::should_compact(size, self.window, &self.settings) {
-                let cancel = CancellationToken::new();
+                let cancel = self.cancel.clone();
                 let turn = TurnRequest { system_prompt: context.system_prompt.clone(), tools: context.tools.clone(), cache_points: context.cache_points.clone() };
                 match compact_messages(&self.app, &self.chat_id, &self.bot, &self.provider, &context.messages, &self.settings, Some(&turn), &cancel).await {
                     Ok(Some((messages, tokens_before))) => {

@@ -1012,7 +1012,7 @@ mod tests {
             kind: "machine".into(),
             recipient_machine_pubkey: None,
             seq,
-            ciphertext: crate::keys::b64(&crate::crypto::encrypt_json(&dek, "machine", &MachineBlob { device, turns }).unwrap()),
+            ciphertext: crate::keys::b64(&crate::crypto::encrypt_json(&dek, "machine", &MachineBlob { device, turns, budgets: Vec::new() }).unwrap()),
             created_at: 0,
         };
         let mut events = app.events.subscribe();

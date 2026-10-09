@@ -374,8 +374,11 @@ async fn connect(app: &Arc<App>, plugin: &Installed, name: &str, spec: &ServerSp
                 if app.mcp.generation(&plugin.manifest.id) != generation { return Err("The account's settings changed while connecting. Try again.".into()); }
                 store.sign_in_secret(&plugin.manifest.id, "oauth", name)
             };
-            let http = app.mcp.http.clone();
-            let plain = |config: StreamableHttpClientTransportConfig| move || StreamableHttpClientTransport::with_client(http.clone(), config.clone());
+            let http = crate::connector_limits::LimitedHttpClient::new(app, app.mcp.http.clone(), &plugin.manifest.id);
+            let plain = |config: StreamableHttpClientTransportConfig| {
+                let http = http.clone();
+                move || StreamableHttpClientTransport::with_client(http.clone(), config.clone())
+            };
             match (pasted, auth_spec, tokens) {
                 (Some(token), _, _) => serve_retrying(&client, plain(config.auth_header(token))).await.map_err(|e| describe_connect_error(&e.to_string(), url))?,
                 (None, Some(oauth @ AuthSpec::Oauth { .. }), Some(stored)) => {
@@ -411,7 +414,7 @@ async fn connect(app: &Arc<App>, plugin: &Installed, name: &str, spec: &ServerSp
                         let restored = if refreshable { restore_manager(app, url, &stored, metadata_url).await } else { Err("no refresh token".into()) };
                         match restored {
                             Ok(manager) => {
-                                let signed_in = AuthClient::new(app.mcp.http.clone(), manager);
+                                let signed_in = AuthClient::new(http.clone(), manager);
                                 auth = Some(signed_in.auth_manager.clone());
                                 let transport = || StreamableHttpClientTransport::with_client(signed_in.clone(), config.clone());
                                 serve_retrying(&client, transport).await.map_err(|e| describe_connect_error(&e.to_string(), url))?
@@ -1632,6 +1635,7 @@ pub fn saved_tool_count(app: &App, plugin: &Installed) -> Option<usize> {
 /// `before_tool_call` boundary ([`review_call`]).
 pub struct PluginTool {
     app: Arc<App>,
+    budget: Option<crate::budgets::BudgetContext>,
     /// Bound for a bot turn or routine check. Catalogs used only for inspection omit it.
     policy_context: Option<(Bot, String)>,
     plugin_id: String,
@@ -1659,7 +1663,7 @@ pub async fn reviewed_tool(app: &Arc<App>, bot: &Bot, chat_id: &str, plugin_id: 
     };
     let tool = server.tools().into_iter().find(|tool| tool.name.as_ref() == name).ok_or("The server no longer offers the reviewed tool.")?;
     let description = tool.description.as_deref().unwrap_or("").to_string();
-    Ok(Arc::new(PluginTool { app: app.clone(), plugin_id: plugin_id.into(), plugin_name: plugin.display_name(),
+    Ok(Arc::new(PluginTool { app: app.clone(), budget: crate::budgets::current(), plugin_id: plugin_id.into(), plugin_name: plugin.display_name(),
         server_name: server_name.into(), tool, name: tool_name(plugin_id, name), description, read_only: false, kind: ToolKind::Call,
         timeout: plugin.manifest.servers.get(server_name).map(ServerSpec::call_timeout).unwrap_or(super::CALL_TIMEOUT),
         policy_context: Some((bot.clone(), chat_id.into())) }))
@@ -1737,6 +1741,7 @@ struct CatalogState {
 /// search or a call by name connects it.
 pub struct PluginCatalog {
     app: Arc<App>,
+    budget: Option<crate::budgets::BudgetContext>,
     policy_context: Option<(Bot, String)>,
     local: Vec<Arc<dyn Tool>>,
     groups: Vec<PluginGroup>,
@@ -1749,7 +1754,7 @@ impl PluginCatalog {
     }
 
     fn for_context(app: Arc<App>, local: Vec<Arc<dyn Tool>>, policy_context: Option<(Bot, String)>) -> Self {
-        let mut catalog = PluginCatalog { app, policy_context, local, groups: Vec::new(), state: Mutex::new(CatalogState::default()) };
+        let mut catalog = PluginCatalog { app, budget: crate::budgets::current(), policy_context, local, groups: Vec::new(), state: Mutex::new(CatalogState::default()) };
         for plugin in &catalog.installed() {
             let saved = saved_servers(&catalog.app, plugin);
             catalog.groups.push(plugin_group(&catalog.app, plugin, &saved));
@@ -1790,6 +1795,7 @@ impl PluginCatalog {
                 || tool.annotations.as_ref().and_then(|annotations| annotations.read_only_hint).unwrap_or(false)
                 || plugin.manifest.tools.readonly.iter().any(|pattern| pattern_matches(pattern, &original_name));
             let executable = Arc::new(PluginTool {
+                budget: self.budget.clone(),
                 app: self.app.clone(),
                 policy_context: self.policy_context.clone(),
                 plugin_id: plugin.manifest.id.clone(),
@@ -2382,6 +2388,7 @@ impl Tool for PluginTool {
         let mut params = CallToolRequestParams::default();
         // A sign-in, connection or review may have awaited while the user revoked access.
         self.check_policy(&cancel).await?;
+        let _permit = self.admit(&cancel).await?;
         params.name = tool.clone().into();
         params.arguments = args.as_object().cloned();
         // A call the user stops, or one that runs out of time, is called off at the server too
@@ -2427,6 +2434,9 @@ impl Tool for PluginTool {
                 return Err(ToolError(format!("{tool} took too long")));
             }
             Err(error) => {
+                if let rmcp::ServiceError::McpError(error) = &error {
+                    self.app.connector_limits.observe_result(&self.app, &self.plugin_id, &serde_json::to_value(error).unwrap_or_default());
+                }
                 if let Some((scope, challenge)) = insufficient_scope(&error) {
                     needs_more_access(&self.app, &self.plugin_id, &self.server_name, &scope, &challenge);
                     return Err(ToolError(format!("{} needs more access for {tool}. The user signs in to it again to grant it.", self.plugin_name)));
@@ -2445,6 +2455,9 @@ impl Tool for PluginTool {
             }
         };
         let is_error = result.is_error.unwrap_or(false);
+        if is_error {
+            self.app.connector_limits.observe_result(&self.app, &self.plugin_id, &serde_json::to_value(&result).unwrap_or_default());
+        }
         // Slack and Google answer a revoked or narrowed authorization with an error result.
         if is_error && self.is_named_account() {
             let failure = serde_json::to_string(&result).unwrap_or_default();
@@ -2482,6 +2495,22 @@ impl Tool for PluginTool {
 }
 
 impl PluginTool {
+    /// A call waits for the account's shared capacity, then counts toward the turn's limits.
+    /// A turn out of plugin calls doesn't take a slot from the other bots.
+    async fn admit(&self, cancel: &CancellationToken) -> Result<crate::connector_limits::CallPermit, ToolError> {
+        if let Some(budget) = &self.budget { budget.check().map_err(ToolError)?; }
+        let permit = crate::connector_limits::ConnectorLimits::acquire(&self.app, &self.plugin_id, cancel).await.map_err(ToolError)?;
+        if let Some(budget) = &self.budget { budget.connector_call().map_err(ToolError)?; }
+        Ok(permit)
+    }
+
+    fn describe_call_error(&self, error: &rmcp::ServiceError) -> String {
+        if let rmcp::ServiceError::McpError(data) = error {
+            self.app.connector_limits.observe_result(&self.app, &self.plugin_id, &serde_json::to_value(data).unwrap_or_default());
+        }
+        error.to_string()
+    }
+
     fn is_named_account(&self) -> bool {
         self.app.plugins.lock().unwrap().get(&self.plugin_id).is_some_and(|plugin| plugin.service_id.is_some())
     }
@@ -2507,17 +2536,18 @@ impl PluginTool {
         };
         let peer = server.service.peer();
         self.check_policy(&cancel).await?;
+        let _permit = self.admit(&cancel).await?;
         let page = args["cursor"].as_str().and_then(|cursor| serde_json::from_value::<rmcp::model::PaginatedRequestParams>(json!({ "cursor": cursor })).ok());
         let asked = async {
             Ok::<Value, String>(match self.kind {
-                ToolKind::ListResources => listed(serde_json::to_value(peer.list_resources(page).await.map_err(|e| e.to_string())?).unwrap_or_default(), "resources"),
+                ToolKind::ListResources => listed(serde_json::to_value(peer.list_resources(page).await.map_err(|e| self.describe_call_error(&e))?).unwrap_or_default(), "resources"),
                 ToolKind::ListResourceTemplates => {
-                    listed(serde_json::to_value(peer.list_resource_templates(page).await.map_err(|e| e.to_string())?).unwrap_or_default(), "resourceTemplates")
+                    listed(serde_json::to_value(peer.list_resource_templates(page).await.map_err(|e| self.describe_call_error(&e))?).unwrap_or_default(), "resourceTemplates")
                 }
                 ToolKind::ReadResource | ToolKind::Call => {
                     let uri = args["uri"].as_str().filter(|uri| !uri.trim().is_empty()).ok_or("read_mcp_resource needs the resource's uri")?;
                     let params = serde_json::from_value::<rmcp::model::ReadResourceRequestParams>(json!({ "uri": uri })).map_err(|e| e.to_string())?;
-                    serde_json::to_value(peer.read_resource(params).await.map_err(|e| e.to_string())?).unwrap_or_default()
+                    serde_json::to_value(peer.read_resource(params).await.map_err(|e| self.describe_call_error(&e))?).unwrap_or_default()
                 }
             })
         };
@@ -3031,6 +3061,7 @@ for line in sys.stdin:
             search_schema: schema.into(),
             server_instructions: String::new(),
             tool: Arc::new(PluginTool {
+                budget: None,
                 app: app.clone(),
                 policy_context: None,
                 plugin_id: plugin_id.into(),
@@ -3155,6 +3186,7 @@ for line in sys.stdin:
     pub(crate) fn browser_tool(app: &Arc<App>, bot: &Bot, chat_id: &str, name: &str) -> PluginTool {
         PluginTool {
             app: app.clone(),
+            budget: crate::budgets::current(),
             plugin_id: crate::browser::PLUGIN_ID.into(),
             plugin_name: "Browser".into(),
             server_name: "browser".into(),

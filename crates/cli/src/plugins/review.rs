@@ -196,7 +196,7 @@ pub async fn review(app: &Arc<App>, bot: &Bot, chat_id: &str, trigger: &Trigger,
                 text.push_str(&format!("\n\nWrite {answer} in the language {language}."));
             }
             let system_prompt = if action.propose_rule { format!("{SYSTEM_PROMPT}\n\n{RULE_PROMPT}") } else { SYSTEM_PROMPT.into() };
-            let mut outcome = ask_chat_model(provider, thinking, system_prompt, text, chat_id, cancel).await;
+            let mut outcome = ask_chat_model(app, provider, thinking, system_prompt, text, chat_id, cancel).await;
             // A rule the user already has did not cover this action, so offering it again would
             // leave the next one asking just the same.
             if let Outcome::Ask { rule, .. } = &mut outcome {
@@ -221,6 +221,7 @@ pub async fn review(app: &Arc<App>, bot: &Bot, chat_id: &str, trigger: &Trigger,
 /// Asks a chat model for its verdict as JSON: the reason, and a rule when the prompt asks for
 /// one.
 async fn ask_chat_model(
+    app: &App,
     provider: Arc<dyn lorca_agent::Provider>,
     thinking: Option<ThinkingLevel>,
     system_prompt: String,
@@ -246,6 +247,7 @@ async fn ask_chat_model(
         acc.apply(&event);
     }
     let message = acc.finish(cancel.is_cancelled());
+    app.add_side_usage(chat_id, &message.usage);
     if matches!(message.stop_reason, StopReason::Aborted | StopReason::Error) {
         let error = message.error_message.unwrap_or_else(|| "no answer".into());
         tracing::warn!(%error, "auto-review call failed");

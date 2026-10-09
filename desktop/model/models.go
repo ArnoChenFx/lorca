@@ -1706,14 +1706,18 @@ func (c *Chat) Message(id string) *Message {
 // ChatUsage is the tokens and money the turns in a chat used. ContextTokens and ContextWindow are
 // the last turn's; the rest accumulate.
 type ChatUsage struct {
-	ContextTokens   int
-	ContextWindow   int
-	InputTokens     int
-	OutputTokens    int
-	CacheReadTokens int
-	CostUSD         float64
-	Turns           int
-	Model           string
+	ContextTokens           int
+	ContextWindow           int
+	InputTokens             int
+	OutputTokens            int
+	CacheReadTokens         int
+	CostUSD                 float64
+	Turns                   int
+	Model                   string
+	APICostUSD              float64
+	SubscriptionEstimateUSD float64
+	UnknownPriceCalls       uint64
+	PricingKinds            []string
 }
 
 // ContextSummary is "128k of 1M · 13%", or "128k" when the window is unknown.
@@ -1725,16 +1729,39 @@ func (u ChatUsage) ContextSummary() string {
 	return L("%@ of %@ · %d%%", Tokens(u.ContextTokens), Tokens(u.ContextWindow), percent)
 }
 
-// SpendSummary is "$0.42 · 18 turns".
+// SpendSummary is "$0.42 · 18 turns". A subscription's turns cost what the plan costs, so their
+// price at API rates reads as an estimate ("$0.42 est."); a model without a known price reads
+// Price unknown, never $0.00.
 func (u ChatUsage) SpendSummary() string {
-	dollars := fmt.Sprintf("$%.2f", u.CostUSD)
-	if u.CostUSD < 0.01 && u.CostUSD > 0 {
-		dollars = "<$0.01"
-	}
+	count := L("%d turns", u.Turns)
 	if u.Turns == 1 {
-		return L("%@ · %d turn", dollars, u.Turns)
+		count = L("1 turn")
 	}
-	return L("%@ · %d turns", dollars, u.Turns)
+	var parts []string
+	if slices.Contains(u.PricingKinds, "api") {
+		parts = append(parts, Dollars(u.APICostUSD))
+	}
+	if slices.Contains(u.PricingKinds, "subscription_estimate") {
+		parts = append(parts, L("%@ est.", Dollars(u.SubscriptionEstimateUSD)))
+	}
+	switch {
+	case len(parts) == 0:
+		parts = append(parts, L("Price unknown"))
+	case u.UnknownPriceCalls > 0:
+		parts = append(parts, Lc("unknown", "price"))
+	}
+	return strings.Join(parts, " + ") + " · " + count
+}
+
+// SpendNote is what the Spent row's estimate or unknown price means, for its tooltip.
+func (u ChatUsage) SpendNote() string {
+	if slices.Contains(u.PricingKinds, "subscription_estimate") {
+		return L("An estimate of what these turns would cost at API prices. Your subscription covers them.")
+	}
+	if u.UnknownPriceCalls > 0 || len(u.PricingKinds) == 0 {
+		return L("This model has no known price.")
+	}
+	return ""
 }
 
 // MARK: - Settings

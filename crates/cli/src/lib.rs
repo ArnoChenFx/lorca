@@ -5,9 +5,12 @@
 
 pub mod api;
 pub mod app;
+pub mod budgets;
 pub mod browser;
 pub mod catalog;
 pub mod config;
+#[cfg(feature = "runner")]
+pub mod connector_limits;
 pub mod credentials;
 pub mod crypto;
 #[cfg(feature = "runner")]

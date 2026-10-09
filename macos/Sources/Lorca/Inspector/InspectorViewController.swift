@@ -46,6 +46,7 @@ final class InspectorViewController: NSViewController {
     /// The usage rows under Runs with, which take new values after every turn.
     private var contextRow: ActionRow?
     private var spentRow: KeyValueRow?
+    private var limitsRow: DisclosureRow?
     private lazy var noRoutinesRow = NoteRow(
         text: L("Routines are recurring tasks this bot runs on a schedule. Ask it in chat to set one up."))
     private lazy var marketplaceRow: ActionRow = {
@@ -154,7 +155,7 @@ final class InspectorViewController: NSViewController {
         super.viewDidLoad()
         store.observe(self) { [weak self] event in
             switch event {
-            case .chatChanged, .chatsChanged, .snapshotReplaced, .rosterChanged, .reviewsChanged, .durableTasksChanged:
+            case .chatChanged, .chatsChanged, .snapshotReplaced, .rosterChanged, .reviewsChanged, .durableTasksChanged, .budgetsChanged:
                 self?.reload()
             case let .outputsChanged(chatID):
                 guard let self, case .chat(chatID) = self.selection else { return }
@@ -433,14 +434,21 @@ final class InspectorViewController: NSViewController {
 
     private func showRuntime(of bot: Bot, in chat: Chat) {
         // The account's providers name the Provider pop-up's items and a custom provider's models.
-        if changed(runtime, to: [chat.id, bot.id, bot.provider, bot.model, bot.thinking, store.providers, chat.usage == nil]) {
+        // A turn stopped at a limit turns the Limits row orange; a label going from gray to a
+        // plain color needs a fresh row to draw right.
+        let stopped = store.stoppedTurn(in: chat.id, runnerID: bot.runnerID)
+        if changed(runtime, to: [chat.id, bot.id, bot.provider, bot.model, bot.thinking, store.providers, chat.usage == nil, stopped == nil]) {
             runtime.setRows(runtimeRows(for: bot, in: chat))
         }
         // What the turns used changes after every turn; the rows take the new values in place.
         if let usage = chat.usage {
             contextRow?.setValue(usage.contextSummary)
             spentRow?.setValue(usage.spendSummary)
+            spentRow?.toolTip = usage.spendNote
         }
+        limitsRow?.setValue(
+            stopped?.stoppedLabel ?? store.budget("chat", chat.id, runnerID: bot.runnerID)?.limits.summary ?? L("None", context: "limits"),
+            tint: stopped == nil ? .secondaryLabelColor : .systemOrange)
     }
 
     private func showMemory(of bot: Bot) {
@@ -607,8 +615,17 @@ final class InspectorViewController: NSViewController {
             ConnectProviderViewController.present(kind: bot.provider, from: self)
         }
 
+        // What each turn may use, or the turn that stopped at a limit; its value comes in
+        // place from showRuntime.
+        let limits = DisclosureRow(key: L("Limits"))
+        limits.onClick = { [weak self] in
+            guard let self, let bot = self.store.bot(bot.id) else { return }
+            self.presentAsSheet(BudgetViewController(bot: bot, chatID: chat.id))
+        }
+        limitsRow = limits
+
         // Only the levels this model takes; a model without any has no choice to make.
-        return [providerRow, modelRow] + (levels.isEmpty ? [] : [thinkingRow]) + [status] + usageRows
+        return [providerRow, modelRow] + (levels.isEmpty ? [] : [thinkingRow]) + [status] + usageRows + [limits]
     }
 
     /// What the bot remembers, as its Runner reports it: the index against its load budget with
@@ -657,15 +674,16 @@ final class InspectorViewController: NSViewController {
     /// the details in a sheet. With none, the sentence that says how to get one.
     private func showRoutines(of bot: Bot) {
         let mine = store.routines(for: bot.id)
-        guard changed(routines, to: [bot.id, mine, mine.map(\.detail)]) else { return }
+        let stopped = mine.map { store.budget("routine", $0.id, runnerID: bot.runnerID).flatMap { $0.isStopped ? $0.stoppedLabel : nil } }
+        guard changed(routines, to: [bot.id, mine, mine.map(\.detail), stopped]) else { return }
         guard !mine.isEmpty else {
             routines.setRows([noRoutinesRow])
             return
         }
         routines.setRows(
-            mine.map { routine in
-                let row = keptRow("routine:\(routine.id)") { SwitchRow() }
-                row.configure(routine: routine)
+            zip(mine, stopped).map { routine, stopped in
+                let row = keptRow("routine:\(routine.id):\(stopped != nil)") { SwitchRow() }
+                row.configure(routine: routine, stopped: stopped)
                 row.onToggle = { [weak self] enabled in self?.store.setRoutineEnabled(routine.id, enabled) }
                 row.onClick = { [weak self] in
                     guard let self, let bot = self.store.bot(bot.id) else { return }

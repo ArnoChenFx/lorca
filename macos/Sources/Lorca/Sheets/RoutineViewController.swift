@@ -104,7 +104,7 @@ final class RoutineViewController: SheetViewController {
         super.viewDidLoad()
         store.observe(self) { [weak self] event in
             switch event {
-            case .rosterChanged, .chatsChanged, .snapshotReplaced:
+            case .rosterChanged, .chatsChanged, .snapshotReplaced, .budgetsChanged:
                 self?.refresh()
             default:
                 break
@@ -122,8 +122,14 @@ final class RoutineViewController: SheetViewController {
         let runner = store.device(bot.runnerID)
         let runnerName = runner?.name ?? L("its Runner")
         let problem = routine.problem
+        // A routine stopped at its limits runs again only once the user resumes it in Limits,
+        // which comes before anything else that's wrong with it.
+        let budget = store.budget("routine", routineID, runnerID: bot.runnerID)
+        let stopped = budget.flatMap { $0.isStopped ? $0 : nil }
         let state: (String, NSColor) =
-            if routine.isRunning {
+            if let stopped {
+                (stopped.stoppedLabel, .systemOrange)
+            } else if routine.isRunning {
                 (L("Running…"), .controlAccentColor)
             } else if let problem {
                 (problem.text, problem.needsUser ? .systemOrange : .secondaryLabelColor)
@@ -133,7 +139,9 @@ final class RoutineViewController: SheetViewController {
                 (routine.pausedReason == "away" ? L("Paused while you were away") : L("Paused"), .secondaryLabelColor)
             }
         var rows: [NSView] = [KeyValueRow(key: L("State"), value: state.0, tint: state.1)]
-        if let problem {
+        if let stopped {
+            rows.append(NoteRow(text: stopped.stoppedDetail))
+        } else if let problem {
             rows.append(NoteRow(text: problem.explanation(bot: bot.name, runner: runnerName)))
         }
         let scheduleRow = KeyValueRow(key: L("Schedule"), value: routine.scheduleSummary)
@@ -158,15 +166,28 @@ final class RoutineViewController: SheetViewController {
             }
         }
         rows.append(KeyValueRow(key: L("Last run"), value: routine.lastRunSummary))
+        rows.append(limitsRow(budget, routine: routine))
         schedule.setRows(rows)
         if prompt.string != routine.prompt { prompt.string = routine.prompt }
         checkSection.isHidden = routine.check == nil
         if check.string != (routine.check ?? "") { check.string = routine.check ?? "" }
         pauseButton.title = routine.isEnabled ? L("Pause") : L("Resume")
-        // A run needs its Runner online, and a routine paused by failed sign-ins needs Resume.
-        runButton.isEnabled = !routine.isRunning && routine.state != "waiting_for_runner" && routine.pausedReason != "authentication"
+        // A run needs its Runner online, a routine paused by failed sign-ins needs Resume, and one
+        // stopped at its limits resumes in Limits.
+        runButton.isEnabled = !routine.isRunning && routine.state != "waiting_for_runner" && routine.pausedReason != "authentication" && stopped == nil
         runButton.toolTip = runner.map { L("Runs on %@ now", $0.name) } ?? L("Runs on the bot's Runner now")
         fitSheetToContent()
+    }
+
+    /// What its runs may use; opens the routine's Limits, where a stopped routine resumes.
+    private func limitsRow(_ budget: BudgetState?, routine: Routine) -> NSView {
+        let row = DisclosureRow(key: L("Limits"))
+        row.setValue(budget?.limits.summary ?? L("None", context: "limits"))
+        row.onClick = { [weak self] in
+            guard let self, let dm = self.store.chats.first(where: { $0.isDM && $0.botIDs.contains(self.bot.id) }) else { return }
+            self.presentAsSheet(BudgetViewController(bot: self.bot, chatID: dm.id, routine: routine))
+        }
+        return row
     }
 
     @objc private func runNow() {

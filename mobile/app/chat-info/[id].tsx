@@ -1,11 +1,11 @@
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import { MenuView, type MenuComponentRef } from "@expo/ui/community/menu";
-import { Platform, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
+import { Platform, PlatformColor, ScrollView, StyleSheet, Switch, Text, View } from "react-native";
 import { Pressable } from "../../src/ui/Pressable";
 import { chatTitle, engine } from "../../src/core/engine";
 import { BROWSER_PLUGIN_ID, providerKinds, providerLabel, providerModels, PROVIDER_KINDS, taskSymbol, thinkingLabel, thinkingLevels, withCustomModels, type Bot, type Routine } from "../../src/core/model";
-import { deviceIsOnline, useBotMap, useChat, useDurableTasks, useOpenReviews, useOutputs, useRoutines, useStore, useWorkingBotIds } from "../../src/core/store";
+import { deviceIsOnline, useBotMap, useBudget, useChat, useDurableTasks, useOpenReviews, useOutputs, useRoutines, useStoppedTurn, useStore, useWorkingBotIds } from "../../src/core/store";
 import { t, useLanguage } from "../../src/i18n";
 import { AvatarCluster, BotAvatar } from "../../src/ui/Avatar";
 import { CheckRow, FieldRow, Row, Section, ToggleRow } from "../../src/ui/forms";
@@ -20,6 +20,8 @@ import { alert } from "../../src/ui/alert";
 import { OutputRow } from "../../src/ui/outputs";
 import { taskStateTitle, useTaskTint } from "../../src/ui/durableTasks";
 import { reviewHeadline, reviewStateWord, reviewSymbol } from "../../src/ui/reviews";
+import { isStopped, limitsSummary, stoppedDetail, stoppedLabel } from "../../src/ui/limits";
+import { accentColor, Font } from "../../src/ui/theme";
 
 export default function ChatInfoScreen() {
   useLanguage();
@@ -47,6 +49,11 @@ export default function ChatInfoScreen() {
   const reviews = useOpenReviews(chat?.id);
   const taskTint = useTaskTint();
   const [allTasks, setAllTasks] = useState(false);
+  const limits = useBudget("chat", chat?.id, bot?.runner_id);
+  const stoppedTurn = useStoppedTurn(chat?.id, bot?.runner_id);
+  const budgets = useStore((s) => s.budgets);
+  // A turn or routine stopped at its limits is the user's to act on.
+  const orange = Platform.OS === "ios" ? PlatformColor("systemOrange") : accentColor("orange", p.dark);
 
   useEffect(() => setBotName(bot?.name ?? ""), [bot?.id, bot?.name]);
   // The chat's outputs, older ones the transcript has not loaded included.
@@ -56,10 +63,17 @@ export default function ChatInfoScreen() {
 
   if (!chat) return null;
 
-  /// A routine's actions, as a sheet: run it now, or delete it. The bot edits it on request.
+  /// A routine stopped at its limits, which runs again only once the user resumes it in Limits.
+  const stoppedRoutine = (routine: Routine) => budgets.find((b) => b.kind === "routine" && b.id === routine.id && b.runner_id === bot?.runner_id && isStopped(b));
+
+  /// A routine's actions, as a sheet: run it now, its limits, or delete it. The bot edits it on
+  /// request. A routine stopped at its limits says why, and resumes in Limits instead.
   function showRoutine(routine: Routine) {
-    alert(routine.name, `${routineDetail(routine)}\n${t("Last run: {summary}", { summary: lastRunSummary(routine) })}\n\n${routine.prompt}`, [
-      { text: t("Run Now"), onPress: () => engine.runRoutine(routine.id) },
+    const stopped = stoppedRoutine(routine);
+    const state = stopped ? `${stoppedLabel(stopped)}: ${stoppedDetail(stopped)}` : routineDetail(routine);
+    alert(routine.name, `${state}\n${t("Last run: {summary}", { summary: lastRunSummary(routine) })}\n\n${routine.prompt}`, [
+      ...(stopped ? [] : [{ text: t("Run Now"), onPress: () => engine.runRoutine(routine.id) }]),
+      { text: t("Limits"), onPress: () => router.push({ pathname: "/chat-info/limits", params: { kind: "routine", id: routine.id, bot: routine.bot_id } }) },
       {
         text: t("Delete"),
         style: "destructive",
@@ -261,6 +275,14 @@ export default function ChatInfoScreen() {
               }}
             />
           )}
+          {/* What each turn may use, or that the newest one stopped at a limit. */}
+          <Row
+            title={t("Limits")}
+            detail={stoppedTurn ? undefined : limitsSummary(limits?.limits)}
+            accessory={stoppedTurn ? <Text style={{ color: orange, fontSize: Font.body }}>{stoppedLabel(stoppedTurn)}</Text> : undefined}
+            chevron
+            onPress={() => router.push({ pathname: "/chat-info/limits", params: { kind: "chat", id: chat.id, bot: bot.id } })}
+          />
         </Section>
       )}
 
@@ -285,8 +307,9 @@ export default function ChatInfoScreen() {
             <Row
               key={routine.id}
               title={routine.name}
-              subtitle={routineDetail(routine)}
-              icon={routine.is_running ? "arrow.triangle.2.circlepath" : routine.is_enabled ? "clock" : "pause.circle"}
+              subtitle={stoppedRoutine(routine) ? `${stoppedLabel(stoppedRoutine(routine)!)} · ${routine.schedule_text}` : routineDetail(routine)}
+              icon={stoppedRoutine(routine) ? undefined : routine.is_running ? "arrow.triangle.2.circlepath" : routine.is_enabled ? "clock" : "pause.circle"}
+              leading={stoppedRoutine(routine) ? <Symbol name="exclamationmark.circle.fill" size={20} color={orange} /> : undefined}
               accessory={
                 <Switch
                   value={routine.is_enabled}
@@ -304,7 +327,8 @@ export default function ChatInfoScreen() {
       {bot && runner && (
         <Section title={t("Plugins")} footer={(runner.plugins ?? []).length === 0 ? t("No plugins on {runner} yet. Add one from the desktop app, or ask {bot} to find one.", { runner: runner.name, bot: bot.name }) : t("Installed on {runner}, for {bot} and every other bot there.", { runner: runner.name, bot: bot.name })}>
           {(runner.plugins ?? []).map((plugin) => (
-            // A named account (Gmail · Work) opens its own screen; its name already says which.
+            // A plugin opens its screen, its state and call limit; a named account's (Gmail · Work)
+            // has its name and sign-in, and its name already says which.
             plugin.account_name ? (
               <Row
                 key={plugin.id}
@@ -330,6 +354,8 @@ export default function ChatInfoScreen() {
                 title={plugin.name}
                 subtitle={plugin.state === "ready" ? plugin.description : plugin.detail}
                 icon={plugin.icon || "puzzlepiece.extension"}
+                chevron
+                onPress={() => router.push({ pathname: "/chat-info/account/[id]", params: { id: plugin.id, runner: runner.id } })}
               />
             )
           ))}

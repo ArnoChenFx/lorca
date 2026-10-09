@@ -308,6 +308,12 @@ final class DisclosureRow: NSView {
         setAccessibilityValue(text)
     }
 
+    /// A value in a color of its own, such as orange for something to act on.
+    func setValue(_ text: String, tint: NSColor) {
+        value.textColor = tint
+        setValue(text)
+    }
+
     override func mouseDown(with event: NSEvent) {
         onClick?()
     }
@@ -967,7 +973,9 @@ final class SwitchRow: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    func configure(routine: Routine) {
+    /// A routine stopped at its limits says so before anything else, as a problem the user has
+    /// to act on: it runs again only once the user resumes it.
+    func configure(routine: Routine, stopped: String? = nil) {
         let symbol = routine.isRunning ? "arrow.triangle.2.circlepath" : (routine.isEnabled ? "clock" : "pause.circle")
         configure(
             symbol: symbol,
@@ -975,8 +983,8 @@ final class SwitchRow: NSView {
             title: routine.name, detail: routine.detail, isOn: routine.isEnabled,
             toggleTooltip: routine.isEnabled ? L("Pause %@", routine.name) : L("Resume %@", routine.name), tooltip: routine.prompt)
         // What went wrong leads, in orange while the user has to do something about it.
-        if let problem = routine.problem, problem.needsUser {
-            let line = NSMutableAttributedString(string: problem.text, attributes: [.foregroundColor: NSColor.systemOrange, .font: Theme.Font.caption])
+        if let problem = stopped ?? routine.problem.flatMap({ $0.needsUser ? $0.text : nil }) {
+            let line = NSMutableAttributedString(string: problem, attributes: [.foregroundColor: NSColor.systemOrange, .font: Theme.Font.caption])
             line.append(NSAttributedString(
                 string: " · \(routine.scheduleText)", attributes: [.foregroundColor: NSColor.secondaryLabelColor, .font: Theme.Font.caption]))
             detail.attributedStringValue = line

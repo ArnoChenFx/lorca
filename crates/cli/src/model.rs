@@ -639,6 +639,14 @@ pub struct ChatUsage {
     pub output_tokens: u64,
     pub cache_read_tokens: u64,
     pub cost_usd: f64,
+    #[serde(default)]
+    pub api_cost_usd: f64,
+    #[serde(default)]
+    pub subscription_estimate_usd: f64,
+    #[serde(default)]
+    pub unknown_price_calls: u64,
+    #[serde(default)]
+    pub pricing_kinds: Vec<crate::budgets::Pricing>,
     pub turns: u64,
     /// The model of the last turn.
     pub model: String,
@@ -811,6 +819,8 @@ pub struct MachineBlob {
     /// The turns in flight on this Device, so every other Device shows the bots at work.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub turns: Vec<LiveTurn>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub budgets: Vec<crate::budgets::BudgetSnapshot>,
 }
 
 /// `kind = job`, sealed to the Runner's box key: run one bot turn in one chat.

@@ -364,16 +364,21 @@ func actionRow(c *ui.Context, k *card, label string, o actionRowOptions) (ui.Ele
 }
 
 // disclosureRow is a key on the left, a short value and a chevron on the right, after the Mac's
-// DisclosureRow. It reports a click anywhere on it, which opens what the value sums up.
-func disclosureRow(c *ui.Context, k *card, label, value string) bool {
+// DisclosureRow. It reports a click anywhere on it, which opens what the value sums up. A tint
+// colors the value, as orange does something to act on.
+func disclosureRow(c *ui.Context, k *card, label, value string, tint *ui.Color) bool {
 	p := colors(c)
+	valueColor := p.Label2
+	if tint != nil {
+		valueColor = *tint
+	}
 	r := k.row(rowBox(c).Height(32).Padding(0, 12).Label(label).Cursor(ui.CursorPointer))
 	if r.Hovered() {
 		r.Background(p.RowHover)
 	}
 	r.Children(func() {
 		rowKey(c, label)
-		ui.Text(c, value).Grow(1).Shrink(1).MinWidth(0).TextAlign(ui.End).FontSize(12).TextColor(p.Label2).SingleLine()
+		ui.Text(c, value).Grow(1).Shrink(1).MinWidth(0).TextAlign(ui.End).FontSize(12).TextColor(valueColor).SingleLine()
 		ui.Row(c).Shrink(0).TextColor(p.Label3).Margin(0, 0, 0, -4).Children(func() { symbol(c, "chevron.right", 12, 2.2) })
 	})
 	return r.Clicked()

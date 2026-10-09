@@ -10,11 +10,12 @@ import { t } from "../i18n";
 import { exactAnswer, ExactNumber, ExactObject, stringifyExact } from "./exactJson";
 import { reviewEditParams } from "./reviewEdit";
 import { hostFacts } from "./host";
-import { providerConnectMethod, withReviewModel, type Attachment, type AutoReview, type Bot, type BrowserProfile, type Chat, type ChatMeta, type ChatSearchResults, type ChatUsage, type CustomAPI, type CustomModel, type DurableTask, type Message, type ReviewItem, type PluginDetail, type PluginStatus, type ProviderKind, type ProviderStatus } from "./model";
+import { providerConnectMethod, withReviewModel, type Attachment, type AutoReview, type Bot, type BrowserProfile, type BudgetLimits, type BudgetState, type CallLimits, type Chat, type ChatMeta, type ChatSearchResults, type ChatUsage, type CustomAPI, type CustomModel, type DurableTask, type Message, type ReviewItem, type PluginDetail, type PluginStatus, type ProviderKind, type ProviderStatus } from "./model";
 import { coreHome, loadPrefs, pathOf, wipePrefs } from "./prefs";
 import { clearPushes, installPushHandlers, registerForPushes } from "./push";
 import {
   acceptDurableTask,
+  setBudgets,
   acceptReview,
   applyRoster,
   botById,
@@ -160,6 +161,9 @@ class Engine {
         break;
       case "tasks.changed":
         acceptDurableTask((data as { task: DurableTask }).task);
+        break;
+      case "budgets.changed":
+        setBudgets((data as { budgets: BudgetState[] }).budgets);
         break;
       case "reviews.changed":
         acceptReview((data as { item: ReviewItem }).item);
@@ -600,6 +604,27 @@ class Engine {
   /// (`session_id`), on its Runner. Windows open only there, so the phone never sends `browser.open`.
   async browserAction(method: string, botId: string, params: Record<string, string | number>): Promise<void> {
     await core.request(method, { ...params, bot_id: botId });
+  }
+
+  /// Sets limits on the bot's Runner; what the work used stays. `kind` is `chat` for each new turn
+  /// in the DM, `job` for one turn, `task`, or `routine`.
+  async setBudget(kind: BudgetState["kind"], id: string, limits: BudgetLimits, bot: Bot, chatId: string) {
+    await core.request("budgets.set", { kind, id, limits, bot_id: bot.id, chat_id: chatId, runner_id: bot.runner_id });
+  }
+
+  /// Resumes a stopped turn, task, or routine where it left off; `fresh` grants the limits again
+  /// in full. The request id makes a repeated delivery a no-op on the Runner.
+  async resumeBudget(kind: BudgetState["kind"], id: string, runnerId: string, fresh: boolean) {
+    await core.request("budgets.resume", { kind, id, runner_id: runnerId, renew: fresh, run: true, request_id: `budget-${Date.now()}-${Math.random().toString(36).slice(2)}` });
+  }
+
+  /// A plugin account's call limit on its Runner.
+  callLimits(runnerId: string, pluginId: string): Promise<CallLimits> {
+    return core.request<CallLimits>("connector_limits.get", { runner_id: runnerId, plugin_id: pluginId, scope: "account" });
+  }
+
+  async setCallLimits(runnerId: string, pluginId: string, limits: CallLimits["limits"]): Promise<CallLimits> {
+    return core.request<CallLimits>("connector_limits.set", { runner_id: runnerId, plugin_id: pluginId, scope: "account", limits });
   }
 
   pluginDetail(runnerId: string, pluginId: string): Promise<PluginDetail> {

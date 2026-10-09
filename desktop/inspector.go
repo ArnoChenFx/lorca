@@ -195,7 +195,7 @@ func (m *mainWindow) inspectorProfile(c *ui.Context, bot *model.Bot) {
 		if summaryActionRow(c, k, L("Description"), bot.Description, L("Edit…")) {
 			m.presentBotDescription(bot.ID)
 		}
-		if disclosureRow(c.Key("bot-access"), k, L("Access"), bot.Permissions.Summary()) {
+		if disclosureRow(c.Key("bot-access"), k, L("Access"), bot.Permissions.Summary(), nil) {
 			m.presentBotAccess(bot.ID)
 		}
 	})
@@ -284,7 +284,22 @@ func (m *mainWindow) inspectorRuntime(c *ui.Context, bot *model.Bot, chat *model
 			if _, result := actionRow(c, k, L("Context"), actionRowOptions{Value: usage.ContextSummary(), Tint: &label, Action: L("Compact")}); result.Action {
 				store.CompactChat(chat.ID)
 			}
-			keyValueRow(c, k, L("Spent"), usage.SpendSummary(), false, nil)
+			if note := usage.SpendNote(); note != "" {
+				keyValueRow(c, k, L("Spent"), usage.SpendSummary(), false, nil).Tooltip(note)
+			} else {
+				keyValueRow(c, k, L("Spent"), usage.SpendSummary(), false, nil)
+			}
+		}
+		// What each turn may use, or the turn that stopped at a limit.
+		limits, tint := Lc("None", "limits"), p.Label2
+		if b := store.Budget("chat", chat.ID, bot.RunnerID); b != nil {
+			limits = b.Limits.Summary()
+		}
+		if stopped := store.StoppedTurn(chat.ID, bot.RunnerID); stopped != nil {
+			limits, tint = stopped.StoppedLabel(), p.Orange
+		}
+		if disclosureRow(c, k, L("Limits"), limits, &tint) {
+			m.presentBudget(bot, chat.ID, "")
 		}
 	})
 }
@@ -358,9 +373,12 @@ func (m *mainWindow) inspectorRoutines(c *ui.Context, bot *model.Bot) {
 			if !routine.IsEnabled {
 				toggle = L("Resume %@", routine.Name)
 			}
-			// What went wrong leads, in orange while the user has to do something about it.
+			// What went wrong leads, in orange while the user has to do something about it; a
+			// routine stopped at its limits says so first, since it runs again only once resumed.
 			detail := []ui.Span{{Text: routine.Detail(), Color: p.Label2}}
-			if problem := routine.Problem(); problem.NeedsUser() {
+			if budget := store.Budget("routine", routine.ID, bot.RunnerID); budget != nil && budget.IsStopped() {
+				detail = []ui.Span{{Text: budget.StoppedLabel(), Color: p.Orange}, {Text: " · " + routine.ScheduleText, Color: p.Label2}}
+			} else if problem := routine.Problem(); problem.NeedsUser() {
 				detail = []ui.Span{{Text: problem.Text(), Color: p.Orange}, {Text: " · " + routine.ScheduleText, Color: p.Label2}}
 			}
 			on := routine.IsEnabled

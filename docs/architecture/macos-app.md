@@ -33,3 +33,5 @@ The composer accepts files, pasted images, replies, mentions and dictation. Its 
 The inspector's Outputs section lists what the chat's bots published and opens each output's preview, check, and versions. See [macOS chat](macos-chat.md#outputs).
 
 The chat renders the CLI’s cross-Device turns, commands, pending confirmations and read state. See [macOS chat](macos-chat.md#working-state).
+
+The DM inspector's Limits row and the routine sheet's open the Limits sheet (`BudgetViewController`), and the plugin sheet's Call limit row opens the Call Limit sheet (`ConnectorLimitsViewController`); each is a `DisclosureRow`, a key and value with a chevron that is its own click target ([Budgets](budgets.md#in-the-apps)).

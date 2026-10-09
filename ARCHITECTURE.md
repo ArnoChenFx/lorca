@@ -99,6 +99,7 @@ One doc per subject under `docs/architecture/`, each short enough to read in one
 | [Routines](docs/architecture/routines.md) | A bot's scheduled tasks: schedules and their timezones, runs and read-only checks, missed runs, health and recovery, and the apps' routine sheet and service row |
 | [Durable tasks](docs/architecture/tasks.md) | Work that spans turns: owner, revisions, runs and recovery, evidence, the apps' Tasks section |
 | [Providers](docs/architecture/providers.md) | Each model provider and its sign-in, custom providers, thinking levels, the model catalog and cost, compaction, retries |
+| [Budgets and connector limits](docs/architecture/budgets.md) | Limits on turns, tasks, and routines, stopping and resuming, price labels, shared plugin call limits |
 | [macOS app](docs/architecture/macos-app.md) | The AppKit app: launching the CLI, windows and onboarding, settings, updates, the command palette, sidebar and inspector |
 | [macOS chat](docs/architecture/macos-chat.md) | Transcript, composer, output previews, working and read state in AppKit |
 | [Windows and Linux app](docs/architecture/desktop-app.md) | The MyGo app: its model, host, and native views, title bar, commands, updates, development and builds |
@@ -109,9 +110,9 @@ One doc per subject under `docs/architecture/`, each short enough to read in one
 
 ## Status
 
-Done: crypto and blob protocol, relay, CLI (identity, pairing, restore, local WS, API-key and subscription providers, server-side web search, agent loop, encrypt-before-upload, group chats, cross-Runner jobs and handoffs, steering and stop, routines, plugins over MCP with a marketplace, the user's own servers in `mcp.json`, and permission cards, encrypted pushes for replies, failures, and pending confirmations, signed self-updates of a CLI without an app, updated from any Device, and `lorca service`), app wiring and the bundled CLI launcher.
+Done: crypto and blob protocol, relay, CLI (identity, pairing, restore, local WS, API-key and subscription providers, server-side web search, agent loop, encrypt-before-upload, group chats, cross-Runner jobs and handoffs, steering and stop, routines, limits on turns and routines with resuming, shared plugin call limits, plugins over MCP with a marketplace, the user's own servers in `mcp.json`, and permission cards, encrypted pushes for replies, failures, and pending confirmations, signed self-updates of a CLI without an app, updated from any Device, and `lorca service`), app wiring and the bundled CLI launcher.
 
-Next: keychain storage, a cost budget per chat.
+Next: keychain storage.
 
 The phone app (`mobile/`) pairs as a Device with `os` `ios`, `ipados`, or `android`; it is never a Runner and does not hold the master secret. The Device that creates or restores the identity holds the master secret.
 

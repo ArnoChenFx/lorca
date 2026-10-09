@@ -701,3 +701,20 @@ fn outputs_published_for_the_task_are_its_evidence() {
     let foreign = other.output.as_ref().unwrap().task_evidence(&other.id);
     assert!(update(app, &done, json!({"evidence":[foreign]}), "foreign").unwrap_err().contains("output"));
 }
+
+#[tokio::test]
+async fn a_task_stopped_at_its_limits_is_blocked_with_the_limit_and_its_runs_share_them() {
+    let scratch = scratch_app();
+    let app = &scratch.0;
+    let task = make(app, "limits");
+    crate::budgets::serve(app, "budgets.set", &json!({"kind":"task","id":task.id,"limits":{"max_tokens":0}})).unwrap();
+    let (_, job) = launch(app, &task);
+    let refused = crate::budgets::for_job(app, &job).err().unwrap();
+    assert!(refused.contains("token limit"), "{refused}");
+    finished(app, &job, TurnOutcome::Skipped).await;
+    let blocked = get(app, &task.id).unwrap();
+    assert_eq!(blocked.state, TaskState::Blocked);
+    assert_eq!(blocked.reason.as_deref(), Some(refused.as_str()));
+    let kinds: Vec<_> = app.budgets.snapshots(app).into_iter().map(|s| s.kind).collect();
+    assert_eq!(kinds, ["task"], "a task's run counts toward the task alone");
+}

@@ -32,6 +32,9 @@ struct OpenCodeHeaders {
 
 #[async_trait]
 impl Provider for OpenCodeHeaders {
+    fn default_max_output_tokens(&self) -> Option<u64> {
+        self.inner.default_max_output_tokens()
+    }
     fn provider_id(&self) -> &str {
         self.inner.provider_id()
     }
@@ -217,6 +220,10 @@ pub fn thinking_level(bot: &crate::model::Bot) -> Option<ThinkingLevel> {
 }
 
 pub fn provider_for(app: &Arc<App>, kind: &str, model: Option<&str>, thinking: Option<ThinkingLevel>) -> Result<Arc<dyn Provider>, String> {
+    unmetered_provider_for(app, kind, model, thinking).map(|provider| crate::budgets::wrap_provider(app, provider))
+}
+
+fn unmetered_provider_for(app: &Arc<App>, kind: &str, model: Option<&str>, thinking: Option<ThinkingLevel>) -> Result<Arc<dyn Provider>, String> {
     let model = model.map(str::trim).filter(|m| !m.is_empty()).map(str::to_string);
     match kind {
         kind if is_custom(kind) => {
