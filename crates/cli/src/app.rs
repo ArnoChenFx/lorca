@@ -1009,14 +1009,19 @@ impl App {
 
     pub fn roster_summary(&self) -> Event {
         let state = self.state.lock().unwrap();
+        // One guard for both: a second lock in this tail expression would wait on the first.
+        let (providers, system_one) = {
+            let credentials = self.credentials.lock().unwrap();
+            (credentials.statuses(), credentials.system_one_status())
+        };
         Event::RosterChanged {
             devices: self.devices_out(&state),
             bots: state.bots.clone(),
             chats: state.chats.iter().map(|c| ChatSummary { meta: c.meta.clone(), unread_count: c.unread_count, usage: c.usage.clone() }).collect(),
             routines: self.routines_out(&state),
             auto_review: state.auto_review.clone(),
-            providers: self.credentials.lock().unwrap().statuses(),
-            system_one: self.credentials.lock().unwrap().system_one_status(),
+            providers,
+            system_one,
             models: models_out(),
         }
     }
@@ -1807,6 +1812,10 @@ impl App {
         // Do not hold the metadata lock while paging SQLite: message writes take the locks in
         // the opposite order when they update unread state.
         let state = self.state.lock().unwrap().clone();
+        let (providers, system_one) = {
+            let credentials = self.credentials.lock().unwrap();
+            (credentials.statuses(), credentials.system_one_status())
+        };
         let identity_id = self.machine_file().map(|m| keys::identity_id(&m.identity_pubkey));
         json!({
             "version": config::VERSION,
@@ -1823,8 +1832,8 @@ impl App {
             "chats": state.chats.iter().map(|chat| self.chat_for_app(chat)).collect::<Vec<_>>(),
             "routines": self.routines_out(&state),
             "auto_review": state.auto_review,
-            "providers": self.credentials.lock().unwrap().statuses(),
-            "system_one": self.credentials.lock().unwrap().system_one_status(),
+            "providers": providers,
+            "system_one": system_one,
             "models": models_out(),
             "running_chat_ids": self.running_chat_ids(),
             "running_turns": self.running_turns(),
