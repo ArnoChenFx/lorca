@@ -6,6 +6,19 @@ and the update window shows it.
 
 ## [Unreleased]
 
+## [0.1.6]
+
+- On Linux, double-clicking the top of the main window maximizes it or restores its size, as a
+  title bar does; on Wayland it did nothing.
+- On Linux, small capitalized headings and pairing codes show in full: their letter spacing made
+  them wrap or cut off.
+- The message box's attach button and the search field's Clear button show the arrow pointer, not
+  the text cursor.
+
+## [0.1.5]
+
+- Open Lorca, on onboarding's last step, opens the main window; before, the app quit there.
+
 ## [0.1.4]
 
 - A computer that runs the Lorca command line without the app keeps it up to date by itself: it
