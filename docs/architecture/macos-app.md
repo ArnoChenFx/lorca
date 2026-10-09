@@ -26,6 +26,8 @@ Sidebar: an `NSOutlineView` (`Sidebar/SidebarViewController.swift`) with one ite
 
 The Routines section, the routine sheet, and the Devices pane's Background service row are described in [Routines](routines.md#the-apps).
 
+A group's inspector lists its [project context](project-context.md#the-apps) under Group: a row per entry that opens it, and + to add one.
+
 The DM Profile card's Access row opens the [Access sheet](bot-permissions.md#requests-to-the-user).
 
 Inspector: `Inspector/InspectorViewController.swift` compares what each section would show with what it last showed on every store event and touches only a section that changed. A changed section reconfigures the rows it keeps for each bot, Runner, routine, and plugin; Runs with builds its pop-ups again only when the provider, model, thinking level, or the account's providers changed (custom providers follow the built-in ones in the Provider pop-up, and a custom provider's models fill Model), and the usage rows take each turn's values in place. Collapsed, or in a closed window, the inspector skips reloads and memory fetches and catches up in `viewWillAppear`. A chat with [durable tasks](tasks.md#in-the-apps) has a Tasks section; File › New Task… and the section title's + add one. While the chat's bots have something waiting for review, a section under the bots lists it, each row opening the review sheet ([Review queue](review-queue.md#in-the-apps)).

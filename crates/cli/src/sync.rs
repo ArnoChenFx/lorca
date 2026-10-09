@@ -14,7 +14,7 @@ const BULK_BLOBS: usize = 20;
 
 /// What a pull takes. `file` blobs are left out: a transcript fetches them by id when it
 /// needs them, so a photo sent to one bot is not downloaded by every Device.
-pub const POLL_KINDS: &str = "roster,task,chat,machine,credentials,review,handoff,attention,job,job_cancel,job_result,request,response";
+pub const POLL_KINDS: &str = "roster,task,project_context,chat,machine,credentials,review,handoff,attention,job,job_cancel,job_result,request,response";
 
 pub async fn run(app: Arc<App>) {
     let mut failures: u32 = 0;
@@ -222,7 +222,7 @@ async fn session(app: &Arc<App>, failures: &mut u32) -> Result<(), RelayError> {
 }
 
 /// Everything a Device polls for but the messages.
-const NOT_CHAT_KINDS: &str = "roster,task,machine,credentials,review,handoff,attention,job,job_cancel,job_result,request,response";
+const NOT_CHAT_KINDS: &str = "roster,task,project_context,machine,credentials,review,handoff,attention,job,job_cancel,job_result,request,response";
 /// How much of each chat a Device takes when it first syncs: what a bot's turn reads.
 const FIRST_SYNC_MESSAGES: usize = 400;
 /// Messages to a page when reading a chat backwards.
@@ -339,14 +339,21 @@ async fn older_messages_from(app: &Arc<App>, url: &str, token: &str, machine_fil
 
 /// Pulls the log from `last_seq` until a page comes back empty.
 async fn pull_blobs(app: &Arc<App>, url: &str, token: &str, machine_file: &crate::keys::MachineFile) -> Result<(), RelayError> {
-    // An older build can already have consumed the relay log while ignoring attention.
-    // Replay this bounded slot family once when its new local table is empty; ordinary
-    // first sync already reads it through NOT_CHAT_KINDS.
+    // An older build can already have consumed the relay log while ignoring attention or
+    // project context. Replay each of these bounded slot families once when its local table is
+    // empty; ordinary first sync already reads them through NOT_CHAT_KINDS.
     if !app.attention_backfilled.load(Ordering::Relaxed) {
-        if app.state.lock().unwrap().last_seq > 0 && app.store.attention_rows().map_err(|error| RelayError { status: None, message: error.to_string() })?.is_empty() {
+        let local = |error: anyhow::Error| RelayError { status: None, message: error.to_string() };
+        let mut kinds = Vec::new();
+        if app.state.lock().unwrap().last_seq > 0 {
+            if app.store.attention_rows().map_err(local)?.is_empty() { kinds.push("attention"); }
+            if !app.store.has_project_entries().map_err(local)? { kinds.push("project_context"); }
+        }
+        if !kinds.is_empty() {
+            let kinds = kinds.join(",");
             let mut since = 0;
             loop {
-                let (blobs, _) = app.relay.list_blobs(url, token, since, "attention").await?;
+                let (blobs, _) = app.relay.list_blobs(url, token, since, &kinds).await?;
                 let Some(last) = blobs.last().map(|blob| blob.seq) else { break };
                 for blob in &blobs { apply_blob(app, machine_file, blob); }
                 since = last;
@@ -770,6 +777,14 @@ fn apply_blob_contents(app: &Arc<App>, machine_file: &crate::keys::MachineFile, 
             Ok(op) => apply_chat_op(app, op),
             Err(error) => tracing::warn!(%error, "chat blob"),
         },
+        "project_context" => match crate::crypto::decrypt_json::<crate::project_context::ProjectBlob>(&dek, "project_context", &ciphertext) {
+            Ok(project) => {
+                if let Err(error) = crate::project_context::apply_remote(app, &project.chat_id, &project.entry) {
+                    tracing::warn!(%error, chat_id = %project.chat_id, "applying shared project context");
+                }
+            }
+            Err(error) => tracing::warn!(%error, "project context blob"),
+        },
         "machine" => match crate::crypto::decrypt_json::<MachineBlob>(&dek, "machine", &ciphertext) {
             Ok(MachineBlob { device, turns, budgets }) => {
                 if app.this_device_id().as_deref() == Some(device.id.as_str()) {
@@ -864,6 +879,7 @@ fn apply_blob_contents(app: &Arc<App>, machine_file: &crate::keys::MachineFile, 
 }
 
 fn apply_roster(app: &Arc<App>, mut roster: RosterBlob) {
+    let _project_context = app.project_context_lock.lock().unwrap();
     let removed: Vec<String>;
     let normalized_descriptions = roster.bots.iter_mut().fold(false, |changed, bot| bot.normalize_description() || changed);
     let this_device = app.this_device_id();
@@ -1002,7 +1018,8 @@ mod tests {
             async move {
                 let kinds = query.get("kinds").cloned().unwrap_or_default();
                 let since: i64 = query["since"].parse().unwrap();
-                if kinds == "attention" && since == 0 { counted.fetch_add(1, Ordering::Relaxed); }
+                // The replay asks for the slot families an older build skipped, and nothing else.
+                if since == 0 && kinds.split(',').all(|kind| kind == "attention" || kind == "project_context") { counted.fetch_add(1, Ordering::Relaxed); }
                 let selected: Vec<_> = blobs.into_iter().filter(|blob| kinds.split(',').any(|kind| kind == "attention") && blob["seq"].as_i64().unwrap() > since).collect();
                 Json(serde_json::json!({"blobs":selected,"seq":101}))
             }

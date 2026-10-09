@@ -30,6 +30,7 @@ pub mod outputs;
 pub mod pairing;
 pub mod permissions;
 pub mod plugins;
+pub mod project_context;
 #[cfg(feature = "provider-auth")]
 pub mod provider_auth;
 #[cfg(feature = "runner")]

@@ -74,6 +74,9 @@ pub async fn dispatch(app: &Arc<App>, method: &str, params: Value) -> Result<Val
         return crate::attention::dispatch(app, method, params, None);
     }
     match method {
+        "projects.get" | "projects.save" | "projects.refresh" | "projects.asset" | "projects.asset_path" => {
+            crate::project_context::dispatch(app, method, params).await
+        }
         method if method.starts_with("budgets.") => crate::budgets::dispatch(app, method, &params).await,
         #[cfg(feature = "runner")]
         method if method.starts_with("connector_limits.") => crate::connector_limits::dispatch(app, method, &params).await,

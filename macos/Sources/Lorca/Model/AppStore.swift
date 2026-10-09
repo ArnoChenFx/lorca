@@ -23,6 +23,8 @@ enum StoreEvent {
     case budgetsChanged
     /// The chat's published outputs, or whether one's file could be fetched, changed.
     case outputsChanged(Chat.ID)
+    /// A group's shared project context changed, here or on another Device.
+    case projectContextChanged(Chat.ID)
     case selectionChanged
     case connectionChanged
     case identityChanged
@@ -429,6 +431,11 @@ final class AppStore {
             relayError = status.error?.message
             relayURL = status.url ?? relayURL
             emit(.rosterChanged)
+
+        case "projects.changed":
+            struct ProjectChanged: Decodable { var chatId: String }
+            guard let payload = decode(ProjectChanged.self) else { return }
+            emit(.projectContextChanged(payload.chatId))
 
         case "identity.changed":
             guard let payload = decode(Wire.IdentityChanged.self) else { return }

@@ -9,7 +9,7 @@ import (
 )
 
 // The pane beside a chat, after the macOS app's InspectorViewController: the bots in the chat, a
-// group's name and description, what the chat's bots published, and for a DM the bot's profile, what it runs with (provider,
+// group's name, description, and project context, what the chat's bots published, and for a DM the bot's profile, what it runs with (provider,
 // model, thinking, the credential, and what the turns used), its memory, its routines, the plugins
 // on its Runner, and where turns run.
 
@@ -26,6 +26,7 @@ type inspectorState struct {
 	scroll    ui.ScrollState
 	// tasksShowingAll is the chat whose Tasks section shows every task rather than the first few.
 	tasksShowingAll string
+	project         projectInspectorState
 }
 
 // refreshMemory asks the CLI for the bot's memory; the section redraws when it answers.
@@ -60,9 +61,13 @@ func (s *inspectorState) refreshShownMemory(chatID string) {
 }
 
 // inspectorStoreChanged follows the turns: one that ended may have moved what the bot remembers.
+// A group's project context is listed again when it changes.
 func (m *mainWindow) inspectorStoreChanged(event model.Event) {
 	if event.Kind == model.EventRespondingChanged && event.ChatID == m.inspector.shownChat && !store.IsResponding(event.ChatID) {
 		m.inspector.refreshShownMemory(event.ChatID)
+	}
+	if event.Kind == model.EventProjectContextChanged && event.ChatID == m.inspector.shownChat {
+		m.inspector.project.refresh(event.ChatID)
 	}
 }
 
@@ -83,6 +88,9 @@ func (m *mainWindow) inspectorView(c *ui.Context, chatID string) {
 	if s.shownChat != chatID {
 		s.shownChat = chatID
 		s.refreshShownMemory(chatID)
+		if chat := store.Chat(chatID); chat != nil && chat.IsGroup() {
+			s.project.refresh(chatID)
+		}
 	}
 	chat := store.Chat(chatID)
 	if chat == nil {
@@ -103,6 +111,7 @@ func (m *mainWindow) inspectorView(c *ui.Context, chatID string) {
 					m.addBotToChat(chat.ID)
 				}
 				m.inspectorGroup(c, chat, members)
+				m.inspectorProject(c, chat)
 			}
 			m.inspectorReviews(c, chat)
 			m.inspectorOutputs(c, chat)

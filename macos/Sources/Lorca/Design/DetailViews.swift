@@ -120,6 +120,8 @@ final class SectionView: NSView {
     private var shownRows: [NSView] = []
 
     func setRows(_ views: [NSView]) {
+        // With no rows, the title (and its accessory) stands alone.
+        card.isHidden = views.isEmpty
         // The rows it shows already, updated in place, keep their places and dividers.
         guard !views.elementsEqual(shownRows, by: ===) else { return }
         shownRows = views

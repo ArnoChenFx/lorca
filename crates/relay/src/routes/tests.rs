@@ -449,3 +449,36 @@ async fn handoff_request_report_and_cancellation_round_trip_in_independent_slots
     assert_eq!(health["protocol"], 3);
     assert!(!db::SEALED_KINDS.contains(&"handoff"));
 }
+
+#[tokio::test]
+async fn project_context_sync_is_encrypted_separate_from_transcript_paging_and_group_deleted() {
+    let relay = Relay::start(0).await;
+    let dek = [9; 32];
+    let plaintext = serde_json::json!({ "chat_id": "project-a", "entry": { "text": "confidential project brief" } });
+    let ciphertext = lorca::crypto::encrypt_json(&dek, "project_context", &plaintext).unwrap();
+    let context = OutboxItem {
+        id: "project-revision".into(), kind: "project_context".into(), recipient: None,
+        ciphertext: ciphertext.clone(), slot: Some(lorca::app::Slot::latest("project-revision")), group: Some("project-a".into()),
+    };
+    relay.client.put_blob(&relay.url, &relay.token, context.clone()).await.unwrap();
+    relay.client.put_blob(&relay.url, &relay.token, context).await.unwrap();
+    for i in 0..410 {
+        relay.client.put_blob(&relay.url, &relay.token, OutboxItem {
+            id: format!("message-{i}"), kind: "chat".into(), recipient: None,
+            ciphertext: vec![i as u8], slot: Some(lorca::app::Slot::latest(format!("message-{i}"))), group: Some("project-a".into()),
+        }).await.unwrap();
+    }
+    let (blobs, _) = relay.client.list_blobs(&relay.url, &relay.token, 0, "project_context").await.unwrap();
+    assert_eq!(blobs.len(), 1, "context is loaded independently of the newest transcript page");
+    let downloaded = lorca::keys::unb64(&blobs[0].ciphertext).unwrap();
+    assert_eq!(downloaded, ciphertext);
+    assert_eq!(lorca::crypto::decrypt_json::<serde_json::Value>(&dek, "project_context", &downloaded).unwrap(), plaintext);
+    let (page, has_more) = relay.client.group_page(&relay.url, &relay.token, "project-a", None, 400).await.unwrap();
+    assert_eq!(page.len(), 400);
+    assert!(has_more);
+    assert!(page.iter().flat_map(|slot| &slot.blobs).all(|blob| blob.kind == "chat"));
+    relay.client.delete_group(&relay.url, &relay.token, "project-a").await.unwrap();
+    assert!(relay.client.list_blobs(&relay.url, &relay.token, 0, "project_context").await.unwrap().0.is_empty());
+    let late = OutboxItem { id: "late-context".into(), kind: "project_context".into(), recipient: None, ciphertext, slot: None, group: Some("project-a".into()) };
+    assert_eq!(relay.client.put_blob(&relay.url, &relay.token, late).await.unwrap_err().status, Some(409));
+}
