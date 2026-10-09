@@ -59,6 +59,7 @@ pub struct State {
     pub chats: Vec<Chat>,
     pub routines: Vec<Routine>,
     pub auto_review: AutoReview,
+    pub shared_links: Vec<crate::templates::links::SharedLink>,
     pub last_seq: i64,
     /// Chats deleted here whose blobs the relay still has to drop.
     pub group_deletes: Vec<String>,
@@ -711,6 +712,7 @@ impl App {
                 chats: state.chats.iter().map(|c| c.meta.clone()).collect(),
                 routines: state.routines.clone(),
                 auto_review: state.auto_review.clone(),
+                shared_links: state.shared_links.clone(),
                 updated_at: config::now_secs(),
             }
         };
@@ -1079,6 +1081,7 @@ impl App {
             chats: state.chats.iter().map(|c| ChatSummary { meta: c.meta.clone(), unread_count: c.unread_count, usage: c.usage.clone() }).collect(),
             routines: self.routines_out(&state),
             auto_review: state.auto_review.clone(),
+            shared_links: state.shared_links.iter().map(crate::templates::links::SharedLink::out).collect(),
             providers: self.credentials.lock().unwrap().statuses(),
             models: models_out(),
             playbooks: crate::playbooks::summaries(self),
@@ -1938,6 +1941,7 @@ impl App {
             "reviews": crate::review_queue::list(self).unwrap_or_default(),
             "tasks": crate::tasks::list(self).unwrap_or_default(),
             "auto_review": state.auto_review,
+            "shared_links": state.shared_links.iter().map(crate::templates::links::SharedLink::out).collect::<Vec<_>>(),
             "providers": self.credentials.lock().unwrap().statuses(),
             "models": models_out(),
             "playbooks": crate::playbooks::summaries(self),
