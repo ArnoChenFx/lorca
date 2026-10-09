@@ -1165,12 +1165,22 @@ type Routine struct {
 	Name  string
 	// Prompt is the task, written to the bot, handed to it on every run.
 	Prompt string
-	// Schedule is `every 30m`, `every 2h`, `every 1d`, or five cron fields in the Runner's time.
+	// Schedule is `every 30m`, `every 2h`, `every 1d`, or five cron fields in Timezone.
 	Schedule string
+	// Timezone is the IANA timezone a cron schedule reads in.
+	Timezone string
+	// MissedRunPolicy is what happens after due times its Runner missed: "coalesce" runs once
+	// when it is back, "skip" waits for the next one.
+	MissedRunPolicy string
+	// State is how it stands, from the CLI: "on", "running", "paused", "blocked", "failed", or
+	// "waiting_for_runner".
+	State  string
+	Health RoutineHealth
 	// ScheduleText is the schedule in words: "Weekdays at 9:00 AM".
 	ScheduleText string
 	IsEnabled    bool
-	// PausedReason is why Lorca paused it, when it did: "away".
+	// PausedReason is why Lorca paused it, when it did: "away", or "authentication" after three
+	// failed sign-ins in a row.
 	PausedReason string
 	LastRunAt    time.Time
 	// LastOutcome is how the last run ended: "sent", "pass", or "error".
@@ -1187,6 +1197,9 @@ type Routine struct {
 func (r Routine) Detail() string {
 	if r.IsRunning {
 		return L("%@ · Running…", r.ScheduleText)
+	}
+	if problem := r.Problem(); problem != ProblemNone {
+		return problem.Text() + " · " + r.ScheduleText
 	}
 	if !r.IsEnabled {
 		if r.PausedReason == "away" {

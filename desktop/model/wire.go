@@ -215,6 +215,11 @@ type WireRoutine struct {
 	IsRunning    *bool    `json:"is_running"`
 	Check        *string  `json:"check"`
 	CreatedAt    float64  `json:"created_at"`
+
+	Timezone        *string            `json:"timezone"`
+	MissedRunPolicy *string            `json:"missed_run_policy"`
+	State           *string            `json:"state"`
+	Health          *WireRoutineHealth `json:"health"`
 }
 
 type WireAutoReview struct {
@@ -813,6 +818,17 @@ func ToRoutine(wire WireRoutine) *Routine {
 		Check:        str(wire.Check),
 		HasCheck:     wire.Check != nil,
 		CreatedAt:    seconds(wire.CreatedAt),
+		// The CLI names the zone; "Local" reads as this computer's.
+		Timezone:        cmp.Or(str(wire.Timezone), "Local"),
+		MissedRunPolicy: cmp.Or(str(wire.MissedRunPolicy), "coalesce"),
+		State:           str(wire.State),
+		Health:          toRoutineHealth(wire.Health),
+	}
+	if routine.State == "" {
+		routine.State = "paused"
+		if wire.IsEnabled {
+			routine.State = "on"
+		}
 	}
 	if wire.LastRunAt != nil {
 		routine.LastRunAt = seconds(*wire.LastRunAt)

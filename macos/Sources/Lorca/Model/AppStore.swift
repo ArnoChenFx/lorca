@@ -1080,6 +1080,7 @@ final class AppStore {
         guard let index = routines.firstIndex(where: { $0.id == id }) else { return }
         routines[index].isEnabled = enabled
         routines[index].pausedReason = nil
+        routines[index].state = enabled ? "on" : "paused"
         if !enabled { routines[index].nextRunAt = nil }
         emit(.rosterChanged)
         perform("routines.update", ["id": id, "enabled": enabled])
@@ -1544,6 +1545,12 @@ final class AppStore {
             return
         }
         _ = try await client.request("device.update", ["id": id])
+    }
+
+    /// Whether `lorca service` keeps the CLI running on a Runner, asked of it through the CLI.
+    func serviceStatus(_ id: Device.ID) async throws -> Wire.ServiceStatus {
+        if isMock { return .init(installed: false, running: false) }
+        return try await client.request("device.service_status", ["id": id], as: Wire.ServiceStatus.self)
     }
 
     func unpairDevice(_ id: Device.ID) async throws {

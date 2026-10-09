@@ -1687,8 +1687,9 @@ func (s *Store) SetRoutineEnabled(id string, enabled bool) {
 		return
 	}
 	routine.IsEnabled, routine.PausedReason = enabled, ""
+	routine.State = "on"
 	if !enabled {
-		routine.NextRunAt = time.Time{}
+		routine.State, routine.NextRunAt = "paused", time.Time{}
 	}
 	s.emit(Event{Kind: EventRosterChanged})
 	s.perform("routines.update", map[string]any{"id": id, "enabled": enabled})
