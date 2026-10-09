@@ -105,7 +105,7 @@ export default function DeviceScreen() {
     if (trimmed === (target.custom_name ?? "")) return;
     engine
       .setDeviceCustomName(target.id, trimmed)
-      .catch((error: unknown) => Alert.alert(t("Couldn’t rename {name}", { name: deviceName(target) }), error instanceof Error ? error.message : String(error)));
+      .catch((error: unknown) => alert(t("Couldn’t rename {name}", { name: deviceName(target) }), error instanceof Error ? error.message : String(error)));
   }
 
   // A newer release than the CLI runs, not yet on its way: the Lorca CLI row installs it.
