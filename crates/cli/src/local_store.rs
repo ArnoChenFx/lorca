@@ -57,6 +57,10 @@ impl LocalStore {
                  position INTEGER NOT NULL,
                  json     TEXT NOT NULL
              );
+             CREATE TABLE IF NOT EXISTS attention (
+                 id         TEXT PRIMARY KEY NOT NULL,
+                 ciphertext BLOB NOT NULL
+             );
              CREATE TABLE IF NOT EXISTS bots (
                  id       TEXT PRIMARY KEY NOT NULL,
                  position INTEGER NOT NULL,
@@ -1094,6 +1098,7 @@ impl LocalStore {
         for table in [
             "runner_limits",
             "metadata",
+            "attention",
             "devices",
             "bots",
             "chats",
@@ -1120,6 +1125,37 @@ impl LocalStore {
         Ok(())
     }
 
+    /// Attention contents stay encrypted at rest, including resolutions and preferences.
+    pub fn attention_rows(&self) -> anyhow::Result<Vec<(String, Vec<u8>)>> {
+        let connection = self.connection.lock().unwrap();
+        let mut statement = connection.prepare("SELECT id, ciphertext FROM attention ORDER BY id")?;
+        let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn put_attention(&self, id: &str, ciphertext: &[u8]) -> anyhow::Result<()> {
+        self.connection.lock().unwrap().execute(
+            "INSERT INTO attention (id, ciphertext) VALUES (?1, ?2)
+             ON CONFLICT(id) DO UPDATE SET ciphertext = excluded.ciphertext",
+            params![id, ciphertext],
+        )?;
+        Ok(())
+    }
+
+    /// Local content and its encrypted relay write commit together, so a crash cannot leave
+    /// a successfully saved attention update without a durable upload.
+    pub fn queue_attention(&self, id: &str, ciphertext: &[u8], item: &OutboxItem) -> anyhow::Result<()> {
+        let mut connection = self.connection.lock().unwrap();
+        let tx = connection.transaction()?;
+        tx.execute(
+            "INSERT INTO attention (id, ciphertext) VALUES (?1, ?2)
+             ON CONFLICT(id) DO UPDATE SET ciphertext = excluded.ciphertext",
+            params![id, ciphertext],
+        )?;
+        queue_outbox_tx(&tx, item)?;
+        tx.commit()?;
+        Ok(())
+    }
     /// Runner accounting/configuration is authenticated account ciphertext, including its
     /// resumable Job payloads. The purpose is bound as AEAD associated data by the caller.
     pub fn runner_limits(&self, purpose: &str) -> anyhow::Result<Option<Vec<u8>>> {

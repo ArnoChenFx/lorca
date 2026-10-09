@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 
 enum StoreEvent {
+    case attentionChanged
     case snapshotReplaced
     case rosterChanged
     case reviewsChanged
@@ -80,6 +81,8 @@ final class AppStore {
     private(set) var durableTasks: [DurableTask] = []
     /// Auto-review, shared through the roster.
     private(set) var autoReview = AutoReview()
+    /// What waits on the user across chats, kept by the bots (`attention.changed`).
+    private(set) var attention = AttentionView()
     /// The account's provider credentials, the same on every Device.
     private(set) var providers: [ProviderCredential] = []
     /// The models the CLI's catalog offers, for the Model and Thinking pickers.
@@ -287,6 +290,7 @@ final class AppStore {
         reviews = snapshot.reviews ?? []
         durableTasks = snapshot.tasks ?? []
         autoReview = snapshot.autoReview?.toModel() ?? AutoReview()
+        attention = snapshot.attention ?? AttentionView()
         providers = (snapshot.providers ?? []).compactMap { $0.toModel() }
         catalog = (snapshot.models ?? []).compactMap { $0.toModel() }
         runningJobs = (snapshot.runningTurns ?? []).map { ($0.jobId, $0.chatId, $0.botId, $0.routineId) }
@@ -307,6 +311,8 @@ final class AppStore {
         }
 
         switch name {
+        case "attention.changed":
+            if let incoming = decode(AttentionView.self) { applyAttention(incoming) }
         case "reviews.changed":
             struct Change: Decodable { var item: ReviewItem }
             if let change = decode(Change.self) { upsertReview(change.item) }
@@ -451,6 +457,38 @@ final class AppStore {
     }
 
     // MARK: - Observation
+
+    func applyAttention(_ view: AttentionView) {
+        guard view != attention else { return }
+        attention = view
+        emit(.attentionChanged)
+    }
+
+    /// Takes an item off the Attention list. A coordinator resolves its items itself; this is
+    /// the user saying it is done. The task or review it links to is left as it is.
+    func resolveAttention(_ item: AttentionItem) async throws {
+        if isMock {
+            var view = attention
+            view.items.removeAll { $0.id == item.id }
+            return applyAttention(view)
+        }
+        _ = try await client.request("attention.resolve", ["id": item.id, "expected_revision": item.revision.params])
+    }
+
+    /// `summaries`, `urgent_direct`, or `default_coordinator_bot_id` (a bot's id, or nil for
+    /// each chat's own coordinator). The account's, on every Device.
+    func setAttentionPreference(_ key: String, _ value: Any?) async throws {
+        if isMock {
+            var view = attention
+            switch key {
+            case "summaries": view.preferences.summaries = value as? Bool ?? true
+            case "urgent_direct": view.preferences.urgentDirect = value as? Bool ?? true
+            default: view.preferences.defaultCoordinatorBotId = value as? String
+            }
+            return applyAttention(view)
+        }
+        _ = try await client.request("attention.preferences", [key: value ?? NSNull()])
+    }
 
     func observe(_ owner: AnyObject, _ handler: @escaping (StoreEvent) -> Void) {
         subscriptions.append(Subscription(owner: owner, handler: handler))

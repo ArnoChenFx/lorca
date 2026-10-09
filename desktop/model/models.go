@@ -1537,6 +1537,8 @@ type Message struct {
 	Queued bool
 	// Output identifies an immutable published deliverable/evidence version.
 	Output *Output
+	// Notification is how a coordinator's brief, an urgent report, or a quiet check alerts.
+	Notification NotificationTag
 }
 
 // ReplyQuote is a message quoted by the user's reply: who wrote it and how it opens, as the CLI

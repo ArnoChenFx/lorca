@@ -173,9 +173,10 @@ type WireMessage struct {
 		Kind  string  `json:"kind"`
 		Error *string `json:"error"`
 	} `json:"state"`
-	CreatedAt float64 `json:"created_at"`
-	Queued    *bool   `json:"queued"`
-	Output    *Output `json:"output"`
+	CreatedAt    float64         `json:"created_at"`
+	Queued       *bool           `json:"queued"`
+	Output       *Output         `json:"output"`
+	Notification NotificationTag `json:"notification"`
 }
 
 type WireChatUsage struct {
@@ -291,6 +292,7 @@ type WireModel struct {
 }
 
 type WireSnapshot struct {
+	Attention           *AttentionView    `json:"attention"`
 	Budgets             []BudgetState     `json:"budgets"`
 	Version             string            `json:"version"`
 	HasIdentity         bool              `json:"has_identity"`
@@ -672,11 +674,12 @@ func toAuthor(wire WireAuthor) Author {
 
 func ToMessage(wire WireMessage) *Message {
 	message := &Message{
-		ID:        wire.ID,
-		Author:    toAuthor(wire.Author),
-		CreatedAt: seconds(wire.CreatedAt),
-		Queued:    flag(wire.Queued),
-		Output:    wire.Output,
+		ID:           wire.ID,
+		Author:       toAuthor(wire.Author),
+		CreatedAt:    seconds(wire.CreatedAt),
+		Queued:       flag(wire.Queued),
+		Output:       wire.Output,
+		Notification: wire.Notification,
 	}
 	body := wire.Body
 	switch body.Kind {

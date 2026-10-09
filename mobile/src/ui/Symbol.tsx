@@ -107,6 +107,7 @@ const ANDROID: Record<string, string> = {
   "bolt.horizontal.fill": "electric_bolt",
   "flame.fill": "local_fire_department",
   "puzzlepiece.extension": "extension",
+  "doc.text.magnifyingglass": "pageview",
 };
 
 export interface SymbolProps {

@@ -27,6 +27,10 @@ A bot's profile also carries the user's [Access](bot-permissions.md): the plugin
 
 [Durable tasks](tasks.md) keep goals, ownership, dependencies, next actions, blockers, and completion evidence across turns and chats. The `tasks` tool and the apps' Tasks section read and edit them. A bot with open tasks reads them again on every provider request, including after compaction. A Job references its canonical task id; a group's chat owner and a task's owner are independent.
 
+## Attention
+
+Every bot maintains structured reviews, blockers, commitments and changes through the `attention` tool. Specialists send ordinary reports to the owning coordinator; urgent reports also alert directly. Coordinators publish one brief of decisions and changes, with source links and next actions, and resolve finished attention items. The user picks any bot as coordinator and controls summary and urgent notifications. The [attention subject](attention.md) describes the encrypted projection, source references, tools, API, and app views.
+
 ## Routines
 
 A routine is a task a bot runs on a schedule in its direct chat, on its assigned Runner. The roster carries its schedule, timezone, missed-run policy, and check health. See [Routines](routines.md) for scheduling, read-only checks, recovery, and how the apps show them.

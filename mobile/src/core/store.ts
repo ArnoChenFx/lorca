@@ -8,6 +8,7 @@ import { useShallow } from "zustand/react/shallow";
 import { groupOutputs, reviewIsOpen, runsInTerminal, taskOrder, type AutoReview, type BudgetState, type DurableTask, type ReviewItem, type OutputSeries, type Bot, type Chat, type ChatMeta, type ChatUsage, type Device, type Message, type ProviderModel, type ProviderStatus, type RelayProblem, type Routine } from "./model";
 import { t } from "../i18n";
 import { savePrefs } from "./prefs";
+import { emptyAttention, type AttentionView } from "./attention";
 
 export interface Running {
   chatId: string;
@@ -46,6 +47,7 @@ export interface StoreState {
   routines: Routine[];
   /// Auto-review, from the roster.
   auto_review: AutoReview;
+  attention: AttentionView;
   /// The account's provider credentials, the same on every Device.
   providers: ProviderStatus[];
   /// The models the core's catalog offers, for the Model and Thinking pickers.
@@ -99,6 +101,7 @@ function empty(): Omit<StoreState, "ready" | "dictation_lang" | "appActive" | "a
     chats: [],
     routines: [],
     auto_review: { is_enabled: true, rules: [] },
+    attention: emptyAttention(),
     providers: [],
     models: [],
     running: {},
@@ -171,6 +174,7 @@ export function replaceSnapshot(snapshot: {
   reviews?: ReviewItem[];
   budgets?: BudgetState[];
   auto_review?: AutoReview;
+  attention?: AttentionView;
   providers?: ProviderStatus[];
   models?: ProviderModel[];
   running_turns: { job_id: string; chat_id: string; bot_id: string; routine_id?: string | null }[];
@@ -205,6 +209,7 @@ export function replaceSnapshot(snapshot: {
     reviews: snapshot.reviews ?? [],
     budgets: snapshot.budgets ?? [],
     auto_review: snapshot.auto_review ?? { is_enabled: true, rules: [] },
+    attention: snapshot.attention ?? emptyAttention(),
     providers: snapshot.providers ?? [],
     models: snapshot.models ?? [],
     running,

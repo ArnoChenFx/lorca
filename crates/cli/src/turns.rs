@@ -166,6 +166,8 @@ async fn run_budgeted_job(app: &Arc<App>, job: &Job, cancel: CancellationToken) 
     let system_prompt = system_prompt(app, &chat, &bot, job, &store, routine.as_ref(), &plugin_briefs);
 
     let unattended = routine.is_some();
+    let attention_handled = Arc::new(std::sync::atomic::AtomicBool::new(job.kind == "attention_report"));
+    let attention_started_at = now_secs();
     let mut tools: Vec<Arc<dyn Tool>> = vec![
         Arc::new(ListTeammates { app: app.clone(), chat_id: chat.meta.id.clone() }),
         Arc::new(MessageBot { app: app.clone(), chat_id: chat.meta.id.clone(), bot: bot.clone(), hops: job.hops, task_id: job.task_id.clone() }),
@@ -180,6 +182,10 @@ async fn run_budgeted_job(app: &Arc<App>, job: &Job, cancel: CancellationToken) 
         Arc::new(InstallPlugin { app: app.clone(), chat_id: chat.meta.id.clone(), bot: bot.clone(), unattended }),
         Arc::new(ConnectPlugin { app: app.clone(), chat_id: chat.meta.id.clone(), bot: bot.clone() }),
     ];
+    tools.push(Arc::new(crate::attention::AttentionTool {
+        app: app.clone(), bot_id: bot.id.clone(), chat_id: chat.meta.id.clone(), hops: job.hops,
+        handled: attention_handled.clone(), requesting_bot_id: job.from_bot_id.clone().filter(|_| job.kind == "message"),
+    }));
     // A bot's browser profiles come with the Browser plugin on its Runner, when its Access
     // allows Browser.
     let browser = app.plugins.lock().unwrap().get(crate::browser::PLUGIN_ID).is_some();
@@ -285,6 +291,7 @@ async fn run_budgeted_job(app: &Arc<App>, job: &Job, cancel: CancellationToken) 
         last_said: None,
         tools_used: Vec::new(),
         plugin_tools: plugin_tools.clone(),
+        attention_handled: attention_handled.clone(),
         shown_len: 0,
         last_flush: std::time::Instant::now(),
     })));
@@ -380,6 +387,16 @@ async fn run_budgeted_job(app: &Arc<App>, job: &Job, cancel: CancellationToken) 
     }
     let mut state = sink.0.lock().unwrap();
     state.finish();
+    // A structured report/brief has its own alert. Other text in the reporting turn stays
+    // in its source transcript, with no second specialist or coordinator alert.
+    if attention_handled.load(std::sync::atomic::Ordering::Relaxed) {
+        for mut message in app.store.text_messages(&chat.meta.id, Some(attention_started_at as i64), None).unwrap_or_default() {
+            if message.created_at >= attention_started_at && message.author == (Author::Bot { bot_id: bot.id.clone() }) && message.notification.is_none() {
+                message.notification = Some(crate::attention::Notification::Quiet);
+                app.upsert_message(message, true);
+            }
+        }
+    }
     // A routine's run counts in its streak with the provider; one that failed without the
     // provider's error to say why, or that was stopped, leaves the streak as it was.
     let error = state.last_error.as_deref().filter(|_| state.failed);
@@ -397,9 +414,9 @@ async fn run_budgeted_job(app: &Arc<App>, job: &Job, cancel: CancellationToken) 
     };
     // A terminal error takes priority over anything the bot said before it failed.
     // Context recovery above finishes before we choose the notification.
-    if let Some(error) = state.last_error.as_deref().filter(|_| state.failed) {
+    if let Some(error) = state.last_error.as_deref().filter(|_| state.failed && !attention_handled.load(std::sync::atomic::Ordering::Relaxed)) {
         crate::push::failed(app, &chat, &bot, error);
-    } else if let (TurnOutcome::Sent, Some(said)) = (outcome, state.last_said.as_deref()) {
+    } else if let (TurnOutcome::Sent, Some(said), false) = (outcome, state.last_said.as_deref(), attention_handled.load(std::sync::atomic::Ordering::Relaxed)) {
         crate::push::reply(app, &chat, &bot, said);
     }
     // One line in the bot's daily log per turn that did something, written by the Runner, so
@@ -1080,6 +1097,7 @@ struct TurnState {
     tools_used: Vec<String>,
     /// The turn's plugin catalog, for the plugin a script is using ("Using GitHub…").
     plugin_tools: Arc<crate::plugins::mcp::PluginCatalog>,
+    attention_handled: Arc<std::sync::atomic::AtomicBool>,
     /// How much of the reply being generated the chat already shows.
     shown_len: usize,
     last_flush: std::time::Instant,
@@ -1327,7 +1345,11 @@ impl TurnState {
     }
 
     fn new_text_message(&self) -> Message {
-        Message::new(&self.chat_id, Author::Bot { bot_id: self.bot_id.clone() }, Body::text(String::new()))
+        let mut message = Message::new(&self.chat_id, Author::Bot { bot_id: self.bot_id.clone() }, Body::text(String::new()));
+        if self.attention_handled.load(std::sync::atomic::Ordering::Relaxed) {
+            message.notification = Some(crate::attention::Notification::Quiet);
+        }
+        message
     }
 
     /// The plugin of a script's latest plugin call that ran or runs, by name.
@@ -1612,6 +1634,7 @@ fn system_prompt(app: &Arc<App>, chat: &Chat, bot: &Bot, job: &Job, store: &Memo
     ));
     prompt.push_str(&crate::handoffs::prompt(app, job));
     prompt.push_str(&routines_prompt(app, bot));
+    prompt.push_str(&crate::attention::prompt(app, &bot.id, &chat.meta.id, job.kind == "attention_report"));
     prompt.push_str("\nDurable work: use tasks to track multi-turn goals, ownership, acceptance criteria, dependencies, next action, blockers, and result/evidence. Open records appear after the transcript on every request, even after compaction. A queued task only runs when explicitly started with tasks run. Read the latest revision before editing; a conflict means reload, never overwrite.\n");
     if let Some(id) = &job.task_id {
         prompt.push_str(&format!("\nThis turn references durable task {id}. {}\n", if job.kind == "task" { "The explicit task run starts your work regardless of new group messages. You own its active run: perform its next action, record progress, and complete only with a result and supporting evidence, or record the blocker. A reply alone awaits review." } else { "This turn supports that task; it does not claim or complete the task's active run." }));
@@ -3833,6 +3856,7 @@ mod tests {
             last_said: None,
             tools_used: Vec::new(),
             plugin_tools: crate::plugins::mcp::turn_catalog(app, Vec::new()),
+            attention_handled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             shown_len: 0,
             last_flush: std::time::Instant::now(),
         }

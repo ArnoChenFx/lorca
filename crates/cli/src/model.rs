@@ -490,6 +490,10 @@ pub struct Message {
     /// A published deliverable or verification artifact; each version is a separate message.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output: Option<crate::outputs::Output>,
+    /// Coordinator summaries, urgent escalations, and quiet specialist reports have their
+    /// own notification policy, shared by the Runner and the apps.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notification: Option<crate::attention::Notification>,
 }
 
 /// How much of a tool call's detail the apps get: enough for the "Messaged ◉ X" marker.
@@ -533,6 +537,7 @@ impl Message {
             author,
             body,
             state: MessageState::Complete,
+            notification: None,
             created_at: crate::config::now_secs(),
             promoted_at: None,
             queued: false,
@@ -548,7 +553,7 @@ impl Message {
     /// A reply, failure, or pending confirmation the user has not seen. Tool activity and
     /// updates to an answered question do not add to the count.
     pub fn counts_unread(&self) -> bool {
-        if !matches!(self.author, Author::Bot { .. }) {
+        if !matches!(self.author, Author::Bot { .. }) || self.notification == Some(crate::attention::Notification::Quiet) {
             return false;
         }
         match &self.body {

@@ -81,6 +81,7 @@ const (
 	EventBudgetsChanged
 	EventReviewsChanged
 	EventDurableTasksChanged
+	EventAttentionChanged
 )
 
 // Event says what in the store changed.
@@ -143,6 +144,8 @@ type Store struct {
 	Budgets []BudgetState
 	// AutoReview is shared through the roster.
 	AutoReview AutoReview
+	// Attention is what waits on the user across chats, kept by the bots (attention.changed).
+	Attention AttentionView
 	// Providers are the account's provider credentials, the same on every Device.
 	Providers []ProviderCredential
 	// Models are what the CLI's catalog offers, for the Model and Thinking pickers.
@@ -219,6 +222,7 @@ func NewStore(transport Transport, post func(func()), mock bool) *Store {
 		post:               post,
 		IsStarting:         true,
 		AutoReview:         AutoReview{IsEnabled: true},
+		Attention:          DefaultAttention(),
 		CLI:                CLIState{Connection: "disconnected", Launcher: LauncherStatus{Kind: "idle"}, Starting: true},
 		jobStarts:          map[string]time.Time{},
 		commandStarts:      map[string]time.Time{},
@@ -463,6 +467,10 @@ func (s *Store) apply(snapshot WireSnapshot) {
 		s.Routines = append(s.Routines, ToRoutine(routine))
 	}
 	s.AutoReview = ToAutoReview(snapshot.AutoReview)
+	s.Attention = DefaultAttention()
+	if snapshot.Attention != nil {
+		s.Attention = *snapshot.Attention
+	}
 	s.Budgets = slices.Clone(snapshot.Budgets)
 	s.Reviews = nil
 	for _, item := range snapshot.Reviews {
@@ -514,6 +522,10 @@ func decode[T any](data json.RawMessage) (T, bool) {
 
 func (s *Store) handle(name string, data json.RawMessage) {
 	switch name {
+	case "attention.changed":
+		if view, ok := decode[AttentionView](data); ok {
+			s.applyAttention(view)
+		}
 	case "reviews.changed":
 		if event, ok := decode[struct {
 			Item ReviewItem `json:"item"`
@@ -722,6 +734,9 @@ func (s *Store) handle(name string, data json.RawMessage) {
 			return
 		}
 		s.HasIdentity = &payload.HasIdentity
+		if !payload.HasIdentity {
+			s.applyAttention(DefaultAttention())
+		}
 		s.emit(Event{Kind: EventIdentityChanged})
 	}
 }
@@ -2685,6 +2700,7 @@ func (s *Store) ResetMockData() {
 	s.Routines = mockRoutines()
 	s.Budgets = mockBudgets()
 	s.AutoReview = mockAutoReview()
+	s.Attention = DefaultAttention()
 	s.Providers = mockProviders()
 	s.Models = mockModels()
 	s.sortChats()

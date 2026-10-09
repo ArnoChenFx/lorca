@@ -1068,3 +1068,27 @@
 "minutes" = "分钟";
 "seconds" = "秒";
 "unknown|price" = "未知";
+
+/* Coordinator attention */
+"Attention" = "关注事项";
+"Attention (⇧⌘A)" = "关注事项 (⇧⌘A)";
+"Attention (%d)" = "关注事项（%d）";
+"Options" = "选项";
+"Nothing needs your attention" = "没有需要你处理的事项";
+"Coordinator" = "协调者";
+"%@’s brief" = "%@ 的简报";
+"Decision" = "决定";
+"Changed" = "变化";
+"Next" = "下一步";
+"Review" = "审核";
+"Blocker" = "受阻";
+"Commitment" = "承诺";
+"Urgent" = "紧急";
+"Open “%@”" = "打开“%@”";
+"Mark as Resolved" = "标记为已解决";
+"Notifications" = "通知";
+"Briefs" = "简报";
+"Urgent Items" = "紧急事项";
+"Automatic" = "自动";
+"A group’s owner, or the bot of a direct chat" = "群聊的负责人，或单聊里的智能体";
+"Couldn’t update Attention" = "无法更新关注事项";

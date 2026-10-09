@@ -16,6 +16,8 @@ pub enum Event {
     ReviewChanged { item: crate::review_queue::ReviewItem, change: crate::review_queue::ReviewChange },
     #[serde(rename = "tasks.changed")]
     TaskChanged { task: crate::tasks::Task },
+    #[serde(rename = "attention.changed")]
+    AttentionChanged(crate::attention::View),
     #[serde(rename = "roster.changed")]
     RosterChanged { devices: Vec<Value>, bots: Vec<Bot>, chats: Vec<ChatSummary>, routines: Vec<Value>, auto_review: AutoReview, providers: Vec<ProviderStatus>, models: Vec<Value> },
     #[serde(rename = "message.added")]

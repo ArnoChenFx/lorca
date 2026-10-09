@@ -5,6 +5,7 @@
 
 pub mod api;
 pub mod app;
+pub mod attention;
 pub mod budgets;
 pub mod browser;
 pub mod catalog;
