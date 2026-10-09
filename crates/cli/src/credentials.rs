@@ -23,9 +23,32 @@ pub const PROVIDER_KINDS: [&str; 6] = ["deepseek", "anthropic", "opencode", "ope
 
 pub const CUSTOM_PREFIX: &str = "custom:";
 
+/// The kind System One is saved under. It is a review model only: it is in no chat provider's
+/// list, so no bot can run on it.
+pub const SYSTEM_ONE_KIND: &str = "systemone";
+
 /// Whether `kind` names a provider the user added.
 pub fn is_custom(kind: &str) -> bool {
     kind.starts_with(CUSTOM_PREFIX)
+}
+
+/// The System One service Auto-review can run on: where it is, its key, and the model it asks.
+/// `base_url` is the root the endpoint hangs off, such as `https://api.typesafe.ai` or
+/// `https://openrouter.ai/api`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemOneCredential {
+    pub base_url: String,
+    pub api_key: String,
+    pub model: String,
+    pub connected_at: i64,
+}
+
+/// What the apps show of System One: the root, the model, and the key masked.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SystemOneStatus {
+    pub base_url: String,
+    pub model: String,
+    pub detail: String,
 }
 
 /// The wire protocol a custom provider speaks.
@@ -127,6 +150,9 @@ pub struct Credentials {
     pub chatgpt: Option<ChatGptTokens>,
     #[serde(default)]
     pub grok: Option<GrokTokens>,
+    /// The review model's service, when the user connected one.
+    #[serde(default)]
+    pub system_one: Option<SystemOneCredential>,
     /// The providers the user added, by kind.
     #[serde(default)]
     pub custom: BTreeMap<String, CustomProvider>,
@@ -150,7 +176,10 @@ impl Credentials {
     pub fn load(config: &Config) -> Self {
         let mut credentials: Credentials = config::read_json(&config.credentials_path()).unwrap_or_default();
         // A credential with no change time has never been merged: it counts from now, once.
-        let unstamped: Vec<String> = credentials.connected_kinds().into_iter().filter(|kind| !credentials.changed_at.contains_key(kind)).collect();
+        let mut unstamped: Vec<String> = credentials.connected_kinds().into_iter().filter(|kind| !credentials.changed_at.contains_key(kind)).collect();
+        if credentials.system_one.is_some() && !credentials.changed_at.contains_key(SYSTEM_ONE_KIND) {
+            unstamped.push(SYSTEM_ONE_KIND.to_string());
+        }
         if !unstamped.is_empty() {
             for kind in unstamped {
                 credentials.touch(&kind);
@@ -176,7 +205,7 @@ impl Credentials {
         let mut merge = Merge::default();
         // A deleted custom provider stays in `changed_at`, so the deletion travels too.
         let custom: BTreeSet<&String> = self.changed_at.keys().chain(other.changed_at.keys()).filter(|kind| is_custom(kind)).collect();
-        let kinds: Vec<String> = PROVIDER_KINDS.iter().map(|kind| kind.to_string()).chain(custom.into_iter().cloned()).collect();
+        let kinds: Vec<String> = PROVIDER_KINDS.iter().map(|kind| kind.to_string()).chain([SYSTEM_ONE_KIND.to_string()]).chain(custom.into_iter().cloned()).collect();
         for kind in kinds {
             let (ours, theirs) = (self.changed_at.get(&kind).copied(), other.changed_at.get(&kind).copied());
             match (ours, theirs) {
@@ -188,6 +217,7 @@ impl Credentials {
                         "opencode-go" => self.opencode_go = other.opencode_go.clone(),
                         "chatgpt" => self.chatgpt = other.chatgpt.clone(),
                         "grok" => self.grok = other.grok.clone(),
+                        SYSTEM_ONE_KIND => self.system_one = other.system_one.clone(),
                         _ => match other.custom.get(&kind) {
                             Some(provider) => {
                                 self.custom.insert(kind.clone(), provider.clone());
@@ -265,6 +295,16 @@ impl Credentials {
                 other => other.strip_prefix(CUSTOM_PREFIX).unwrap_or(other).to_string(),
             },
         }
+    }
+
+    /// The review model's service as the apps show it, or `None` when it is not connected. It is
+    /// kept out of `statuses` and `kinds`, so no bot's provider list or tool schema offers it.
+    pub fn system_one_status(&self) -> Option<SystemOneStatus> {
+        self.system_one.as_ref().map(|service| SystemOneStatus {
+            base_url: service.base_url.clone(),
+            model: service.model.clone(),
+            detail: format!("{} · {}", mask_key(&service.api_key), service.base_url),
+        })
     }
 
     pub fn statuses(&self) -> Vec<ProviderStatus> {

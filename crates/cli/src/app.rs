@@ -1016,6 +1016,7 @@ impl App {
             routines: self.routines_out(&state),
             auto_review: state.auto_review.clone(),
             providers: self.credentials.lock().unwrap().statuses(),
+            system_one: self.credentials.lock().unwrap().system_one_status(),
             models: models_out(),
         }
     }
@@ -1823,6 +1824,7 @@ impl App {
             "routines": self.routines_out(&state),
             "auto_review": state.auto_review,
             "providers": self.credentials.lock().unwrap().statuses(),
+            "system_one": self.credentials.lock().unwrap().system_one_status(),
             "models": models_out(),
             "running_chat_ids": self.running_chat_ids(),
             "running_turns": self.running_turns(),
