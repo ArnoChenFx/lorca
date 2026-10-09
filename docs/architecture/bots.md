@@ -39,6 +39,8 @@ A service's events start work in a bot's DM too, through [event subscriptions](e
 
 ## Memory
 
+Reusable procedures live in [Playbooks](playbooks.md), with explicit bot or group-project scope, reviewed workflow capture and standing-instruction proposals, and encrypted revision history. The inspector lists a bot's skills under its memory; saved skills are discovered on later turns and read on demand.
+
 Groups also keep [shared project context](project-context.md): a current brief, goals, constraints, decisions, references, and assets with provenance and freshness. Every assigned member receives that group's bounded index and reads full entries with `project_context`. Corrections and source refreshes survive transcript compaction. Selection is the current group id and membership, while each bot retains its own memory below.
 
 Every bot keeps its own long-term memory on its Runner, in Grok Bot's shape of a curated profile over append-only logs, as plain markdown under `~/.lorca/workspaces/<bot id>/` (keyed by id, so a rename or a changed working directory never moves it; `crates/cli/src/memory.rs`):

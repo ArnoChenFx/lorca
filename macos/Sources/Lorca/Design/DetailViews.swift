@@ -603,6 +603,13 @@ final class StatusRow: NSView, NSGestureRecognizerDelegate {
         )
     }
 
+    /// A skill: its name, when to use it in two lines at most, and Draft while it waits for a save.
+    func configure(skill: PlaybookSummary) {
+        configure(symbol: "book.closed", title: skill.name, subtitle: skill.description, state: skill.isDraft ? L("Draft") : nil)
+        subtitle.maximumNumberOfLines = 2
+        subtitle.cell?.truncatesLastVisibleLine = true
+    }
+
     @objc private func actionTapped() {
         onAction?()
     }

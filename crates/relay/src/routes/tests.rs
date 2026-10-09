@@ -47,7 +47,7 @@ async fn encrypted_task_records_round_trip_and_replace_only_their_own_slot() {
     assert_eq!(lorca::tasks::get(&replica, id).unwrap().next_action, "Verify");
     lorca::sync::apply_blob(&replica, &machine, &page[0]);
     assert_eq!(lorca::tasks::get(&replica, id).unwrap().revision, 2);
-    for kind in ["roster","chat","job","job_cancel","job_result","request","response","machine","credentials","key","file","task","handoff","review","attention","project_context","event"] {
+    for kind in ["roster","chat","job","job_cancel","job_result","request","response","machine","credentials","key","file","task","handoff","review","attention","project_context","playbook","event"] {
         assert!(db::KINDS.contains(&kind));
     }
     assert!(db::SEALED_KINDS.contains(&"event"));

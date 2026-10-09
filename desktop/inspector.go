@@ -27,6 +27,8 @@ type inspectorState struct {
 	// tasksShowingAll is the chat whose Tasks section shows every task rather than the first few.
 	tasksShowingAll string
 	project         projectInspectorState
+	// skillsShowingAll is the bot or group whose Skills section shows every skill.
+	skillsShowingAll model.PlaybookScope
 }
 
 // refreshMemory asks the CLI for the bot's memory; the section redraws when it answers.
@@ -119,6 +121,9 @@ func (m *mainWindow) inspectorView(c *ui.Context, chatID string) {
 				m.inspectorProfile(c, single)
 				m.inspectorRuntime(c, single, chat)
 				m.inspectorMemory(c, single)
+			}
+			m.inspectorSkills(c, chat, members)
+			if single != nil {
 				m.inspectorRoutines(c, single)
 			}
 			m.inspectorDurableTasks(c, chat)

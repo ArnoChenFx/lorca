@@ -366,6 +366,15 @@ func (m *mainWindow) messageCell(c *ui.Context, chat *model.Chat, message *model
 					if menu.Item(L("Reply")).Chosen() {
 						m.startReply(s, message)
 					}
+					if strings.TrimSpace(message.Body.Text) != "" {
+						title := L("Save as Skill…")
+						if message.Author.Kind == model.AuthorYou {
+							title = L("Save as Standing Instruction…")
+						}
+						if menu.Item(title).Chosen() {
+							m.presentPlaybookCapture(chat.ID, message)
+						}
+					}
 				}
 				bubble.ContextMenu(replyMenu)
 			}

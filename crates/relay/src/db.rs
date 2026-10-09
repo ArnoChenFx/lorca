@@ -25,6 +25,7 @@ pub const KINDS: &[&str] = &[
     "review",
     "attention",
     "project_context",
+    "playbook",
     "event",
     "chat",
     "job",

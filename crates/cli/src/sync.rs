@@ -14,7 +14,7 @@ const BULK_BLOBS: usize = 20;
 
 /// What a pull takes. `file` blobs are left out: a transcript fetches them by id when it
 /// needs them, so a photo sent to one bot is not downloaded by every Device.
-pub const POLL_KINDS: &str = "roster,task,project_context,chat,machine,credentials,review,handoff,attention,job,event,job_cancel,job_result,request,response";
+pub const POLL_KINDS: &str = "roster,task,project_context,playbook,chat,machine,credentials,review,handoff,attention,job,event,job_cancel,job_result,request,response";
 
 pub async fn run(app: Arc<App>) {
     let mut failures: u32 = 0;
@@ -222,7 +222,7 @@ async fn session(app: &Arc<App>, failures: &mut u32) -> Result<(), RelayError> {
 }
 
 /// Everything a Device polls for but the messages.
-const NOT_CHAT_KINDS: &str = "roster,task,project_context,machine,credentials,review,handoff,attention,job,event,job_cancel,job_result,request,response";
+const NOT_CHAT_KINDS: &str = "roster,task,project_context,playbook,machine,credentials,review,handoff,attention,job,event,job_cancel,job_result,request,response";
 /// How much of each chat a Device takes when it first syncs: what a bot's turn reads.
 const FIRST_SYNC_MESSAGES: usize = 400;
 /// Messages to a page when reading a chat backwards.
@@ -348,6 +348,7 @@ async fn pull_blobs(app: &Arc<App>, url: &str, token: &str, machine_file: &crate
         if app.state.lock().unwrap().last_seq > 0 {
             if app.store.attention_rows().map_err(local)?.is_empty() { kinds.push("attention"); }
             if !app.store.has_project_entries().map_err(local)? { kinds.push("project_context"); }
+            if app.playbooks.lock().unwrap().records.is_empty() { kinds.push(crate::playbooks::BLOB_KIND); }
         }
         if !kinds.is_empty() {
             let kinds = kinds.join(",");
@@ -791,6 +792,11 @@ fn apply_blob_contents(app: &Arc<App>, machine_file: &crate::keys::MachineFile, 
             Ok(op) => apply_chat_op(app, op),
             Err(error) => tracing::warn!(%error, "chat blob"),
         },
+        crate::playbooks::BLOB_KIND => {
+            if let Err(error) = crate::playbooks::apply_remote(app, &dek, &ciphertext) {
+                tracing::warn!(%error, "playbook blob");
+            }
+        }
         "project_context" => match crate::crypto::decrypt_json::<crate::project_context::ProjectBlob>(&dek, "project_context", &ciphertext) {
             Ok(project) => {
                 if let Err(error) = crate::project_context::apply_remote(app, &project.chat_id, &project.entry) {
@@ -906,12 +912,14 @@ fn apply_roster(app: &Arc<App>, mut roster: RosterBlob) {
     let this_device = app.this_device_id();
     let kept_checks;
     let kept_permissions;
+    let removed_bots: Vec<String>;
     {
         let mut state = app.state.lock().unwrap();
         let local_updated = state.chats.iter().map(|_| 0.0).fold(0.0, f64::max);
         let _ = local_updated;
         kept_checks = this_device.is_some_and(|this| crate::routines::keep_checks(&state.routines, &mut roster.routines, &roster.bots, &this));
         kept_permissions = crate::permissions::keep_policies(&state.bots, &mut roster.bots);
+        removed_bots = state.bots.iter().filter(|bot| !roster.bots.iter().any(|kept| kept.id == bot.id)).map(|bot| bot.id.clone()).collect();
         state.bots = roster.bots;
         state.routines = roster.routines;
         state.auto_review = roster.auto_review;
@@ -934,6 +942,9 @@ fn apply_roster(app: &Arc<App>, mut roster: RosterBlob) {
     if let Err(error) = app.store.retain_codemode_bots(&bot_ids) {
         tracing::warn!(%error, "forgetting deleted bots' script values");
     }
+    // The skills of bots and groups this roster deleted go too; their blobs go with the
+    // deleted chats' groups on the relay.
+    crate::playbooks::forget_scopes(app, &removed_bots, &removed);
     for chat_id in removed {
         app.cancel_chat(&chat_id);
         app.emit(Event::ChatRemoved { chat_id });
@@ -1040,7 +1051,7 @@ mod tests {
                 let kinds = query.get("kinds").cloned().unwrap_or_default();
                 let since: i64 = query["since"].parse().unwrap();
                 // The replay asks for the slot families an older build skipped, and nothing else.
-                if since == 0 && kinds.split(',').all(|kind| kind == "attention" || kind == "project_context") { counted.fetch_add(1, Ordering::Relaxed); }
+                if since == 0 && kinds.split(',').all(|kind| kind == "attention" || kind == "project_context" || kind == "playbook") { counted.fetch_add(1, Ordering::Relaxed); }
                 let selected: Vec<_> = blobs.into_iter().filter(|blob| kinds.split(',').any(|kind| kind == "attention") && blob["seq"].as_i64().unwrap() > since).collect();
                 Json(serde_json::json!({"blobs":selected,"seq":101}))
             }

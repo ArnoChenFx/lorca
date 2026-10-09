@@ -209,6 +209,7 @@ async fn run_budgeted_job(app: &Arc<App>, job: &Job, cancel: CancellationToken) 
         tools.push(Arc::new(crate::browser::SessionTool { app: app.clone(), bot: bot.clone() }));
     }
     tools.extend(memory_tools(app, &store, &chat));
+    tools.extend(crate::playbook_tools::tools(app, &bot.id, &chat.meta.id));
     tools.push(Arc::new(Recall { app: app.clone(), store: store.clone(), bot: bot.clone() }));
     if crate::project_context::project_for_turn(app, &chat.meta.id, &bot.id).is_some() {
         tools.push(Arc::new(crate::project_context::ProjectContextTool { app: app.clone(), chat_id: chat.meta.id.clone(), bot: bot.clone() }));
@@ -1662,6 +1663,7 @@ fn system_prompt(app: &Arc<App>, chat: &Chat, bot: &Bot, job: &Job, store: &Memo
     prompt.push_str(&memory_prompt(store));
     prompt.push_str("\nPublish deliverables with publish_output so the user can retrieve them on paired Devices. Attach test results and, for visual changes, before/after screenshots as evidence. Report failures and what remains unverified; publishing evidence does not complete a task. Creating or uploading to an external service uses its reviewed tools.\n");
     prompt.push_str(&crate::project_context::prompt(app, &chat.meta.id, &bot.id));
+    prompt.push_str(&crate::playbook_tools::prompt(app, &bot.id, &chat.meta.id));
 
     prompt.push_str(
         "\nWrite like a teammate in a chat app: short and direct, usually one to three sentences, and one line when one \

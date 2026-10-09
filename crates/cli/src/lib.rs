@@ -30,6 +30,9 @@ pub mod model;
 pub mod outputs;
 pub mod pairing;
 pub mod permissions;
+pub mod playbooks;
+#[cfg(feature = "runner")]
+pub mod playbook_tools;
 pub mod plugins;
 pub mod project_context;
 #[cfg(feature = "provider-auth")]

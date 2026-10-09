@@ -603,6 +603,16 @@ final class ChatViewController: NSViewController {
     }
 
     /// Makes the draft a reply to `message`, from the bubble's Reply.
+    /// Save as Skill, or Save as Standing Instruction: pick the messages, then review the draft.
+    private func captureSkill(from message: Message, in chatID: Chat.ID) {
+        guard let chat = store.chat(chatID) else { return }
+        let capture = PlaybookCaptureViewController(chat: chat, message: message)
+        capture.onDrafted = { [weak self] draft in
+            self?.presentAsSheet(PlaybookViewController(scope: draft.scope, record: draft))
+        }
+        presentAsSheet(capture)
+    }
+
     private func startReply(to message: Message) {
         guard let quote = ReplyQuote(quoting: message) else { return }
         composer.reply(to: message.id, name: authorName(of: quote.author), text: quote.text)
@@ -900,6 +910,9 @@ extension ChatViewController: NSTableViewDataSource, NSTableViewDelegate {
                     metrics: metrics
                 )
                 messageCell.onReply = message.canBeQuoted ? { [weak self] in self?.startReply(to: message) } : nil
+                messageCell.capturePlaybookTitle = message.author.isYou ? L("Save as Standing Instruction…") : L("Save as Skill…")
+                messageCell.onCapturePlaybook = message.canBeQuoted && !message.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? { [weak self] in self?.captureSkill(from: message, in: chatID) } : nil
                 messageCell.onQuoteClick = message.replyTo.map { quote in { [weak self] in self?.reveal(quote.messageID) } }
                 messageCell.onSendNow = { [weak self] in self?.store.sendNow(message.id, in: chat.id) }
 

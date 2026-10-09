@@ -151,6 +151,11 @@ type Store struct {
 	Providers []ProviderCredential
 	// Models are what the CLI's catalog offers, for the Model and Thinking pickers.
 	Models []ProviderModel
+	// Playbooks are every bot's and group's skills and drafts, from the roster; a body is fetched
+	// when one opens.
+	Playbooks []PlaybookSummary
+	// mockPlaybooks are the demo's skills, bodies and all.
+	mockPlaybooks []PlaybookRecord
 
 	// IsConnected is the CLI answering on localhost (mock: toggled from the Debug menu).
 	IsConnected bool
@@ -480,6 +485,7 @@ func (s *Store) apply(snapshot WireSnapshot) {
 	}
 	s.Providers = ToProviders(snapshot.Providers)
 	s.Models = ToModels(snapshot.Models)
+	s.Playbooks = snapshot.Playbooks
 	s.runningJobs = nil
 	for _, turn := range snapshot.RunningTurns {
 		s.runningJobs = append(s.runningJobs, runningJob{id: turn.JobID, chatID: turn.ChatID, botID: turn.BotID, routineID: str(turn.RoutineID)})
@@ -577,6 +583,9 @@ func (s *Store) handle(name string, data json.RawMessage) {
 		}
 		if roster.Models != nil {
 			s.Models = ToModels(roster.Models)
+		}
+		if roster.Playbooks != nil {
+			s.Playbooks = *roster.Playbooks
 		}
 		var changed []string
 		chats := make([]*Chat, 0, len(roster.Chats))
@@ -2705,6 +2714,11 @@ func (s *Store) ResetMockData() {
 	s.Bots = mockBots()
 	s.Chats = mockChats()
 	s.Routines = mockRoutines()
+	s.mockPlaybooks = mockPlaybooks()
+	s.Playbooks = nil
+	for _, record := range s.mockPlaybooks {
+		s.Playbooks = append(s.Playbooks, record.summary())
+	}
 	s.Budgets = mockBudgets()
 	s.AutoReview = mockAutoReview()
 	s.Attention = DefaultAttention()
