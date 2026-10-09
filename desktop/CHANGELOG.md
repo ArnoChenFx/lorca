@@ -6,6 +6,8 @@ and the update window shows it.
 
 ## [Unreleased]
 
+## [0.1.4]
+
 - A computer that runs the Lorca command line without the app keeps it up to date by itself: it
   installs each new release, signed by Lorca, and restarts into it once no bot is working there.
   Settings › Devices shows the version it runs, and Update when a newer one is out, so you can
