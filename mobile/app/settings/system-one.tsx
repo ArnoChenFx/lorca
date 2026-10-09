@@ -38,8 +38,9 @@ export default function SystemOneScreen() {
     setWorking(true);
     setError(null);
     try {
-      await engine.connectSystemOne({ baseURL: root, apiKey, model });
-      router.back();
+      const { warning } = await engine.connectSystemOne({ baseURL: root, apiKey, model });
+      if (warning) alert(t("Saved with a warning"), warning, [{ text: t("OK"), onPress: () => router.back() }], { cancelable: false });
+      else router.back();
     } catch (cause) {
       setError(messageOf(cause));
     } finally {

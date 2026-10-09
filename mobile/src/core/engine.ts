@@ -425,14 +425,15 @@ class Engine {
 
   /// Checks System One's key at its base URL and saves its key, model, and root for the account.
   /// A blank key keeps the saved one. Rejects with what to fix: a root that is not a web address,
-  /// a key the service refuses, or a service out of reach.
-  async connectSystemOne(input: { baseURL: string; apiKey: string; model: string }): Promise<void> {
-    const { system_one } = await core.request<{ system_one: SystemOne; providers: ProviderStatus[] }>("providers.connect_system_one", {
-      base_url: input.baseURL.trim(),
-      api_key: input.apiKey.trim(),
-      model: input.model.trim(),
-    });
+  /// or no model or key. A service out of reach or a key it refuses still saves, and `warning`
+  /// says so, as for a custom provider.
+  async connectSystemOne(input: { baseURL: string; apiKey: string; model: string }): Promise<{ warning?: string }> {
+    const { system_one, warning } = await core.request<{ system_one: SystemOne; providers: ProviderStatus[]; warning?: string | null }>(
+      "providers.connect_system_one",
+      { base_url: input.baseURL.trim(), api_key: input.apiKey.trim(), model: input.model.trim() },
+    );
     useStore.setState({ system_one });
+    return { warning: warning ?? undefined };
   }
 
   /// Opens a sign-in page, a provider's or a plugin's for its Runner, in the in-app browser

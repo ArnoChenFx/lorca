@@ -52,7 +52,14 @@ mock.module("../../modules/lorca-core", () => ({
       return { kind, providers: [{ kind, is_connected: true, detail: params.base_url, base_url: params.base_url, name: params.name, api: params.api, models }] };
     }
     if (method === "providers.disconnect") return { providers: [] };
-    if (method === "providers.connect_system_one") return { system_one: { base_url: params.base_url, model: params.model, detail: "sk-…one" }, providers: [] };
+    if (method === "providers.connect_system_one") {
+      const unreachable = String(params.base_url).includes("unreachable");
+      return {
+        system_one: { base_url: params.base_url, model: params.model, detail: "sk-…one" },
+        providers: [],
+        warning: unreachable ? "System One unreachable: connection refused. Saved, for a Device that can reach it." : null,
+      };
+    }
     if (method === "providers.list_models") return params.base_url.includes("unlisted") ? { listed: false } : { listed: true, models: [{ id: "llama4", context_window: 131072 }] };
     return method === "bootstrap" ? (heldSnapshot ?? snapshot([])) : null;
   },
@@ -275,6 +282,12 @@ test("System One is the review model, with its threshold and its own setup, and 
   ]);
   expect(useStore.getState().system_one).toStrictEqual({ base_url: "https://openrouter.ai/api", model: "typesafe/jev-1.13", detail: "sk-…one" });
   expect(useStore.getState().providers.some((p) => p.kind === SYSTEM_ONE_KIND)).toBe(false);
+  providerCalls.length = 0;
+  expect(await engine.connectSystemOne({ baseURL: "https://unreachable.example", apiKey: "sk-one", model: "jev-latest" })).toStrictEqual({
+    warning: "System One unreachable: connection refused. Saved, for a Device that can reach it.",
+  });
+  expect(useStore.getState().system_one?.base_url).toBe("https://unreachable.example");
+  expect(await engine.connectSystemOne({ baseURL: "https://openrouter.ai/api", apiKey: "sk-one", model: "typesafe/jev-1.13" })).toStrictEqual({ warning: undefined });
 });
 
 test("Auto-review's review model and a Device's custom name reach the core", async () => {
