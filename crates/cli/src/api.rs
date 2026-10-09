@@ -812,8 +812,8 @@ pub async fn dispatch(app: &Arc<App>, method: &str, params: Value) -> Result<Val
                 api_key: params["api_key"].as_str().unwrap_or_default().to_string(),
                 model: params["model"].as_str().unwrap_or_default().to_string(),
             };
-            let system_one = provider_auth::connect_system_one(app, input).await?;
-            Ok(json!({ "system_one": system_one, "providers": app.credentials.lock().unwrap().statuses() }))
+            let (system_one, warning) = provider_auth::connect_system_one(app, input).await?;
+            Ok(json!({ "system_one": system_one, "providers": app.credentials.lock().unwrap().statuses(), "warning": warning }))
         }
         #[cfg(feature = "provider-auth")]
         "providers.connect_chatgpt" => {

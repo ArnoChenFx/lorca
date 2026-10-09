@@ -17,7 +17,7 @@ use crate::credentials::{
     is_custom, ApiKeyCredential, Credentials, CustomApi, CustomModel, CustomProvider, SystemOneCredential, SystemOneStatus, CUSTOM_PREFIX, PROVIDER_KINDS,
     SYSTEM_ONE_KIND,
 };
-use crate::system_one;
+use crate::system_one::{self, CheckFailure};
 
 const ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
@@ -174,7 +174,10 @@ pub struct SystemOneInput {
 
 /// Checks System One's key and endpoint, and saves them for the account. The model is the id the
 /// service answers with, such as `jev-latest` on TypeSafe or `typesafe/jev-latest` on OpenRouter.
-pub async fn connect_system_one(app: &Arc<App>, input: SystemOneInput) -> Result<SystemOneStatus, String> {
+/// A service that cannot be reached, or a key it refuses, still saves, and the answer carries a
+/// warning, as [`save_custom`] does for an unreachable server. A root that is not a web address,
+/// a missing model, or a missing key stops the save.
+pub async fn connect_system_one(app: &Arc<App>, input: SystemOneInput) -> Result<(SystemOneStatus, Option<String>), String> {
     let root = system_one::root(&input.base_url)?;
     let model = input.model.trim().to_string();
     if model.is_empty() {
@@ -184,10 +187,17 @@ pub async fn connect_system_one(app: &Arc<App>, input: SystemOneInput) -> Result
         "" => app.credentials.lock().unwrap().system_one.as_ref().map(|saved| saved.api_key.clone()).ok_or("Enter the API key")?,
         key => key.to_string(),
     };
-    system_one::check(&app.http, &root, &api_key).await?;
+    let warning = match system_one::check(&app.http, &root, &api_key).await {
+        Ok(()) => None,
+        Err(CheckFailure::Unreachable(reason)) => Some(format!(
+            "System One unreachable: {reason}. Saved, for a Device that can reach it. Until System One answers, Auto-review asks about each action."
+        )),
+        Err(CheckFailure::Refused) => Some("System One rejected that key. Saved. Until System One accepts it, Auto-review asks about each action.".into()),
+    };
     let credential = SystemOneCredential { base_url: root, api_key, model, connected_at: config::now_unix() };
     app.update_credentials(SYSTEM_ONE_KIND, |credentials| credentials.system_one = Some(credential)).map_err(|e| e.to_string())?;
-    app.credentials.lock().unwrap().system_one_status().ok_or_else(|| "System One is not connected".to_string())
+    let status = app.credentials.lock().unwrap().system_one_status().ok_or_else(|| "System One is not connected".to_string())?;
+    Ok((status, warning))
 }
 
 /// Checks a custom provider's server and saves the provider for the account, answering with
@@ -685,7 +695,8 @@ mod tests {
         let scratch = scratch_app();
         let app = &scratch.0;
         let (root, server) = crate::system_one::mock::serve(vec![("200 OK", "{\"data\": []}".into())]);
-        let status = connect_system_one(app, SystemOneInput { base_url: root.clone(), api_key: "sk-one".into(), model: "jev-latest".into() }).await.unwrap();
+        let (status, warning) = connect_system_one(app, SystemOneInput { base_url: root.clone(), api_key: "sk-one".into(), model: "jev-latest".into() }).await.unwrap();
+        assert_eq!(warning, None);
         assert_eq!(server.join().unwrap()[0].split_whitespace().next(), Some("GET"));
         assert_eq!(status.model, "jev-latest");
         assert_eq!(status.base_url, root);
@@ -708,16 +719,47 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_system_one_key_the_service_refuses_is_not_saved() {
+    async fn a_system_one_key_the_service_refuses_saves_with_a_warning() {
         let scratch = scratch_app();
         let app = &scratch.0;
         let (root, server) = crate::system_one::mock::serve(vec![("401 Unauthorized", "{}".into())]);
-        let error = connect_system_one(app, SystemOneInput { base_url: root, api_key: "bad".into(), model: "jev-latest".into() }).await.unwrap_err();
+        let (_, warning) = connect_system_one(app, SystemOneInput { base_url: root, api_key: "bad".into(), model: "jev-latest".into() }).await.unwrap();
         server.join().unwrap();
-        assert_eq!(error, "System One refused the API key");
-        assert!(app.credentials.lock().unwrap().system_one.is_none());
-        let blank = connect_system_one(app, SystemOneInput { base_url: "https://api.typesafe.ai".into(), api_key: String::new(), model: "jev-latest".into() }).await;
+        assert_eq!(
+            warning.as_deref(),
+            Some("System One rejected that key. Saved. Until System One accepts it, Auto-review asks about each action.")
+        );
+        assert_eq!(app.credentials.lock().unwrap().system_one.as_ref().map(|saved| saved.api_key.as_str()), Some("bad"));
+
+        let fresh = scratch_app();
+        let blank = connect_system_one(&fresh.0, SystemOneInput { base_url: "https://api.typesafe.ai".into(), api_key: String::new(), model: "jev-latest".into() }).await;
         assert_eq!(blank.unwrap_err(), "Enter the API key");
+    }
+
+    #[tokio::test]
+    async fn an_unreachable_system_one_saves_with_a_warning() {
+        let scratch = scratch_app();
+        let app = &scratch.0;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let root = format!("http://{}", listener.local_addr().unwrap());
+        drop(listener);
+        let (status, warning) = connect_system_one(app, SystemOneInput { base_url: root.clone(), api_key: "sk-one".into(), model: "jev-latest".into() }).await.unwrap();
+        let warning = warning.unwrap();
+        assert!(warning.starts_with("System One unreachable: "), "{warning}");
+        assert!(warning.contains("Saved, for a Device that can reach it."), "{warning}");
+        assert_eq!(status.base_url, root);
+        assert_eq!(app.credentials.lock().unwrap().system_one.as_ref().map(|saved| saved.api_key.as_str()), Some("sk-one"));
+    }
+
+    #[tokio::test]
+    async fn a_system_one_root_or_model_that_is_not_given_still_refuses_the_save() {
+        let scratch = scratch_app();
+        let app = &scratch.0;
+        let no_model = connect_system_one(app, SystemOneInput { base_url: "https://api.typesafe.ai".into(), api_key: "sk-one".into(), model: " ".into() }).await;
+        assert_eq!(no_model.unwrap_err(), "Enter the model, such as jev-latest");
+        let no_root = connect_system_one(app, SystemOneInput { base_url: " ".into(), api_key: "sk-one".into(), model: "jev-latest".into() }).await;
+        assert!(no_root.unwrap_err().starts_with("Enter the base URL"));
+        assert!(app.credentials.lock().unwrap().system_one.is_none());
     }
 
     #[tokio::test]

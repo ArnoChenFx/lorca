@@ -172,18 +172,25 @@ pub async fn ask(http: &reqwest::Client, service: &SystemOneCredential, state: &
     probability_of_yes(&body)
 }
 
-/// Checks that the service answers at `root` and takes the key: a refused key is an error, and
-/// any other answer, including a service without a model list, counts as reached.
-pub async fn check(http: &reqwest::Client, root: &str, api_key: &str) -> Result<(), String> {
+/// Why the service could not confirm the key: it could not be reached, or it refused the key.
+#[derive(Debug, PartialEq)]
+pub enum CheckFailure {
+    Unreachable(String),
+    Refused,
+}
+
+/// Checks that the service answers at `root` and takes the key. Any answer other than a refusal,
+/// including a service without a model list, counts as reached.
+pub async fn check(http: &reqwest::Client, root: &str, api_key: &str) -> Result<(), CheckFailure> {
     let response = http
         .get(format!("{root}/v1/models"))
         .bearer_auth(api_key)
         .timeout(TIMEOUT)
         .send()
         .await
-        .map_err(|error| format!("could not reach System One at {root} ({})", error.without_url()))?;
+        .map_err(|error| CheckFailure::Unreachable(lorca_tls::describe(&error)))?;
     match response.status().as_u16() {
-        401 | 403 => Err("System One refused the API key".into()),
+        401 | 403 => Err(CheckFailure::Refused),
         _ => Ok(()),
     }
 }
@@ -355,12 +362,17 @@ mod tests {
     async fn connecting_checks_that_the_key_is_taken() {
         let http = reqwest::Client::new();
         let (root, server) = serve(vec![("401 Unauthorized", "{}".into())]);
-        assert_eq!(check(&http, &root, "bad").await, Err("System One refused the API key".into()));
+        assert_eq!(check(&http, &root, "bad").await, Err(CheckFailure::Refused));
         assert!(server.join().unwrap()[0].starts_with("GET /v1/models "));
 
         let (root, server) = serve(vec![("404 Not Found", "{}".into())]);
         assert_eq!(check(&http, &root, "key").await, Ok(()));
         server.join().unwrap();
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        drop(listener);
+        assert!(matches!(check(&http, &format!("http://{address}"), "key").await, Err(CheckFailure::Unreachable(_))));
     }
 }
 
