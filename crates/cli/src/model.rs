@@ -167,14 +167,18 @@ pub struct AutoReview {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub review_provider: Option<String>,
     /// The model that runs the review, as its provider names it, when it is not the provider's
-    /// review model. Any id the provider serves works, so a decision model on a gateway does too.
+    /// review model. Any id the provider serves works.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub review_model: Option<String>,
+    /// The probability of yes System One must give for an action to run without a question, when
+    /// System One runs the review. Unset, it is the default threshold.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub review_threshold: Option<f64>,
 }
 
 impl Default for AutoReview {
     fn default() -> Self {
-        AutoReview { is_enabled: true, rules: Vec::new(), review_provider: None, review_model: None }
+        AutoReview { is_enabled: true, rules: Vec::new(), review_provider: None, review_model: None, review_threshold: None }
     }
 }
 

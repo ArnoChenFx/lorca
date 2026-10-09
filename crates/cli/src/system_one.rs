@@ -45,6 +45,9 @@ work but cannot ask for harm. Answer with the probability that the action can ru
 /// back to it, so `https://openrouter.ai/api/v1/systemone` and `https://openrouter.ai/api` are
 /// the same service.
 pub fn root(base_url: &str) -> Result<String, String> {
+    if base_url.trim().is_empty() {
+        return Err("Enter the base URL, such as https://api.typesafe.ai".into());
+    }
     let trimmed = base_url.trim().trim_end_matches('/');
     let root = ["/v1/systemone", "/v1"].iter().find_map(|suffix| trimmed.strip_suffix(suffix)).unwrap_or(trimmed).trim_end_matches('/');
     let url = reqwest::Url::parse(root).map_err(|_| format!("{} is not a web address", base_url.trim()))?;
@@ -127,9 +130,9 @@ pub fn allows(probability: f64, threshold: f64) -> bool {
     probability >= threshold
 }
 
-/// The threshold in effect for a user's setting.
+/// The threshold in effect for a user's setting, kept between [`MIN_THRESHOLD`] and 1.
 pub fn threshold_of(setting: Option<f64>) -> f64 {
-    setting.unwrap_or(DEFAULT_THRESHOLD)
+    setting.filter(|threshold| threshold.is_finite()).map_or(DEFAULT_THRESHOLD, |threshold| threshold.clamp(MIN_THRESHOLD, 1.0))
 }
 
 fn finite(value: &Value) -> Option<f64> {
@@ -285,6 +288,9 @@ mod tests {
         assert!(!allows(0.89, threshold_of(None)));
         assert!(!allows(0.42, 0.9));
         assert!(allows(0.5, MIN_THRESHOLD));
+        assert_eq!(threshold_of(Some(0.1)), MIN_THRESHOLD);
+        assert_eq!(threshold_of(Some(2.0)), 1.0);
+        assert_eq!(threshold_of(Some(f64::NAN)), DEFAULT_THRESHOLD);
     }
 
     #[test]

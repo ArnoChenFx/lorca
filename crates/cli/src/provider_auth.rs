@@ -13,7 +13,11 @@ use lorca_provider_auth::grok::{self as grok_oauth, GrokTokens};
 
 use crate::app::App;
 use crate::config;
-use crate::credentials::{is_custom, ApiKeyCredential, Credentials, CustomApi, CustomModel, CustomProvider, CUSTOM_PREFIX, PROVIDER_KINDS};
+use crate::credentials::{
+    is_custom, ApiKeyCredential, Credentials, CustomApi, CustomModel, CustomProvider, SystemOneCredential, SystemOneStatus, CUSTOM_PREFIX, PROVIDER_KINDS,
+    SYSTEM_ONE_KIND,
+};
+use crate::system_one;
 
 const ANTHROPIC_BASE_URL: &str = "https://api.anthropic.com";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
@@ -157,6 +161,33 @@ pub struct CustomInput {
     pub api_key: String,
     /// Model ids in the user's order. Empty takes every model the server lists.
     pub models: Vec<String>,
+}
+
+/// What the user typed for System One.
+#[derive(Debug, Default)]
+pub struct SystemOneInput {
+    pub base_url: String,
+    /// Blank keeps the key already saved, so the user does not retype it to change the model.
+    pub api_key: String,
+    pub model: String,
+}
+
+/// Checks System One's key and endpoint, and saves them for the account. The model is the id the
+/// service answers with, such as `jev-latest` on TypeSafe or `typesafe/jev-latest` on OpenRouter.
+pub async fn connect_system_one(app: &Arc<App>, input: SystemOneInput) -> Result<SystemOneStatus, String> {
+    let root = system_one::root(&input.base_url)?;
+    let model = input.model.trim().to_string();
+    if model.is_empty() {
+        return Err("Enter the model, such as jev-latest".into());
+    }
+    let api_key = match input.api_key.trim() {
+        "" => app.credentials.lock().unwrap().system_one.as_ref().map(|saved| saved.api_key.clone()).ok_or("Enter the API key")?,
+        key => key.to_string(),
+    };
+    system_one::check(&app.http, &root, &api_key).await?;
+    let credential = SystemOneCredential { base_url: root, api_key, model, connected_at: config::now_unix() };
+    app.update_credentials(SYSTEM_ONE_KIND, |credentials| credentials.system_one = Some(credential)).map_err(|e| e.to_string())?;
+    app.credentials.lock().unwrap().system_one_status().ok_or_else(|| "System One is not connected".to_string())
 }
 
 /// Checks a custom provider's server and saves the provider for the account, answering with
@@ -395,6 +426,15 @@ pub async fn connect_grok(
 /// Disconnects `kind` for the whole account: every Device drops the credential, and a custom
 /// provider is deleted.
 pub fn disconnect(app: &Arc<App>, kind: &str) -> Result<(), String> {
+    if kind == SYSTEM_ONE_KIND {
+        app.update_credentials(SYSTEM_ONE_KIND, |credentials| credentials.system_one = None).map_err(|e| e.to_string())?;
+        let mut auto_review = app.auto_review();
+        if auto_review.review_provider.as_deref() == Some(SYSTEM_ONE_KIND) {
+            auto_review.review_provider = None;
+            app.set_auto_review(auto_review);
+        }
+        return Ok(());
+    }
     if is_custom(kind) {
         if !app.credentials.lock().unwrap().custom.contains_key(kind) {
             return Err(format!("Unknown provider {kind}"));
@@ -638,6 +678,64 @@ mod tests {
         assert!(requests[0].starts_with("GET /v1/models ") && requests[0].contains("authorization: Bearer sk-1"), "{}", requests[0]);
         assert!(list_custom_models(app, "", "chat-completions", "ftp://lab", "").await.unwrap_err().contains("http://"));
         assert!(app.credentials.lock().unwrap().custom.is_empty(), "listing saves nothing");
+    }
+
+    #[tokio::test]
+    async fn system_one_connects_with_a_key_the_service_takes_and_stays_out_of_chat() {
+        let scratch = scratch_app();
+        let app = &scratch.0;
+        let (root, server) = crate::system_one::mock::serve(vec![("200 OK", "{\"data\": []}".into())]);
+        let status = connect_system_one(app, SystemOneInput { base_url: root.clone(), api_key: "sk-one".into(), model: "jev-latest".into() }).await.unwrap();
+        assert_eq!(server.join().unwrap()[0].split_whitespace().next(), Some("GET"));
+        assert_eq!(status.model, "jev-latest");
+        assert_eq!(status.base_url, root);
+        let credentials = app.credentials.lock().unwrap();
+        assert!(!credentials.kinds().iter().any(|kind| kind == SYSTEM_ONE_KIND), "a decision service is no chat provider");
+        assert!(!credentials.statuses().iter().any(|provider| provider.kind == SYSTEM_ONE_KIND));
+        assert_eq!(credentials.system_one.as_ref().map(|saved| saved.api_key.as_str()), Some("sk-one"));
+    }
+
+    #[tokio::test]
+    async fn system_one_keeps_its_saved_key_when_the_key_is_left_blank() {
+        let scratch = scratch_app();
+        let app = &scratch.0;
+        let (root, server) = crate::system_one::mock::serve(vec![("200 OK", "{}".into()), ("200 OK", "{}".into())]);
+        connect_system_one(app, SystemOneInput { base_url: root.clone(), api_key: "sk-one".into(), model: "jev-latest".into() }).await.unwrap();
+        connect_system_one(app, SystemOneInput { base_url: root, api_key: " ".into(), model: "jev-1.13.0".into() }).await.unwrap();
+        let seen = server.join().unwrap();
+        assert!(seen[1].to_lowercase().contains("authorization: bearer sk-one"), "{}", seen[1]);
+        assert_eq!(app.credentials.lock().unwrap().system_one.as_ref().map(|saved| saved.model.clone()), Some("jev-1.13.0".into()));
+    }
+
+    #[tokio::test]
+    async fn a_system_one_key_the_service_refuses_is_not_saved() {
+        let scratch = scratch_app();
+        let app = &scratch.0;
+        let (root, server) = crate::system_one::mock::serve(vec![("401 Unauthorized", "{}".into())]);
+        let error = connect_system_one(app, SystemOneInput { base_url: root, api_key: "bad".into(), model: "jev-latest".into() }).await.unwrap_err();
+        server.join().unwrap();
+        assert_eq!(error, "System One refused the API key");
+        assert!(app.credentials.lock().unwrap().system_one.is_none());
+        let blank = connect_system_one(app, SystemOneInput { base_url: "https://api.typesafe.ai".into(), api_key: String::new(), model: "jev-latest".into() }).await;
+        assert_eq!(blank.unwrap_err(), "Enter the API key");
+    }
+
+    #[tokio::test]
+    async fn disconnecting_system_one_also_stops_it_reviewing() {
+        let scratch = scratch_app();
+        let app = &scratch.0;
+        let (root, server) = crate::system_one::mock::serve(vec![("200 OK", "{}".into())]);
+        connect_system_one(app, SystemOneInput { base_url: root, api_key: "sk-one".into(), model: "jev-latest".into() }).await.unwrap();
+        server.join().unwrap();
+        let mut auto_review = app.auto_review();
+        auto_review.review_provider = Some(SYSTEM_ONE_KIND.into());
+        auto_review.review_threshold = Some(0.8);
+        app.set_auto_review(auto_review);
+        disconnect(app, SYSTEM_ONE_KIND).unwrap();
+        assert!(app.credentials.lock().unwrap().system_one.is_none());
+        let auto_review = app.auto_review();
+        assert_eq!(auto_review.review_provider, None);
+        assert_eq!(auto_review.review_threshold, Some(0.8), "the threshold stays for a later connection");
     }
 
     #[tokio::test]

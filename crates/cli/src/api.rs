@@ -8,8 +8,10 @@ use serde_json::{json, Value};
 
 use crate::app::App;
 use crate::model::*;
+use crate::credentials::SYSTEM_ONE_KIND;
 #[cfg(feature = "provider-auth")]
 use crate::provider_auth;
+use crate::system_one;
 use crate::{identity, pairing, requests, routines, runtime};
 
 fn string(params: &Value, key: &str) -> Result<String, String> {
@@ -674,6 +676,12 @@ pub async fn dispatch(app: &Arc<App>, method: &str, params: Value) -> Result<Val
             // review model, again.
             if let Some(provider) = params.get("review_provider") {
                 auto_review.review_provider = match provider.as_str().map(str::trim).filter(|kind| !kind.is_empty()) {
+                    Some(SYSTEM_ONE_KIND) => {
+                        if app.credentials.lock().unwrap().system_one.is_none() {
+                            return Err("Connect System One first".into());
+                        }
+                        Some(SYSTEM_ONE_KIND.to_string())
+                    }
                     Some(kind) if !app.credentials.lock().unwrap().kinds().iter().any(|known| known == kind) => {
                         return Err(format!("{kind} is not a provider"));
                     }
@@ -683,6 +691,20 @@ pub async fn dispatch(app: &Arc<App>, method: &str, params: Value) -> Result<Val
             }
             if let Some(model) = params.get("review_model") {
                 auto_review.review_model = model.as_str().map(str::trim).filter(|model| !model.is_empty()).map(str::to_string);
+            }
+            // How sure System One must be to run an action unasked, between the lowest threshold
+            // and certainty. Null takes the default again.
+            if let Some(threshold) = params.get("review_threshold") {
+                auto_review.review_threshold = match threshold {
+                    Value::Null => None,
+                    value => {
+                        let number = value.as_f64().filter(|n| n.is_finite()).ok_or("The threshold is a number")?;
+                        if !(system_one::MIN_THRESHOLD..=1.0).contains(&number) {
+                            return Err(format!("The threshold is between {} and 1", system_one::MIN_THRESHOLD));
+                        }
+                        Some(number)
+                    }
+                };
             }
             app.set_auto_review(auto_review.clone());
             Ok(json!({ "auto_review": auto_review }))
@@ -781,6 +803,17 @@ pub async fn dispatch(app: &Arc<App>, method: &str, params: Value) -> Result<Val
             };
             let (kind, warning) = provider_auth::save_custom(app, input).await?;
             Ok(json!({ "kind": kind, "providers": app.credentials.lock().unwrap().statuses(), "warning": warning }))
+        }
+        // System One, the review model that answers a probability: its own slot, never a chat provider.
+        #[cfg(feature = "provider-auth")]
+        "providers.connect_system_one" => {
+            let input = provider_auth::SystemOneInput {
+                base_url: params["base_url"].as_str().unwrap_or_default().to_string(),
+                api_key: params["api_key"].as_str().unwrap_or_default().to_string(),
+                model: params["model"].as_str().unwrap_or_default().to_string(),
+            };
+            let system_one = provider_auth::connect_system_one(app, input).await?;
+            Ok(json!({ "system_one": system_one, "providers": app.credentials.lock().unwrap().statuses() }))
         }
         #[cfg(feature = "provider-auth")]
         "providers.connect_chatgpt" => {

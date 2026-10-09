@@ -558,12 +558,12 @@ mod tests {
         };
 
         assert_eq!(review_choice(app, "deepseek"), ("deepseek".into(), "deepseek-flash".into(), Some(ThinkingLevel::Off)));
-        app.set_auto_review(chosen(None, Some("decision-x")));
-        assert_eq!(review_choice(app, "deepseek"), ("deepseek".into(), "decision-x".into(), None));
+        app.set_auto_review(chosen(None, Some("trial-x")));
+        assert_eq!(review_choice(app, "deepseek"), ("deepseek".into(), "trial-x".into(), None));
         app.set_auto_review(chosen(None, Some("deepseek-flash-2025")));
         assert_eq!(review_choice(app, "deepseek"), ("deepseek".into(), "deepseek-flash-2025".into(), Some(ThinkingLevel::Off)));
-        app.set_auto_review(chosen(Some("custom:proxy"), Some("openai/decision-7b")));
-        assert_eq!(review_choice(app, "deepseek"), ("custom:proxy".into(), "openai/decision-7b".into(), None));
+        app.set_auto_review(chosen(Some("custom:proxy"), Some("openai/trial-7b")));
+        assert_eq!(review_choice(app, "deepseek"), ("custom:proxy".into(), "openai/trial-7b".into(), None));
         app.set_auto_review(chosen(Some("custom:proxy"), None));
         assert_eq!(review_choice(app, "deepseek"), ("custom:proxy".into(), "anthropic/claude-haiku-4-5".into(), Some(ThinkingLevel::Off)));
         app.set_auto_review(chosen(Some("custom:gone"), Some("x")));
