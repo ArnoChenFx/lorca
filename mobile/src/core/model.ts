@@ -294,8 +294,38 @@ export type AutoReviewRule = { id: string; text: string; behavior: "allow" | "as
 
 /// The check on effectful plugin actions and shell commands, shared through the roster. The
 /// review model is the provider kind and model id that run it, each unset for the bot's own
-/// provider and that provider's review model.
-export type AutoReview = { is_enabled: boolean; rules: AutoReviewRule[]; review_provider?: string | null; review_model?: string | null };
+/// provider and that provider's review model. With System One as the review model, the review
+/// runs when System One's probability that an action is safe reaches `review_threshold`.
+export type AutoReview = {
+  is_enabled: boolean;
+  rules: AutoReviewRule[];
+  review_provider?: string | null;
+  review_model?: string | null;
+  review_threshold?: number | null;
+};
+
+/// System One, the review model that answers a probability instead of text: the root it is
+/// served from, the model id, and the key masked. It is not a chat provider, so no bot runs on it.
+export type SystemOne = { base_url: string; model: string; detail: string };
+
+/// The kind System One is reviewed under in `review_provider`.
+export const SYSTEM_ONE_KIND = "systemone";
+/// The roots System One is served from: TypeSafe's, and OpenRouter's.
+export const SYSTEM_ONE_BASE_URLS = [
+  { title: "TypeSafe", url: "https://api.typesafe.ai" },
+  { title: "OpenRouter", url: "https://openrouter.ai/api" },
+] as const;
+export const DEFAULT_REVIEW_THRESHOLD = 0.9;
+export const MIN_REVIEW_THRESHOLD = 0.5;
+
+/// The threshold a user typed: a number from the lowest threshold to 1. Empty means the default,
+/// `null`; anything else is `undefined`, which the form refuses.
+export function parseReviewThreshold(text: string): number | null | undefined {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  const value = Number(trimmed);
+  return Number.isFinite(value) && value >= MIN_REVIEW_THRESHOLD && value <= 1 ? value : undefined;
+}
 
 export type MessageState =
   | { kind: "thinking" }
@@ -640,6 +670,7 @@ export function providerSignInRequirement(kind: ProviderKind): string {
 /// provider, which is its slug once the provider is gone.
 export function providerLabel(kind: string, providers: readonly ProviderStatus[]): string {
   if (isCustomProvider(kind)) return providers.find((p) => p.kind === kind)?.name || kind.slice(CUSTOM_PROVIDER_PREFIX.length);
+  if (kind === SYSTEM_ONE_KIND) return "System One";
   return PROVIDER_LABELS[kind] ?? kind;
 }
 

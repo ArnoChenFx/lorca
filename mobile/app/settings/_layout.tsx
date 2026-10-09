@@ -24,6 +24,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="provider/[kind]" />
       <Stack.Screen name="custom-provider" />
       <Stack.Screen name="custom-models" />
+      <Stack.Screen name="system-one" />
     </Stack>
   );
 }

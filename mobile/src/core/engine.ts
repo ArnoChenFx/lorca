@@ -8,7 +8,7 @@ import { AppState, Platform, type AppStateStatus } from "react-native";
 import * as core from "../../modules/lorca-core";
 import { t } from "../i18n";
 import { hostFacts } from "./host";
-import { providerConnectMethod, type Attachment, type AutoReview, type Bot, type Chat, type ChatMeta, type ChatSearchResults, type ChatUsage, type CustomAPI, type CustomModel, type Message, type ProviderKind, type ProviderStatus } from "./model";
+import { providerConnectMethod, SYSTEM_ONE_KIND, type Attachment, type AutoReview, type Bot, type Chat, type ChatMeta, type ChatSearchResults, type ChatUsage, type CustomAPI, type CustomModel, type Message, type ProviderKind, type ProviderStatus, type SystemOne } from "./model";
 import { coreHome, loadPrefs, pathOf, wipePrefs } from "./prefs";
 import { clearPushes, installPushHandlers, registerForPushes } from "./push";
 import {
@@ -372,6 +372,7 @@ class Engine {
       rules: value.rules,
       review_provider: value.review_provider ?? null,
       review_model: value.review_model ?? null,
+      review_threshold: value.review_threshold ?? null,
     });
   }
 
@@ -419,7 +420,19 @@ class Engine {
   /// Disconnects a built-in provider, or deletes a custom one, for the whole account.
   async disconnectProvider(kind: string): Promise<void> {
     const { providers } = await core.request<{ providers: ProviderStatus[] }>("providers.disconnect", { kind });
-    useStore.setState({ providers });
+    useStore.setState(kind === SYSTEM_ONE_KIND ? { providers, system_one: null } : { providers });
+  }
+
+  /// Checks System One's key at its base URL and saves its key, model, and root for the account.
+  /// A blank key keeps the saved one. Rejects with what to fix: a root that is not a web address,
+  /// a key the service refuses, or a service out of reach.
+  async connectSystemOne(input: { baseURL: string; apiKey: string; model: string }): Promise<void> {
+    const { system_one } = await core.request<{ system_one: SystemOne; providers: ProviderStatus[] }>("providers.connect_system_one", {
+      base_url: input.baseURL.trim(),
+      api_key: input.apiKey.trim(),
+      model: input.model.trim(),
+    });
+    useStore.setState({ system_one });
   }
 
   /// Opens a sign-in page, a provider's or a plugin's for its Runner, in the in-app browser

@@ -52,6 +52,7 @@ mock.module("../../modules/lorca-core", () => ({
       return { kind, providers: [{ kind, is_connected: true, detail: params.base_url, base_url: params.base_url, name: params.name, api: params.api, models }] };
     }
     if (method === "providers.disconnect") return { providers: [] };
+    if (method === "providers.connect_system_one") return { system_one: { base_url: params.base_url, model: params.model, detail: "sk-…one" }, providers: [] };
     if (method === "providers.list_models") return params.base_url.includes("unlisted") ? { listed: false } : { listed: true, models: [{ id: "llama4", context_window: 131072 }] };
     return method === "bootstrap" ? (heldSnapshot ?? snapshot([])) : null;
   },
@@ -257,14 +258,33 @@ test("a quick command never counts, and one running before the phone heard of it
   expect(tasks()).toEqual(["server"]);
 });
 
+test("System One is the review model, with its threshold and its own setup, and never a chat provider", async () => {
+  rosterCalls.length = 0;
+  providerCalls.length = 0;
+  const { parseReviewThreshold, SYSTEM_ONE_KIND, DEFAULT_REVIEW_THRESHOLD } = await import("./model");
+  expect([parseReviewThreshold("0.8"), parseReviewThreshold(" 1 "), parseReviewThreshold(""), parseReviewThreshold("0.5")]).toStrictEqual([0.8, 1, null, 0.5]);
+  expect([parseReviewThreshold("0.4"), parseReviewThreshold("1.5"), parseReviewThreshold("high"), parseReviewThreshold("NaN")]).toStrictEqual([undefined, undefined, undefined, undefined]);
+  expect(DEFAULT_REVIEW_THRESHOLD).toBe(0.9);
+  engine.setAutoReview({ is_enabled: true, rules: [], review_provider: SYSTEM_ONE_KIND, review_threshold: 0.8 });
+  expect(rosterCalls).toStrictEqual([
+    { method: "auto_review.set", params: { is_enabled: true, rules: [], review_provider: SYSTEM_ONE_KIND, review_model: null, review_threshold: 0.8 } },
+  ]);
+  await engine.connectSystemOne({ baseURL: " https://openrouter.ai/api ", apiKey: " sk-one ", model: "typesafe/jev-1.13" });
+  expect(providerCalls).toStrictEqual([
+    { method: "providers.connect_system_one", params: { base_url: "https://openrouter.ai/api", api_key: "sk-one", model: "typesafe/jev-1.13" } },
+  ]);
+  expect(useStore.getState().system_one).toStrictEqual({ base_url: "https://openrouter.ai/api", model: "typesafe/jev-1.13", detail: "sk-…one" });
+  expect(useStore.getState().providers.some((p) => p.kind === SYSTEM_ONE_KIND)).toBe(false);
+});
+
 test("Auto-review's review model and a Device's custom name reach the core", async () => {
   rosterCalls.length = 0;
   engine.setAutoReview({ is_enabled: true, rules: [], review_provider: "custom:lab", review_model: "openai/decision" });
   engine.setAutoReview({ is_enabled: true, rules: [] });
   await engine.setDeviceCustomName("runner", "Build box");
   expect(rosterCalls).toStrictEqual([
-    { method: "auto_review.set", params: { is_enabled: true, rules: [], review_provider: "custom:lab", review_model: "openai/decision" } },
-    { method: "auto_review.set", params: { is_enabled: true, rules: [], review_provider: null, review_model: null } },
+    { method: "auto_review.set", params: { is_enabled: true, rules: [], review_provider: "custom:lab", review_model: "openai/decision", review_threshold: null } },
+    { method: "auto_review.set", params: { is_enabled: true, rules: [], review_provider: null, review_model: null, review_threshold: null } },
     { method: "device.set_custom_name", params: { id: "runner", custom_name: "Build box" } },
   ]);
 });

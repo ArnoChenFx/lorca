@@ -7,7 +7,7 @@ import { ActivityIndicator, Alert, Platform, ScrollView, StyleSheet, Text, View 
 import { engine } from "../../src/core/engine";
 import { loadPrefs } from "../../src/core/prefs";
 import { checkForUpdates, installedVersion, installUpdate, setDailyChecks, updatesSupported, useUpdates, type Updates } from "../../src/core/updates";
-import { CUSTOM_PRESETS, customProviderNamed, deviceName, isCustomProvider, isRunner, providerLabel } from "../../src/core/model";
+import { CUSTOM_PRESETS, customProviderNamed, DEFAULT_REVIEW_THRESHOLD, deviceName, isCustomProvider, isRunner, parseReviewThreshold, providerLabel, SYSTEM_ONE_KIND } from "../../src/core/model";
 import { deviceIsOnline, useStore } from "../../src/core/store";
 import { deviceLanguage, languageNames, languages, setAppLanguage, t, useLanguage } from "../../src/i18n";
 import { FieldRow, MenuRow, Row, Section, ToggleRow, type MenuChoice } from "../../src/ui/forms";
@@ -53,6 +53,7 @@ export default function SettingsScreen() {
   const relayUrl = useStore((s) => s.relayUrl);
   const identity = useStore((s) => s.identityId);
   const autoReview = useStore((s) => s.auto_review);
+  const systemOne = useStore((s) => s.system_one);
   const providers = useStore((s) => s.providers);
   const thisDevice = devices.find((d) => d.is_this_device);
   const [name, setName] = useState(thisDevice?.auto_name ?? thisDevice?.name ?? "");
@@ -107,6 +108,9 @@ export default function SettingsScreen() {
 
   const [reviewModel, setReviewModel] = useState(autoReview.review_model ?? "");
   useEffect(() => setReviewModel(autoReview.review_model ?? ""), [autoReview.review_model]);
+  const [reviewThreshold, setReviewThreshold] = useState(autoReview.review_threshold?.toString() ?? "");
+  useEffect(() => setReviewThreshold(autoReview.review_threshold?.toString() ?? ""), [autoReview.review_threshold]);
+  const reviewWithSystemOne = autoReview.review_provider === SYSTEM_ONE_KIND;
   const reviewProviderChoices: MenuChoice[] = [
     { title: t("The bot's provider"), selected: !autoReview.review_provider, dividerAfter: true, onPress: () => engine.setAutoReview({ ...autoReview, review_provider: null }) },
     ...providers
@@ -116,12 +120,23 @@ export default function SettingsScreen() {
         selected: autoReview.review_provider === provider.kind,
         onPress: () => engine.setAutoReview({ ...autoReview, review_provider: provider.kind }),
       })),
+    ...(systemOne ? [{ title: providerLabel(SYSTEM_ONE_KIND, providers), selected: reviewWithSystemOne, onPress: () => engine.setAutoReview({ ...autoReview, review_provider: SYSTEM_ONE_KIND }) }] : []),
   ];
 
   function commitReviewModel() {
     const model = reviewModel.trim() || null;
     if (model === (autoReview.review_model ?? null)) return;
     engine.setAutoReview({ ...autoReview, review_model: model });
+  }
+
+  function commitReviewThreshold() {
+    const threshold = parseReviewThreshold(reviewThreshold);
+    if (threshold === undefined) {
+      setReviewThreshold(autoReview.review_threshold?.toString() ?? "");
+      return;
+    }
+    if (threshold === (autoReview.review_threshold ?? null)) return;
+    engine.setAutoReview({ ...autoReview, review_threshold: threshold });
   }
 
   function addRule() {
@@ -278,7 +293,11 @@ export default function SettingsScreen() {
 
         <Section
           title={t("Review model")}
-          footer={t("The model that checks actions while Auto-review is on: any model id its provider serves, such as a decision model on a gateway. Left empty, the provider's review model runs.")}
+          footer={
+            reviewWithSystemOne
+              ? t("System One gives how likely an action is safe. An action runs without a question when that probability reaches the threshold, from 0.5 to 1; left empty, it is {value}.", { value: String(DEFAULT_REVIEW_THRESHOLD) })
+              : t("The model that checks actions while Auto-review is on: a model id its provider serves. Left empty, the provider's review model runs.")
+          }
         >
           <Row
             title={t("Provider")}
@@ -288,18 +307,33 @@ export default function SettingsScreen() {
               choices: reviewProviderChoices,
             }}
           />
-          <FieldRow
-            label={t("Model")}
-            value={reviewModel}
-            placeholder={t("Default")}
-            onChangeText={setReviewModel}
-            onBlur={commitReviewModel}
-            onSubmitEditing={commitReviewModel}
-            returnKeyType="done"
-            autoCapitalize="none"
-            autoCorrect={false}
-            style={{ textAlign: "right", color: p.secondaryLabel }}
-          />
+          <Row title={t("System One")} detail={systemOne ? systemOne.model : t("Not set up")} chevron onPress={() => router.push("/settings/system-one")} />
+          {reviewWithSystemOne ? (
+            <FieldRow
+              label={t("Threshold")}
+              value={reviewThreshold}
+              placeholder={String(DEFAULT_REVIEW_THRESHOLD)}
+              onChangeText={setReviewThreshold}
+              onBlur={commitReviewThreshold}
+              onSubmitEditing={commitReviewThreshold}
+              keyboardType="decimal-pad"
+              returnKeyType="done"
+              style={{ textAlign: "right", color: p.secondaryLabel }}
+            />
+          ) : (
+            <FieldRow
+              label={t("Model")}
+              value={reviewModel}
+              placeholder={t("Default")}
+              onChangeText={setReviewModel}
+              onBlur={commitReviewModel}
+              onSubmitEditing={commitReviewModel}
+              returnKeyType="done"
+              autoCapitalize="none"
+              autoCorrect={false}
+              style={{ textAlign: "right", color: p.secondaryLabel }}
+            />
+          )}
         </Section>
 
         <Section

@@ -5,7 +5,7 @@
 import { useMemo } from "react";
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
-import { runsInTerminal, type AutoReview, type Bot, type Chat, type ChatMeta, type ChatUsage, type Device, type Message, type ProviderModel, type ProviderStatus, type RelayProblem, type Routine } from "./model";
+import { runsInTerminal, type AutoReview, type Bot, type Chat, type ChatMeta, type ChatUsage, type Device, type Message, type ProviderModel, type ProviderStatus, type RelayProblem, type Routine, type SystemOne } from "./model";
 import { t } from "../i18n";
 import { savePrefs } from "./prefs";
 
@@ -48,6 +48,8 @@ export interface StoreState {
   auto_review: AutoReview;
   /// The account's provider credentials, the same on every Device.
   providers: ProviderStatus[];
+  /// System One, the review model that answers a probability, when the account connects it.
+  system_one: SystemOne | null;
   /// The models the core's catalog offers, for the Model and Thinking pickers.
   models: ProviderModel[];
   /// Turns in flight, by job id.
@@ -89,6 +91,7 @@ function empty(): Omit<StoreState, "ready" | "dictation_lang" | "appActive" | "a
     routines: [],
     auto_review: { is_enabled: true, rules: [] },
     providers: [],
+    system_one: null,
     models: [],
     running: {},
     thinking: {},
@@ -153,6 +156,7 @@ export function replaceSnapshot(snapshot: {
   routines?: Routine[];
   auto_review?: AutoReview;
   providers?: ProviderStatus[];
+  system_one?: SystemOne | null;
   models?: ProviderModel[];
   running_turns: { job_id: string; chat_id: string; bot_id: string; routine_id?: string | null }[];
 }) {
@@ -184,6 +188,7 @@ export function replaceSnapshot(snapshot: {
     routines: snapshot.routines ?? [],
     auto_review: snapshot.auto_review ?? { is_enabled: true, rules: [] },
     providers: snapshot.providers ?? [],
+    system_one: snapshot.system_one ?? null,
     models: snapshot.models ?? [],
     running,
     // What a turn that ended unheard was doing says nothing about the next one.
@@ -219,7 +224,7 @@ function seenOf(devices: Device[]): Record<string, number> {
 
 /// `roster.changed`: bots replace, chat metadata merges over kept messages, chats not named
 /// are gone.
-export function applyRoster(roster: { devices: Device[]; bots: Bot[]; chats: (ChatMeta & { unread_count: number; usage?: ChatUsage })[]; routines?: Routine[]; auto_review?: AutoReview; providers?: ProviderStatus[]; models?: ProviderModel[] }): { removed: string[] } {
+export function applyRoster(roster: { devices: Device[]; bots: Bot[]; chats: (ChatMeta & { unread_count: number; usage?: ChatUsage })[]; routines?: Routine[]; auto_review?: AutoReview; providers?: ProviderStatus[]; system_one?: SystemOne | null; models?: ProviderModel[] }): { removed: string[] } {
   const removed: string[] = [];
   useStore.setState((s) => {
     const incoming = new Set(roster.chats.map((c) => c.id));
@@ -241,6 +246,7 @@ export function applyRoster(roster: { devices: Device[]; bots: Bot[]; chats: (Ch
       routines: same(s.routines, roster.routines ?? s.routines),
       auto_review: same(s.auto_review, roster.auto_review ?? s.auto_review),
       providers: same(s.providers, roster.providers ?? s.providers),
+      system_one: roster.system_one === undefined ? s.system_one : roster.system_one,
       models: same(s.models, roster.models ?? s.models),
     };
   });
