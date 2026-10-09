@@ -763,9 +763,7 @@ func (o *onboardingWindow) doneStep(c *ui.Context) *onboardingButton {
 	case onboardingRestored:
 		title = L("Your identity is restored")
 	}
-	// Ending onboarding closes this window, so the click (or Return) returns first: the rest of
-	// the frame draws over the window's theme, which a closed window has none of.
-	open := onboardingButton{title: L("Open Lorca"), run: func() { post(app.endOnboarding) }}
+	open := onboardingButton{title: L("Open Lorca"), run: app.endOnboarding}
 	o.centered(c, func() {
 		ui.Row(c).Margin(0, 0, 6, 0).TextColor(p.Green).Children(func() { symbol(c, "checkmark.circle.fill", 56, 1.6) })
 		ui.Text(c, title).FontSize(22).FontWeight(600).TextAlign(ui.Center)
