@@ -4,6 +4,7 @@ import Foundation
 enum StoreEvent {
     case snapshotReplaced
     case rosterChanged
+    case reviewsChanged
     case durableTasksChanged
     case chatsChanged
     case chatChanged(Chat.ID)
@@ -71,6 +72,7 @@ final class AppStore {
     private(set) var chats: [Chat] = []
     /// Every bot's routines, from the roster.
     private(set) var routines: [Routine] = []
+    private(set) var reviews: [ReviewItem] = []
     private(set) var durableTasks: [DurableTask] = []
     /// Auto-review, shared through the roster.
     private(set) var autoReview = AutoReview()
@@ -277,6 +279,7 @@ final class AppStore {
             return chat
         }
         routines = (snapshot.routines ?? []).map { $0.toModel() }
+        reviews = snapshot.reviews ?? []
         durableTasks = snapshot.tasks ?? []
         autoReview = snapshot.autoReview?.toModel() ?? AutoReview()
         providers = (snapshot.providers ?? []).compactMap { $0.toModel() }
@@ -299,6 +302,9 @@ final class AppStore {
         }
 
         switch name {
+        case "reviews.changed":
+            struct Change: Decodable { var item: ReviewItem }
+            if let change = decode(Change.self) { upsertReview(change.item) }
         case "snapshot":
             if let snapshot = decode(Wire.Snapshot.self) { apply(snapshot: snapshot) }
 
@@ -1137,6 +1143,50 @@ final class AppStore {
 
     // MARK: - Routines
 
+    func review(_ id: String) -> ReviewItem? { reviews.first { $0.id == id } }
+
+    private func upsertReview(_ item: ReviewItem) {
+        if let index = reviews.firstIndex(where: { $0.id == item.id }) {
+            guard reviews[index].revision <= item.revision else { return }
+            reviews[index] = item
+        } else { reviews.append(item) }
+        emit(.reviewsChanged)
+    }
+
+    /// The plugin a call goes to, as its Runner lists it and the permission card names it: "GitHub".
+    func pluginName(of item: ReviewItem) -> String {
+        device(item.runnerId)?.plugins.first { $0.id == item.payload.pluginId }?.name ?? item.target.account
+    }
+
+    /// Approves the version the user saw. An edit made in the sheet is saved first, as the next
+    /// version, and that is the one approved: what runs is what the editor showed.
+    func approveReview(_ item: ReviewItem, payload: [String: Any]?) async throws -> ReviewItem {
+        var shown = item
+        if let payload { shown = try await changeReview(shown, action: "edit", fields: ["payload": payload]) }
+        return try await changeReview(shown, action: "approve")
+    }
+
+    func rejectReview(_ item: ReviewItem) async throws -> ReviewItem {
+        try await changeReview(item, action: "reject")
+    }
+
+    /// A change names the version the sheet displayed, so one made on another Device meanwhile is
+    /// refused rather than decided blind.
+    private func changeReview(_ item: ReviewItem, action: String, fields: [String: Any] = [:]) async throws -> ReviewItem {
+        var params = fields
+        params["id"] = item.id
+        params["expected_version"] = item.version
+        let data: Data
+        if isMock {
+            data = try MockData.changedReview(item, action: action, fields: fields)
+        } else {
+            data = try await client.request("reviews.\(action)", params)
+        }
+        let updated = try Wire.decoder.decode(ReviewItem.self, from: data)
+        upsertReview(updated)
+        return review(updated.id) ?? updated
+    }
+
     /// Pauses or resumes a routine. A resumed schedule counts from now.
     func setRoutineEnabled(_ id: Routine.ID, _ enabled: Bool) {
         guard let index = routines.firstIndex(where: { $0.id == id }) else { return }
@@ -1884,6 +1934,7 @@ final class AppStore {
         bots = MockData.bots()
         chats = MockData.chats()
         routines = MockData.routines()
+        reviews = MockData.reviews()
         autoReview = MockData.autoReview()
         providers = MockData.providers()
         catalog = MockData.models()

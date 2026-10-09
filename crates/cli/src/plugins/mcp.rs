@@ -1561,6 +1561,25 @@ pub struct PluginTool {
     timeout: std::time::Duration,
 }
 
+/// Resolves the exact original tool on its original server from the live connection for a
+/// durable review. A cached tool name never supplies authority or execution preconditions, and
+/// the call checks the bot's Access in the originating chat again right before it goes out, as
+/// a turn's calls do.
+pub async fn reviewed_tool(app: &Arc<App>, bot: &Bot, chat_id: &str, plugin_id: &str, server_name: &str, name: &str, cancel: &CancellationToken) -> Result<Arc<dyn Tool>, String> {
+    let plugin = app.plugins.lock().unwrap().get(plugin_id).cloned().ok_or("The reviewed connection was removed.")?;
+    if plugin.manifest.tools.hides(name) { return Err("The reviewed tool is hidden.".into()); }
+    let server = tokio::select! {
+        result = app.mcp.server(app, plugin_id, server_name) => result?,
+        _ = cancel.cancelled() => return Err("Stopped".into()),
+    };
+    let tool = server.tools().into_iter().find(|tool| tool.name.as_ref() == name).ok_or("The server no longer offers the reviewed tool.")?;
+    let description = tool.description.as_deref().unwrap_or("").to_string();
+    Ok(Arc::new(PluginTool { app: app.clone(), plugin_id: plugin_id.into(), plugin_name: plugin.display_name(),
+        server_name: server_name.into(), tool, name: tool_name(plugin_id, name), description, read_only: false, kind: ToolKind::Call,
+        timeout: plugin.manifest.servers.get(server_name).map(ServerSpec::call_timeout).unwrap_or(super::CALL_TIMEOUT),
+        policy_context: Some((bot.clone(), chat_id.into())) }))
+}
+
 /// What calling a plugin tool asks its server: one of its own tools, or its resources.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ToolKind {
@@ -2039,8 +2058,15 @@ pub async fn review_call(
     let outcome = super::review::decide(app, bot, chat_id, trigger, &tool.plugin_id, &tool.plugin_name, &name, &review_description, ctx.args, script, ctx.cancel).await;
     let super::review::Outcome::Ask { reason, .. } = outcome else { return None };
     if unattended {
+        let staged = crate::review_execution::stage_call(app, bot, chat_id, trigger, &ctx.tool_call.id,
+            crate::review_queue::ReviewPayload::Plugin { plugin_id: tool.plugin_id.clone(), server_name: tool.server_name.clone(), tool: name.clone(), arguments: ctx.args.clone() },
+            crate::review_queue::ReviewTarget { account: tool.plugin_name.clone(), resource: call_summary(&name, ctx.args) }, reason.as_deref()).await;
+        let status = match staged {
+            Ok(item) => format!("Staged review {} (version {}). The user can edit and approve it later; the exact call resumes on this Runner. Do not retry it now.", item.id, item.version),
+            Err(error) => format!("Could not stage the action for review: {error}. Report the proposed action."),
+        };
         return Some(crate::local_review::blocked(format!(
-            "{name} needs the user's permission ({}), and nobody is here to give it. Report what you would do; the user can add an Auto-review rule allowing it.",
+            "{name} needs the user's permission ({}). {status}",
             reason.as_deref().unwrap_or("Auto-review is off, so every change asks")
         )));
     }
@@ -2751,6 +2777,9 @@ pub fn dismiss_questions(app: &App, chat_id: &str) {
 pub fn dismissed_call(reason: String) -> ToolResult {
     ToolResult { terminate: true, ..ToolResult::text(reason) }
 }
+
+#[cfg(test)]
+mod review_tests;
 
 #[cfg(test)]
 mod tests {

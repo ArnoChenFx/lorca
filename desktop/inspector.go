@@ -104,6 +104,7 @@ func (m *mainWindow) inspectorView(c *ui.Context, chatID string) {
 				}
 				m.inspectorGroup(c, chat, members)
 			}
+			m.inspectorReviews(c, chat)
 			m.inspectorOutputs(c, chat)
 			if single != nil {
 				m.inspectorProfile(c, single)

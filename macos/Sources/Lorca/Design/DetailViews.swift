@@ -526,13 +526,16 @@ final class StatusRow: NSView, NSGestureRecognizerDelegate {
         stateDetail: String? = nil,
         actionTitle: String? = nil,
         destructive: Bool = false,
-        symbolTint: NSColor = .secondaryLabelColor
+        symbolTint: NSColor = .secondaryLabelColor,
+        subtitleLines: Int = 0
     ) {
         icon.image = image ?? NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
         icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
         icon.contentTintColor = symbolTint
         title.stringValue = titleText
         subtitle.stringValue = subtitleText
+        subtitle.maximumNumberOfLines = subtitleLines
+        subtitle.cell?.truncatesLastVisibleLine = subtitleLines > 0
         subtitle.isHidden = subtitleText.isEmpty
         // With a symbol, the state's words are its tooltip and what VoiceOver reads.
         let showsSymbol = stateText != nil && stateSymbol != nil

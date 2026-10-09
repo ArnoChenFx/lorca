@@ -78,6 +78,7 @@ const (
 	EventOutputsChanged
 	EventConnectionChanged
 	EventIdentityChanged
+	EventReviewsChanged
 	EventDurableTasksChanged
 )
 
@@ -135,6 +136,8 @@ type Store struct {
 	// Routines are every bot's routines, from the roster.
 	Routines     []*Routine
 	DurableTasks []*DurableTask
+	// Reviews are read-only CLI projections; the owning Runner decides and executes.
+	Reviews []*ReviewItem
 	// AutoReview is shared through the roster.
 	AutoReview AutoReview
 	// Providers are the account's provider credentials, the same on every Device.
@@ -456,6 +459,11 @@ func (s *Store) apply(snapshot WireSnapshot) {
 		s.Routines = append(s.Routines, ToRoutine(routine))
 	}
 	s.AutoReview = ToAutoReview(snapshot.AutoReview)
+	s.Reviews = nil
+	for _, item := range snapshot.Reviews {
+		copy := item.Clone()
+		s.Reviews = append(s.Reviews, &copy)
+	}
 	s.Providers = ToProviders(snapshot.Providers)
 	s.Models = ToModels(snapshot.Models)
 	s.runningJobs = nil
@@ -501,6 +509,12 @@ func decode[T any](data json.RawMessage) (T, bool) {
 
 func (s *Store) handle(name string, data json.RawMessage) {
 	switch name {
+	case "reviews.changed":
+		if event, ok := decode[struct {
+			Item ReviewItem `json:"item"`
+		}](data); ok && event.Item.ID != "" && event.Item.Version > 0 {
+			s.upsertReview(event.Item)
+		}
 	case "tasks.changed":
 		if event, ok := decode[struct {
 			Task DurableTask `json:"task"`
@@ -2642,6 +2656,7 @@ func (s *Store) ResetMockData() {
 	if !s.IsMock {
 		return
 	}
+	s.Reviews = mockReviews()
 	if s.replies != nil {
 		for _, chat := range s.Chats {
 			s.replies.cancel(chat.ID)

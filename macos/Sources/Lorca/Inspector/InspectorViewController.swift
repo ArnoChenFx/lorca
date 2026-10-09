@@ -16,6 +16,7 @@ final class InspectorViewController: NSViewController {
     private let runtime = SectionView(title: L("Runs with"))
     private let memory = SectionView(title: L("Memory"))
     private let routines = SectionView(title: L("Routines"))
+    private let reviews = SectionView(title: L("Waiting for review"))
     private let tasks = SectionView(title: L("Tasks"))
     private let plugins = SectionView(title: L("Plugins"))
     private let routing = SectionView(title: L("Where turns run"))
@@ -95,6 +96,7 @@ final class InspectorViewController: NSViewController {
         column.addArrangedSubview(participants)
         column.addArrangedSubview(addButton)
         column.addArrangedSubview(group)
+        column.addArrangedSubview(reviews)
         column.addArrangedSubview(outputs)
         column.addArrangedSubview(profile)
         column.addArrangedSubview(runtime)
@@ -139,6 +141,7 @@ final class InspectorViewController: NSViewController {
             runtime.widthAnchor.constraint(equalTo: column.widthAnchor, constant: -32),
             memory.widthAnchor.constraint(equalTo: column.widthAnchor, constant: -32),
             routines.widthAnchor.constraint(equalTo: column.widthAnchor, constant: -32),
+            reviews.widthAnchor.constraint(equalTo: column.widthAnchor, constant: -32),
             tasks.widthAnchor.constraint(equalTo: column.widthAnchor, constant: -32),
             plugins.widthAnchor.constraint(equalTo: column.widthAnchor, constant: -32),
             routing.widthAnchor.constraint(equalTo: column.widthAnchor, constant: -32),
@@ -151,7 +154,7 @@ final class InspectorViewController: NSViewController {
         super.viewDidLoad()
         store.observe(self) { [weak self] event in
             switch event {
-            case .chatChanged, .chatsChanged, .snapshotReplaced, .rosterChanged, .durableTasksChanged:
+            case .chatChanged, .chatsChanged, .snapshotReplaced, .rosterChanged, .reviewsChanged, .durableTasksChanged:
                 self?.reload()
             case let .outputsChanged(chatID):
                 guard let self, case .chat(chatID) = self.selection else { return }
@@ -258,8 +261,43 @@ final class InspectorViewController: NSViewController {
             showPlugins(of: bot)
         }
         showRouting(members)
+        showReviews(in: chat)
         showTasks(in: chat)
     }
+
+    /// What the chat's bots left for the user to approve, oldest first, while any waits or runs;
+    /// a row opens it. How each ended stays in the chat, so the section goes once none is open.
+    private func showReviews(in chat: Chat) {
+        let items = store.reviews.filter { $0.origin.chatId == chat.id && $0.isOpen }.sorted { $0.createdAt < $1.createdAt }
+        let runner = items.first.flatMap { store.device($0.runnerId) }
+        guard changed(reviews, to: [chat.id, items.map { "\($0.id):\($0.revision)" }, runner?.plugins]) else { return }
+        if reviews.isHidden != items.isEmpty { reviews.isHidden = items.isEmpty }
+        reviews.setRows(
+            items.map { item in
+                let row: StatusRow = keptRow("review:\(item.id)") {
+                    let row = StatusRow()
+                    row.identifier = NSUserInterfaceItemIdentifier(item.id)
+                    row.addGestureRecognizer(NSClickGestureRecognizer(target: self, action: #selector(openReview(_:))))
+                    return row
+                }
+                let plugin = item.payload.pluginId.flatMap { id in store.device(item.runnerId)?.plugins.first { $0.id == id } }
+                row.configure(
+                    symbol: item.payload.isDraft ? "doc.text" : (item.payload.isShell ? "terminal" : plugin?.symbolName ?? "puzzlepiece.extension"),
+                    image: plugin.flatMap { PluginLogo.tile(for: $0.marketplaceID, size: 18) },
+                    title: item.payload.kind == "plugin" ? store.pluginName(of: item) : item.headline,
+                    subtitle: item.rationale,
+                    state: item.stateText,
+                    subtitleLines: 2)
+                row.toolTip = item.rationale
+                return row
+            })
+    }
+
+    @objc private func openReview(_ sender: NSClickGestureRecognizer) {
+        guard let id = sender.view?.identifier?.rawValue, let item = store.review(id) else { return }
+        presentAsSheet(ReviewViewController(item: item))
+    }
+
 
     /// The chat's durable tasks, open work first; hidden while it has none. A row opens the
     /// task; the title's + starts a new one. Past five rows the rest wait behind Show All.

@@ -153,6 +153,10 @@ pub struct App {
     pub credentials: Mutex<Credentials>,
     pub state: Mutex<State>,
     pub store: LocalStore,
+    /// Serializes review decisions, encrypted persistence, and their relay publication.
+    pub review_lock: Mutex<()>,
+    /// An approval wakes the Runner's review executor.
+    pub review_wake: Notify,
     pub events: broadcast::Sender<Event>,
     pub relay: RelayClient,
     pub outbox_notify: Notify,
@@ -275,6 +279,8 @@ impl App {
             credentials: Mutex::new(credentials),
             state: Mutex::new(state),
             store,
+            review_lock: Mutex::new(()),
+            review_wake: Notify::new(),
             events,
             relay: RelayClient::new()?,
             outbox_notify: Notify::new(),
@@ -1848,6 +1854,7 @@ impl App {
             "bots": state.bots,
             "chats": state.chats.iter().map(|chat| self.chat_for_app(chat)).collect::<Vec<_>>(),
             "routines": self.routines_out(&state),
+            "reviews": crate::review_queue::list(self).unwrap_or_default(),
             "tasks": crate::tasks::list(self).unwrap_or_default(),
             "auto_review": state.auto_review,
             "providers": self.credentials.lock().unwrap().statuses(),
