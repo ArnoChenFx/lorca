@@ -90,6 +90,32 @@ impl Drop for Runtime {
     }
 }
 
+/// Why a Browser call parked on a takeover does not go on.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Parked {
+    Stopped,
+    /// The user wrote while they had the browser.
+    UserWrote,
+}
+
+impl Parked {
+    pub fn reason(self) -> &'static str {
+        match self {
+            Parked::Stopped => "Stopped",
+            Parked::UserWrote => "The user wrote while they had the browser, which is still theirs: answer their message before acting in it.",
+        }
+    }
+
+    /// The call does not run. One the user wrote over ends the batch, as a question they left
+    /// for a message does, so the turn reads the message next.
+    pub fn blocked(self) -> BeforeToolCallResult {
+        match self {
+            Parked::Stopped => crate::local_review::blocked(self.reason().into()),
+            Parked::UserWrote => crate::local_review::dismissed(self.reason()),
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Sessions {
     /// The account whose records are loaded.
@@ -246,25 +272,36 @@ impl Sessions {
     }
 
     /// Parks a Browser call while the user has the bot's browser, with its turn and script state
-    /// intact. Return to Bot, Stop, and the chat's Stop wake it.
-    pub async fn wait_if_taken_over(&self, bot_id: &str, cancel: &CancellationToken) -> Result<(), String> {
+    /// intact. Return to Bot, Stop, and the chat's Stop wake it, and so does a message the user
+    /// writes in `chat_id` meanwhile: the bot reads it before it acts in the browser, which
+    /// stays the user's.
+    pub async fn wait_if_taken_over(&self, app: &App, bot_id: &str, chat_id: &str, cancel: &CancellationToken) -> Result<(), Parked> {
         loop {
             let changed = self.changed.notified();
             if !self.taken_over(bot_id) {
                 return Ok(());
             }
+            if app.steering_queue(chat_id).is_some_and(|queue| !queue.is_empty()) {
+                return Err(Parked::UserWrote);
+            }
             tokio::select! {
                 _ = changed => {},
-                _ = cancel.cancelled() => return Err("Stopped".into()),
+                _ = cancel.cancelled() => return Err(Parked::Stopped),
             }
         }
     }
 
+    /// The user wrote in a chat: a call parked on a takeover looks whether the message is for
+    /// its turn.
+    pub fn user_wrote(&self) {
+        self.changed.notify_waiters();
+    }
+
     /// The bot's open profile for a Browser call, holding its input gate, or `None` when the bot
     /// has none open and the call goes to the Runner's shared headless browser.
-    pub async fn input(&self, app: &Arc<App>, bot_id: &str, cancel: &CancellationToken) -> Result<Option<Input>, String> {
+    pub async fn input(&self, app: &Arc<App>, bot_id: &str, chat_id: &str, cancel: &CancellationToken) -> Result<Option<Input>, String> {
         loop {
-            self.wait_if_taken_over(bot_id, cancel).await?;
+            self.wait_if_taken_over(app, bot_id, chat_id, cancel).await.map_err(|parked| parked.reason().to_string())?;
             let open = self.items.lock().unwrap().values().find(|item| {
                 let meta = item.meta.lock().unwrap();
                 meta.bot_id == bot_id && meta.selected && meta.state == Control::Bot
@@ -687,8 +724,8 @@ pub async fn review_call(app: &Arc<App>, bot: &Bot, chat_id: &str, trigger: &cra
     if let Err(denied) = crate::permissions::check_plugin(app, bot, super::PLUGIN_ID, "browser_session") {
         return Some(crate::permissions::refuse(app, chat_id, bot, denied));
     }
-    if let Err(error) = app.browser_sessions.wait_if_taken_over(&bot.id, ctx.cancel).await {
-        return Some(crate::local_review::blocked(error));
+    if let Err(parked) = app.browser_sessions.wait_if_taken_over(app, &bot.id, chat_id, ctx.cancel).await {
+        return Some(parked.blocked());
     }
     let (description, args) = match ctx.args["action"].as_str() {
         Some("open") => ("Open one of this bot's browser profiles in a window on its Runner.".to_string(), ctx.args.clone()),

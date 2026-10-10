@@ -97,7 +97,7 @@ pub async fn run(app: &Arc<App>, bot: &Bot, chat_id: &str, skill: &str, inputs: 
     for (index, step) in steps.steps.iter().enumerate() {
         // Each step holds the browser's input gate: a takeover waits for the step, and the run
         // waits for the user to hand the browser back.
-        let input = sessions.input(app, &bot.id, cancel).await.map_err(ToolError)?;
+        let input = sessions.input(app, &bot.id, chat_id, cancel).await.map_err(ToolError)?;
         let Some(input) = input.filter(|input| input.name == profile.name) else {
             return Err(ToolError(format!("The {} browser closed at step {} of {total}.", profile.name, index + 1)));
         };

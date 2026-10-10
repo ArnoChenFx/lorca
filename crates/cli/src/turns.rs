@@ -647,6 +647,7 @@ pub(crate) fn hear_user_message(app: &App, message: &Message) {
     }
     if steer_message(app, message) {
         app.shell_sessions.user_wrote(&message.chat_id);
+        app.browser_sessions.user_wrote();
     }
     crate::plugins::mcp::dismiss_questions(app, &message.chat_id);
 }

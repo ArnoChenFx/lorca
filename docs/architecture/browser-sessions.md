@@ -20,7 +20,7 @@ The apps' Open Browser gives the user control (`human`). The bot opens one with 
 
 ## Taking over
 
-Every Browser call in a profile holds that profile's input gate until its server answers. Take Over marks the profile `taking_over` at once, so new calls wait, and `human` once the call in flight has answered; on the Runner the window comes forward. Waiting calls keep their turn and codemode state, and the chat's Stop ends them. `browser_session` waits during a takeover too, and the bot can't open a profile over the user. The bot's other tools run as usual.
+Every Browser call in a profile holds that profile's input gate until its server answers. Take Over marks the profile `taking_over` at once, so new calls wait, and `human` once the call in flight has answered; on the Runner the window comes forward. Waiting calls keep their turn and codemode state, and the chat's Stop ends them. A message the user writes in a direct chat meanwhile ends the waiting call in that chat too (`Parked::UserWrote`: `wait_if_taken_over` finds the turn's steering queue holding it, and `Sessions::user_wrote` wakes it from `hear_user_message`): the call does not run, the turn reads the message next, and the browser stays the user's; a run of recorded steps stops before its next step. `browser_session` waits during a takeover too, and the bot can't open a profile over the user. The bot's other tools run as usual.
 
 Return to Bot sends the revision the app last saw: a profile that changed since (another Device took it over again, or closed it) is not handed back. It wakes the waiting calls, which find the same page, tabs, and sign-ins.
 
