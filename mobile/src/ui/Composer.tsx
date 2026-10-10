@@ -6,7 +6,7 @@
 // above the text. @-mention chips in a group. While a turn runs, a Stop disc sits beside
 // Send: the hard Stop, as in the desktop apps; sending a message while a turn runs still
 // steers it. Where liquid glass is not available (older iOS, Android)
-// the pill is a plain filled field.
+// the pill is a plain filled field. An image pasted into the field attaches like a picked photo.
 
 import { Button as MenuButton, Host as SwiftHost, Image as MenuImage, Menu, type ButtonProps } from "@expo/ui/swift-ui";
 import { background, frame, shapes } from "@expo/ui/swift-ui/modifiers";
@@ -22,6 +22,7 @@ import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from "expo-spe
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Linking, Platform, ScrollView, StyleSheet, Text, TextInput, View, type ColorValue, type ImageSourcePropType, type StyleProp, type ViewStyle } from "react-native";
 import { Pressable } from "./Pressable";
+import { ImagePasteView, type PastedImage } from "../../modules/lorca-core/ImagePasteView";
 import type { PickedFile } from "../core/engine";
 import { fileSize, MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS, type Bot } from "../core/model";
 import { BotAvatar } from "./Avatar";
@@ -248,6 +249,17 @@ export const Composer = memo(function Composer({
     );
   }
 
+  function pasteImages(images: PastedImage[]) {
+    const stamp = timestamp();
+    addFiles(
+      images.map((image, index) => {
+        const extension = image.mime === "image/jpeg" ? "jpg" : image.mime.slice("image/".length).split("+")[0] || "png";
+        const suffix = images.length > 1 ? ` ${index + 1}` : "";
+        return { ...image, name: `Pasted Image ${stamp}${suffix}.${extension}` };
+      }),
+    );
+  }
+
   const sources: AttachSource[] = [
     { title: t("Photo Library"), icon: "photo.on.rectangle", androidIcon: AndroidIcons.photos, run: () => void pickPhotos() },
     { title: t("Take Photo"), icon: "camera", androidIcon: AndroidIcons.camera, run: () => void takePhoto() },
@@ -382,21 +394,27 @@ export const Composer = memo(function Composer({
   const breaks = text.split("\n").length;
   const minHeight = Math.min(MAX_LINES, Math.max(1, breaks)) * lineHeight;
   const maxHeight = MAX_LINES * lineHeight;
+  // The paste view carries the input's layout; the input fills it.
   const input = (
-    <TextInput
+    <ImagePasteView
       key="input"
-      ref={inputRef}
-      value={text}
-      onChangeText={setText}
-      placeholder={reply ? t("Reply…") : placeholder}
-      placeholderTextColor={p.tertiaryLabel}
-      multiline
-      onFocus={() => setFocused(true)}
-      onBlur={() => setFocused(false)}
-      keyboardAppearance={p.dark ? "dark" : "light"}
-      style={[styles.input, expanded && styles.inputExpanded, { color: p.label, lineHeight, minHeight, maxHeight }]}
-      accessibilityLabel={t("Message")}
-    />
+      onPasteImages={({ nativeEvent }) => pasteImages(nativeEvent.files)}
+      style={[styles.inputBox, expanded && styles.inputBoxExpanded]}
+    >
+      <TextInput
+        ref={inputRef}
+        value={text}
+        onChangeText={setText}
+        placeholder={reply ? t("Reply…") : placeholder}
+        placeholderTextColor={p.tertiaryLabel}
+        multiline
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        keyboardAppearance={p.dark ? "dark" : "light"}
+        style={[styles.input, { color: p.label, lineHeight, minHeight, maxHeight }]}
+        accessibilityLabel={t("Message")}
+      />
+    </ImagePasteView>
   );
 
   const primaryButton = (
@@ -574,7 +592,7 @@ export const Composer = memo(function Composer({
 });
 
 function imageAsset(asset: ImagePicker.ImagePickerAsset): PickedFile {
-  const name = asset.fileName ?? `Photo ${new Date().toISOString().slice(0, 19).replace("T", " ").replace(/:/g, ".")}.jpg`;
+  const name = asset.fileName ?? `Photo ${timestamp()}.jpg`;
   return {
     uri: asset.uri,
     name,
@@ -583,6 +601,10 @@ function imageAsset(asset: ImagePicker.ImagePickerAsset): PickedFile {
     width: asset.width,
     height: asset.height,
   };
+}
+
+function timestamp(): string {
+  return new Date().toISOString().slice(0, 19).replace("T", " ").replace(/:/g, ".");
 }
 
 function deviceLanguage(): string {
@@ -606,9 +628,10 @@ const styles = StyleSheet.create({
   reply: { flexDirection: "row", alignItems: "center", gap: 6, paddingTop: 10, paddingHorizontal: 10 },
   replyText: { flex: 1, fontSize: 13 },
   controls: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 6, paddingTop: 4 },
-  input: { flex: 1, fontSize: Font.body, paddingTop: 0, paddingBottom: 0, margin: 0, marginVertical: 6, marginHorizontal: 6 },
+  inputBox: { flex: 1, marginVertical: 6, marginHorizontal: 6 },
   // In the stack the input is a row of its own: no growing into the column, wider margins.
-  inputExpanded: { flex: 0, marginHorizontal: 12, marginTop: 10, marginBottom: 6 },
+  inputBoxExpanded: { flex: 0, marginHorizontal: 12, marginTop: 10, marginBottom: 6 },
+  input: { fontSize: Font.body, paddingTop: 0, paddingBottom: 0, margin: 0 },
   // At the right of the field, beside Send, where Grok Bot puts it.
   pill: { flexDirection: "row", alignItems: "center", gap: 6, height: 28, borderRadius: 14, paddingLeft: 4, paddingRight: 10, marginLeft: "auto", marginBottom: 3 },
   stop: { width: 22, height: 22, alignItems: "center", justifyContent: "center" },
