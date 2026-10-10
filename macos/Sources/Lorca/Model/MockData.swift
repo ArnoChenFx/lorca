@@ -1228,6 +1228,27 @@ enum MockData {
                 body: .text("The website build passes. I've left the changes ready for review."),
                 createdAt: minutesAgo(27)
             ),
+            Message(
+                author: .you,
+                body: .text("Have Claude Code fix the broken docs link on the download page, with a test."),
+                createdAt: minutesAgo(12)
+            ),
+            Message(
+                author: .bot("bot-patch"),
+                body: .tool(ToolInvocation(
+                    name: "coding_agent", summary: "Started Claude Code", detail: "", isRunning: false,
+                    agent: AgentRun(
+                        id: "agent-3f9a2c1d", kind: "claude", host: nil, task: "Fix the broken docs link on the download page, with a test",
+                        folder: "~/.lorca/worktrees/site-1a2b3c/fix-docs-link", branch: "fix-docs-link", state: .working,
+                        output: "● Read(src/pages/download.astro)\n● Edit(src/pages/download.astro)\n  ⎿ Updated 1 line\n● Bash(bun test links)\n  ⎿ 14 pass\n    0 fail",
+                        device: "Workbench", startedAt: minutesAgo(11)))),
+                createdAt: minutesAgo(11)
+            ),
+            Message(
+                author: .bot("bot-patch"),
+                body: .text("Claude Code is fixing the link in a worktree of its own. I'll check its test when it's done."),
+                createdAt: minutesAgo(11)
+            ),
         ]
     }
 
@@ -1250,6 +1271,20 @@ enum MockData {
         ("dev-studio", SavedSecret(id: "secret-s2", botID: "bot-scout", name: "S2_API_KEY", label: "Semantic Scholar API key", use: .command, site: nil, updatedAt: minutesAgo(60 * 24 * 6))),
         ("dev-workbench", SavedSecret(id: "secret-medium", botID: "bot-quill", name: "medium_password", label: "Medium password", use: .browser, site: "medium.com", updatedAt: minutesAgo(60 * 50))),
     ]
+
+    /// What `coding.transcript` answers in the demo.
+    static let agentTranscript = """
+        > Fix the broken docs link on the download page, with a test.
+        I'll find the link first.
+        ● Grep(docs/install)
+          ⎿ src/pages/download.astro:42
+        ● Read(src/pages/download.astro)
+        ● Edit(src/pages/download.astro)
+          ⎿ Updated 1 line
+        ● Bash(bun test links)
+          ⎿ 14 pass
+            0 fail
+        """
 
     private static func researcherThread() -> [Message] {
         [

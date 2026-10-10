@@ -99,7 +99,7 @@ impl BotPermissions {
     }
 
     fn local_denial(&self, tool: &str) -> Option<String> {
-        if matches!(tool, "bash" | "bash_input" | "bash_output") && !self.shell {
+        if matches!(tool, "bash" | "bash_input" | "bash_output" | "coding_agent") && !self.shell {
             return Some("shell commands are off for this bot".into());
         }
         if matches!(tool, "read" | "grep" | "find" | "ls") && self.filesystem == FilesystemAccess::None {
@@ -262,7 +262,7 @@ pub fn refuse(app: &Arc<App>, chat_id: &str, bot: &Bot, denied: AccessDenied) ->
             }
             None => {
                 let what = match denied.tool.as_str() {
-                    "bash" | "bash_input" | "bash_output" => "Shell commands",
+                    "bash" | "bash_input" | "bash_output" | "coding_agent" => "Shell commands",
                     "write" | "edit" => "Changing files",
                     _ => "Reading files",
                 };
