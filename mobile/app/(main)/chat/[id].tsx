@@ -29,7 +29,7 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SoftScrollEdgeView } from "../../../modules/lorca-core/SoftScrollEdgeView";
 import { chatTitle, engine, type PickedFile } from "../../../src/core/engine";
-import { isLive, type Bot, type Message } from "../../../src/core/model";
+import { isLive, showsSpeakers, type Bot, type Message } from "../../../src/core/model";
 import {
   useBotMap,
   useChat,
@@ -672,6 +672,8 @@ export default function ChatScreen() {
     [botIds, bots],
   );
   const isGroup = chat?.kind === "group";
+  // A channel's conversation shows its speakers by name, as a group does.
+  const speakers = chat ? showsSpeakers(chat) : false;
   const title = chat ? chatTitle(chat) : t("Chat");
   // After the Mac app: "Message Chef", or the group's title with a hint that @ addresses one bot.
   const placeholder =
@@ -779,7 +781,7 @@ export default function ChatScreen() {
             <MessageRow
               row={item}
               bots={bots}
-              isGroup={isGroup}
+              isGroup={speakers}
               onReply={startReply}
               onQuotePress={revealQuoted}
               flashing={flashId === item.message.id}
@@ -793,7 +795,7 @@ export default function ChatScreen() {
           return (
             <PermissionRow
               row={item}
-              isGroup={isGroup}
+              isGroup={speakers}
               onDecide={answerCard}
               onFill={fillSecret}
             />
@@ -804,7 +806,7 @@ export default function ChatScreen() {
           return (
             <CommandRow
               row={item}
-              isGroup={isGroup}
+              isGroup={speakers}
               onDecide={answerCard}
               onAnswer={answerCommand}
               onStop={stopCommand}
@@ -816,7 +818,7 @@ export default function ChatScreen() {
           return <StatusRow text={item.text} />;
       }
     },
-    [answerCard, answerCommand, fillSecret, bots, id, isGroup, openMarker, startReply, revealQuoted, flashId, stopCommand],
+    [answerCard, answerCommand, fillSecret, bots, id, isGroup, speakers, openMarker, startReply, revealQuoted, flashId, stopCommand],
   );
 
   if (!chat) {

@@ -7,6 +7,8 @@
 //! side, with the permission gate, is `mcp` under the `runner` feature.
 
 #[cfg(feature = "runner")]
+pub mod builtin;
+#[cfg(feature = "runner")]
 pub mod mcp;
 pub mod mcp_json;
 #[cfg(feature = "runner")]
@@ -60,6 +62,11 @@ pub struct Manifest {
     pub named_accounts: bool,
     #[serde(default)]
     pub servers: BTreeMap<String, ServerSpec>,
+    /// Servers the Runner answers itself (`ServerSpec::Builtin`), by name: the service each
+    /// serves. An index lists them here, apart from `servers`, so a build that does not know them
+    /// still reads the entry; `parse` moves them into `servers`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub builtin_servers: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub variables: Vec<VariableSpec>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -98,6 +105,13 @@ pub enum ServerSpec {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         timeout: Option<u64>,
     },
+    /// A server Lorca answers itself, in the Runner (`plugins::builtin`): `telegram`, or `slack`
+    /// for Slack's bot. Only the marketplace service of that name runs one.
+    Builtin {
+        service: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        timeout: Option<u64>,
+    },
 }
 
 /// How long a plugin tool's call may go without an answer or progress, unless its server says.
@@ -108,7 +122,7 @@ impl ServerSpec {
     /// ten minutes.
     pub fn call_timeout(&self) -> std::time::Duration {
         let own = match self {
-            ServerSpec::Stdio { timeout, .. } | ServerSpec::Http { timeout, .. } => *timeout,
+            ServerSpec::Stdio { timeout, .. } | ServerSpec::Http { timeout, .. } | ServerSpec::Builtin { timeout, .. } => *timeout,
         };
         own.filter(|seconds| *seconds > 0).map(std::time::Duration::from_secs).unwrap_or(CALL_TIMEOUT)
     }
@@ -284,7 +298,10 @@ pub fn pattern_matches(pattern: &str, name: &str) -> bool {
 impl Manifest {
     /// Reads a manifest, refusing one that could not be installed.
     pub fn parse(value: &Value) -> Result<Manifest, String> {
-        let manifest: Manifest = serde_json::from_value(value.clone()).map_err(|e| format!("Not a plugin manifest: {e}"))?;
+        let mut manifest: Manifest = serde_json::from_value(value.clone()).map_err(|e| format!("Not a plugin manifest: {e}"))?;
+        for (name, service) in std::mem::take(&mut manifest.builtin_servers) {
+            manifest.servers.entry(name).or_insert(ServerSpec::Builtin { service, timeout: None });
+        }
         manifest.check()?;
         Ok(manifest)
     }
@@ -548,7 +565,7 @@ impl Store {
     fn server_origin(&self, id: &str, server: &str) -> Option<String> {
         match self.get(id)?.manifest.servers.get(server)? {
             ServerSpec::Http { url, .. } => Some(origin_of(url)),
-            ServerSpec::Stdio { .. } => None,
+            ServerSpec::Stdio { .. } | ServerSpec::Builtin { .. } => None,
         }
     }
 
@@ -868,8 +885,11 @@ pub fn note(app: &Arc<App>, id: &str, state: Option<(&str, &str)>) {
     announce(app);
 }
 
-/// The Runner's plugin list changed: the machine blob and the local app hear.
+/// The Runner's plugin list changed: the machine blob and the local app hear, and the channels
+/// whose accounts it names say how they stand now.
 pub(crate) fn announce(app: &Arc<App>) {
+    #[cfg(feature = "runner")]
+    crate::channels::refresh(app);
     app.push_machine_blob_if_changed();
     app.emit(app.roster_summary());
 }
@@ -888,6 +908,7 @@ pub fn detail(app: &Arc<App>, id: &str) -> Result<Value, String> {
         .map(|(name, spec)| {
             let (kind, auth) = match spec {
                 ServerSpec::Stdio { command, .. } => ("stdio", json!({ "command": command })),
+                ServerSpec::Builtin { service, .. } => ("builtin", json!({ "service": service })),
                 ServerSpec::Http { url, auth, .. } => {
                     let waiting = store.codes.get(id).filter(|code| &code.server == name);
                     // A server that signs in only when asked shows its sign-in once it has asked.

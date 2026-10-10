@@ -52,6 +52,7 @@ Identity 1──* Chat
 Chat     *──* Bot          (kind dm: exactly 1 bot, fixed · kind group: 1–6 bots, members change)
 Chat     1──* Message
 Bot      1──* Routine      (a scheduled task, run in the bot's DM on its Runner)
+Bot      1──* Channel      (a Telegram or Slack account it listens on; each thread is a Chat)
 Device   1──* Plugin       (an MCP server installed on a Runner or in its mcp.json, per bot Access)
 Bot      1──* Job          (a turn on the bot's Runner)
 Bot      1──* Handoff      (a durable delegated request with attempts and result reports)
@@ -66,6 +67,7 @@ Identity 1──* Task         (durable work; an owning Bot, assigned Runner, an
 | Routine            | Name, schedule, prompt, state                             | Inside encrypted roster blobs                          |
 | Task               | Encrypted records, revisions, evidence references, and run claims | Account-encrypted task blobs; execution Jobs sealed to the assigned Runner |
 | Plugin             | Manifest, variables, secrets, tokens on the Runner        | Id and state inside the Runner's encrypted machine blob |
+| Channel            | Its subscription and inbox on the Runner; tokens in the plugin store | Its state inside the Runner's encrypted machine blob |
 | ProviderCredential | `credentials.json` on every Device                        | Inside the encrypted `credentials` blob                |
 | Secret             | A bot's, in `secrets.enc` on its Runner                   | Only as the sealed answer to its card                  |
 | Chat / Message     | Account/chat DEK                                          | Encrypted blobs                                        |
@@ -73,9 +75,7 @@ Identity 1──* Task         (durable work; an owning Bot, assigned Runner, an
 
 Bots carry a name, description, provider/model settings, and an SF Symbol or encrypted avatar attachment. The apps edit these profiles through the local CLI ([Bot profiles](docs/architecture/bots.md#bot-profiles)).
 
-Creating a bot for Runner B from Device A: A writes an encrypted bot profile into the roster (paired Devices can read it) and pins B’s machine id. Bot create rejects a target whose `os` is not desktop. Turns are job envelopes addressed to B. B decrypts the job, runs the loop with the account’s provider credentials, and uploads encrypted replies.
-
-If B is offline, the envelope waits on the relay until B fetches it. The UI infers that from decrypted roster state. A turn for a provider the account has not connected ends with a notice in the chat that says to connect it in Settings.
+A bot made from one Device runs on its Runner, which can be offline: [A bot on another Runner](docs/architecture/bots.md#a-bot-on-another-runner).
 
 ## Subjects
 
@@ -107,6 +107,7 @@ One doc per subject under `docs/architecture/`, each short enough to read in one
 | [Routines](docs/architecture/routines.md) | A bot's scheduled tasks: schedules and their timezones, runs and read-only checks, missed runs, health and recovery, and the apps' routine sheet and service row |
 | [One-time routines, watches, and calendar events](docs/architecture/routine-triggers.md) | Routines that run once at a date and time, watch one pull request until it merges or closes, or run around a Calendar account's events; how the Runner reads GitHub and Calendar for them |
 | [Event triggers](docs/architecture/event-triggers.md) | Runner event subscriptions, gateways that sign and seal a service's events, a routine's webhook, why the relay holds no webhook inbox, the encrypted inbox, ordering and recovery |
+| [Channels](docs/architecture/channels.md) | A bot listening on Telegram and Slack: the accounts and their builtin servers, filters, the Runner's readers, conversations and what people write there, replies, the feedback collector |
 | [Durable tasks](docs/architecture/tasks.md) | Work that spans turns: owner, revisions, runs and recovery, evidence, the apps' Tasks section |
 | [Coordinator attention](docs/architecture/attention.md) | Consolidated reviews, blockers, commitments and changes, coordinator briefs, deduplication, encrypted records and notification preferences |
 | [Shared project context](docs/architecture/project-context.md) | Group briefs, goals, constraints, decisions, source freshness and corrections, encrypted reference assets, bounded bot discovery |
@@ -124,7 +125,7 @@ One doc per subject under `docs/architecture/`, each short enough to read in one
 
 ## Status
 
-Done: crypto and blob protocol, relay, CLI (identity, pairing, restore, local WS, API-key and subscription providers, server-side web search, agent loop, encrypt-before-upload, group chats, cross-Runner jobs and handoffs, steering and stop, routines, limits on turns and routines with resuming, shared plugin call limits, plugins over MCP with a marketplace, the user's own servers in `mcp.json`, and permission cards, encrypted pushes for replies, failures, and pending confirmations, signed self-updates of a CLI without an app, updated from any Device, and `lorca service`), app wiring and the bundled CLI launcher.
+Done: crypto and blob protocol, relay, CLI (identity, pairing, restore, local WS, API-key and subscription providers, server-side web search, agent loop, encrypt-before-upload, group chats, cross-Runner jobs and handoffs, steering and stop, routines, limits on turns and routines with resuming, shared plugin call limits, plugins over MCP with a marketplace, channels on Telegram and Slack, the user's own servers in `mcp.json`, and permission cards, encrypted pushes for replies, failures, and pending confirmations, signed self-updates of a CLI without an app, updated from any Device, and `lorca service`), app wiring and the bundled CLI launcher.
 
 Next: keychain storage.
 

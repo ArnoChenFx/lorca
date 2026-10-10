@@ -35,6 +35,7 @@ So stopping a continuation stops the rest of the work the first turn handed off,
 ## What keeps running
 
 - Background commands, named in the notice and listed in Running tasks.
+- A [channel](channels.md#conversations): Stop settles the message whose turn it ended, and the channel takes the next one; its switch pauses it.
 - An open browser profile, idle once its call has answered.
 - Whatever a cut-off call, or a plugin server that ignores the cancellation, was still doing.
 - Draft cards and review items already in the chat: they wait for the user, and one the user sent or approved finishes on its Runner.
