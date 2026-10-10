@@ -47,9 +47,13 @@ final class TemplateItemRow: NSView {
         let text = Build.stack([title, detail], spacing: 2)
         addSubview(text)
         addSubview(flag)
+        // Beside media, the taller of the two sits at the top and the other centers on it.
+        let textTop = text.topAnchor.constraint(equalTo: topAnchor, constant: 9)
+        if media != nil { textTop.priority = .defaultLow }
         var constraints = [
             heightAnchor.constraint(greaterThanOrEqualToConstant: 36),
-            text.topAnchor.constraint(equalTo: topAnchor, constant: 9),
+            textTop,
+            text.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 9),
             text.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -9),
             // The text runs to the flag, or to the edge without one.
             summary == nil
@@ -80,8 +84,9 @@ final class TemplateItemRow: NSView {
             addSubview(media)
             constraints += [
                 media.leadingAnchor.constraint(equalTo: leading, constant: leadingInset),
-                media.topAnchor.constraint(equalTo: topAnchor, constant: 9),
+                media.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 9),
                 media.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -9),
+                media.centerYAnchor.constraint(equalTo: text.centerYAnchor),
             ]
             leading = media.trailingAnchor
             leadingInset = 9
