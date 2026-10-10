@@ -3,7 +3,7 @@ import type { Message, Output } from "./model";
 
 mock.module("./prefs", () => ({ loadPrefs: () => ({}), savePrefs: () => {}, coreHome: () => "/unused", pathOf: (p: string) => p, wipePrefs: () => {} }));
 mock.module("expo-localization", () => ({ getLocales: () => [{ languageCode: "en", languageTag: "en-US" }] }));
-const { documentUrl, evidenceStatus, groupOutputs, outputSymbol } = await import("./model");
+const { documentUrl, evidenceStatus, groupOutputs, outputKind, outputSymbol, outputTypeName } = await import("./model");
 const { markFile, markFileError, removeChat, removeMessage, useStore } = await import("./store");
 
 function version(id: string, n: number, minutesAgo: number, output: Partial<Output> = {}): Message {
@@ -45,4 +45,19 @@ test("a failed fetch is kept until the bytes land, and listed outputs follow rem
   expect(useStore.getState().outputs.chat.map((m) => m.id)).toEqual(["report-2"]);
   removeChat("chat");
   expect(useStore.getState().outputs.chat).toBeUndefined();
+});
+
+test("an output says what kind of file it is, for its card's icon and type", () => {
+  const output = (name: string, mime: string, url?: string): Output => ({ id: "o", name, mime, bot_id: "b", version: 1, url });
+  expect(outputKind(output("mygo-site/index.html", "text/html"))).toBe("code");
+  expect(outputSymbol(output("mygo-site/index.html", "text/html"))).toBe("chevron.left.forwardslash.chevron.right");
+  expect(outputTypeName(output("mygo-site/index.html", "text/html"))).toBe("HTML");
+  expect(outputKind(output("preview-full.png", "image/png"))).toBe("image");
+  expect(outputKind(output("results.csv", "text/csv"))).toBe("table");
+  expect(outputKind(output("build.tar.gz", "application/gzip"))).toBe("archive");
+  expect(outputKind(output("site.v2/notes", "text/plain"))).toBe("text");
+  expect(outputTypeName(output("site.v2/notes", "text/plain"))).toBe("PLAIN");
+  expect(outputTypeName(output("blob", "application/octet-stream"))).toBe("");
+  expect(outputKind(output("Report", "text/html", "https://www.example.com/r"))).toBe("link");
+  expect(outputTypeName(output("Report", "text/html", "https://www.example.com/r"))).toBe("example.com");
 });

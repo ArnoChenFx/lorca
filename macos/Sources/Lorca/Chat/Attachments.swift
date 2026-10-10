@@ -64,10 +64,16 @@ struct OutgoingAttachment: Hashable {
 /// Downsampled images for bubbles and composer chips, decoded once per file.
 @MainActor
 enum Thumbnails {
-    private static var cache: [URL: NSImage] = [:]
+    private struct Key: Hashable {
+        var url: URL
+        var maxPixels: Int
+    }
+
+    private static var cache: [Key: NSImage] = [:]
 
     static func image(at url: URL, maxPixels: Int) -> NSImage? {
-        if let cached = cache[url] { return cached }
+        let key = Key(url: url, maxPixels: maxPixels)
+        if let cached = cache[key] { return cached }
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -76,7 +82,7 @@ enum Thumbnails {
         ]
         guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
         let image = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
-        cache[url] = image
+        cache[key] = image
         return image
     }
 }

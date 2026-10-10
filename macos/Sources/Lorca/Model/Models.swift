@@ -1538,15 +1538,83 @@ struct Output: Hashable, Decodable {
         return parsed
     }
 
+    /// What an output is, for its icon and its tint: a link or a kind of file.
+    enum Kind {
+        case file, link, image, video, audio, pdf, code, data, table, archive, text
+    }
+
+    private static let extensionKinds: [String: Kind] = {
+        var kinds: [String: Kind] = [:]
+        let groups: [(Kind, [String])] = [
+            (.code, ["html", "htm", "css", "js", "mjs", "ts", "tsx", "jsx", "go", "rs", "py", "rb", "swift", "java", "kt", "c", "h", "cc", "cpp", "sh", "sql", "svg", "diff", "patch"]),
+            (.data, ["json", "jsonl", "yaml", "yml", "toml", "xml"]),
+            (.table, ["csv", "tsv", "xls", "xlsx", "numbers"]),
+            (.archive, ["zip", "gz", "tgz", "tar", "7z", "rar"]),
+            (.text, ["txt", "md", "log", "rtf", "doc", "docx"]),
+        ]
+        for (kind, extensions) in groups {
+            for ext in extensions { kinds[ext] = kind }
+        }
+        return kinds
+    }()
+
+    /// What the output is, from its link, its media type, or its file's extension.
+    var kind: Kind {
+        if url != nil { return .link }
+        if let kind = Self.extensionKinds[(name as NSString).pathExtension.lowercased()] { return kind }
+        if mime.hasPrefix("image/") { return .image }
+        if mime.hasPrefix("video/") { return .video }
+        if mime.hasPrefix("audio/") { return .audio }
+        if mime == "application/pdf" { return .pdf }
+        if mime == "application/json" { return .data }
+        if mime.hasPrefix("text/") { return .text }
+        return .file
+    }
+
     /// The SF Symbol for what the output is.
     var symbolName: String {
-        if url != nil { return "link" }
-        if mime.hasPrefix("image/") { return "photo" }
-        if mime.hasPrefix("video/") { return "film" }
-        if mime.hasPrefix("audio/") { return "waveform" }
-        if mime == "application/pdf" { return "doc.richtext" }
-        if mime.hasPrefix("text/") || mime == "application/json" { return "doc.text" }
-        return "doc"
+        switch kind {
+        case .link: "link"
+        case .image: "photo"
+        case .video: "film"
+        case .audio: "waveform"
+        case .pdf: "richtext.page"
+        case .code: "chevron.left.forwardslash.chevron.right"
+        case .data: "curlybraces"
+        case .table: "tablecells"
+        case .archive: "zipper.page"
+        case .text: "text.page"
+        case .file: "document"
+        }
+    }
+
+    /// The color of the output's icon, by what it is.
+    var tint: NSColor {
+        switch kind {
+        case .link, .image: .systemBlue
+        case .video: .systemPurple
+        case .audio: .systemPink
+        case .pdf: .systemRed
+        case .code: .systemOrange
+        case .data: .systemTeal
+        case .table: .systemGreen
+        case .text: .systemIndigo
+        case .archive, .file: .secondaryLabelColor
+        }
+    }
+
+    /// "HTML", "PNG", or the link's host: what the output's card says it is beside its size.
+    var typeName: String {
+        if let url {
+            guard let host = URL(string: url)?.host else { return "" }
+            return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+        }
+        let ext = (name as NSString).pathExtension
+        if !ext.isEmpty, ext.count <= 8 { return ext.uppercased() }
+        if let sub = mime.split(separator: "/").last, sub != "octet-stream", sub.count <= 8, mime.contains("/") {
+            return sub.uppercased()
+        }
+        return ""
     }
 }
 
@@ -1622,6 +1690,9 @@ struct Message: Identifiable, Hashable {
     /// A message of the user's the bot's turn holds for its next step; Send now has it read now.
     var queued = false
     var output: Output?
+    /// A bot's published output, which the transcript shows as a card of its own rather than a
+    /// bubble.
+    var isOutputCard: Bool { output != nil && !author.isYou }
     /// summary, urgent, or quiet, supplied by the CLI for structured attention messages.
     var notification: String?
 

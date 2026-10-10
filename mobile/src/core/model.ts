@@ -567,14 +567,78 @@ export function documentUrl(output: Output): string | undefined {
 }
 
 /// The SF Symbol for what the output is.
-export function outputSymbol(output: Output): string {
+/// What an output is, for its icon and its tint: a link or a kind of file.
+export type OutputKind = "file" | "link" | "image" | "video" | "audio" | "pdf" | "code" | "data" | "table" | "archive" | "text";
+
+const OUTPUT_EXTENSIONS: Record<string, OutputKind> = {};
+for (const [kind, extensions] of [
+  ["code", "html htm css js mjs ts tsx jsx go rs py rb swift java kt c h cc cpp sh sql svg diff patch"],
+  ["data", "json jsonl yaml yml toml xml"],
+  ["table", "csv tsv xls xlsx numbers"],
+  ["archive", "zip gz tgz tar 7z rar"],
+  ["text", "txt md log rtf doc docx"],
+] as const) {
+  for (const ext of extensions.split(" ")) OUTPUT_EXTENSIONS[ext] = kind;
+}
+
+function extensionOf(name: string): string {
+  const dot = name.lastIndexOf(".");
+  return dot > name.lastIndexOf("/") && dot >= 0 ? name.slice(dot + 1) : "";
+}
+
+/// What the output is, from its link, its media type, or its file's extension.
+export function outputKind(output: Output): OutputKind {
   if (output.url) return "link";
-  if (output.mime.startsWith("image/")) return "photo";
-  if (output.mime.startsWith("video/")) return "film";
-  if (output.mime.startsWith("audio/")) return "waveform";
-  if (output.mime === "application/pdf") return "doc.richtext";
-  if (output.mime.startsWith("text/") || output.mime === "application/json") return "doc.text";
-  return "doc";
+  const byExtension = OUTPUT_EXTENSIONS[extensionOf(output.name).toLowerCase()];
+  if (byExtension) return byExtension;
+  if (output.mime.startsWith("image/")) return "image";
+  if (output.mime.startsWith("video/")) return "video";
+  if (output.mime.startsWith("audio/")) return "audio";
+  if (output.mime === "application/pdf") return "pdf";
+  if (output.mime === "application/json") return "data";
+  if (output.mime.startsWith("text/")) return "text";
+  return "file";
+}
+
+/// The SF Symbol for what the output is.
+export function outputSymbol(output: Output): string {
+  switch (outputKind(output)) {
+    case "link":
+      return "link";
+    case "image":
+      return "photo";
+    case "video":
+      return "film";
+    case "audio":
+      return "waveform";
+    case "pdf":
+      return "richtext.page";
+    case "code":
+      return "chevron.left.forwardslash.chevron.right";
+    case "data":
+      return "curlybraces";
+    case "table":
+      return "tablecells";
+    case "archive":
+      return "zipper.page";
+    case "text":
+      return "text.page";
+    default:
+      return "document";
+  }
+}
+
+/// "HTML", "PNG", or the link's host: what the output's card says it is beside its size.
+export function outputTypeName(output: Output): string {
+  if (output.url) {
+    const host = output.url.match(/^[a-z][a-z0-9+.-]*:\/\/(?:[^@/]*@)?([^/:?#]+)/i)?.[1] ?? "";
+    return host.replace(/^www\./, "");
+  }
+  const ext = extensionOf(output.name);
+  if (ext && ext.length <= 8) return ext.toUpperCase();
+  const sub = output.mime.split("/")[1];
+  if (output.mime.includes("/") && sub && sub !== "octet-stream" && sub.length <= 8) return sub.toUpperCase();
+  return "";
 }
 
 /// An output and its versions, newest first.

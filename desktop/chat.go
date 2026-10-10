@@ -352,6 +352,10 @@ func (m *mainWindow) messageCell(c *ui.Context, chat *model.Chat, message *model
 					m.revealMessage(s, quote.MessageID)
 				}
 			}
+			if message.Output != nil && !isUser {
+				m.outputCard(c, chat, message, s)
+				return
+			}
 			bubble := ui.Column(c).MaxWidthPercent(100).MinWidth(0).Padding(10, 14).Radius(14).FontSize(textMessage)
 			if isUser {
 				// A selection darkens the accent fill, where the accent's own highlight would vanish.
@@ -463,6 +467,177 @@ func (m *mainWindow) revealMessage(s *chatState, messageID string) {
 			return
 		}
 	}
+}
+
+// MARK: - Outputs
+
+const (
+	outputCardWidth  = 320
+	outputPreviewMax = 200
+	outputPreviewMin = 96
+)
+
+// outputTint is the color of an output's icon, by what it is.
+func outputTint(p *palette, kind model.OutputKind) ui.Color {
+	switch kind {
+	case model.OutputLink, model.OutputImage:
+		return p.Blue
+	case model.OutputVideo:
+		return p.Purple
+	case model.OutputAudio:
+		return p.Pink
+	case model.OutputPDF:
+		return p.Red
+	case model.OutputCode:
+		return p.Orange
+	case model.OutputData:
+		return p.Teal
+	case model.OutputTable:
+		return p.Green
+	case model.OutputText:
+		return p.Indigo
+	}
+	return p.Label2
+}
+
+// outputCard is a published output in the transcript, standing without a bubble: an image's
+// preview, the file's icon, name, type and size, and what the bot checked. It shows no time: the
+// stamps belong to the bubbles. A click opens the
+// output's sheet; the menu opens or saves the file, and replies to it.
+func (m *mainWindow) outputCard(c *ui.Context, chat *model.Chat, message *model.Message, s *chatState) {
+	p := colors(c)
+	output := message.Output
+	kind := output.Kind()
+	tint := outputTint(p, kind)
+	var attachment *model.Attachment
+	path, fileError := "", ""
+	if len(message.Attachments) > 0 {
+		attachment = &message.Attachments[0]
+		path = store.LocalFile(*attachment, chat.ID, message.ID)
+		fileError = store.AttachmentError(attachment.ID)
+	}
+	detail := output.TypeName()
+	if attachment != nil {
+		size := model.SizeText(attachment.Size)
+		if detail != "" {
+			detail += " · " + size
+		} else {
+			detail = size
+		}
+	}
+	ui.Row(c).AlignItems(ui.End).Gap(8).MaxWidthPercent(100).MinWidth(0).Children(func() {
+		card := ui.ButtonBase(c.Key("output:"+message.ID)).Width(outputCardWidth).MaxWidthPercent(100).Shrink(1).Radius(12).Clip().
+			Background(p.OutputCard).Border(1, p.Separator).Shadow(0, 1, 2, 0, ui.RGBA(0, 0, 0, 0.04)).Cursor(ui.CursorPointer).Label(output.Name).Tooltip(output.Name)
+		if s.flashID == message.ID {
+			if elapsed := c.Now().Sub(s.flashAt); elapsed < 1100*time.Millisecond {
+				phase := float64(elapsed) / float64(1100*time.Millisecond)
+				card.Opacity(float32(1 - 0.65*math.Abs(math.Sin(phase*2*math.Pi))))
+				c.AnimationFrame()
+			} else {
+				s.flashID = ""
+			}
+		}
+		card.Children(func() {
+			ui.Column(c).FillWidth().Children(func() {
+				if kind == model.OutputImage && attachment != nil && fileError == "" {
+					outputCardPreview(c, *attachment, path)
+				}
+				ui.Row(c).FillWidth().Padding(10, 12).Gap(10).AlignItems(ui.Center).Children(func() {
+					ui.Box(c).TextColor(tint).Children(func() { symbol(c, output.Symbol(), 26, 1.6) })
+					ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(1).Children(func() {
+						ui.Text(c, output.Name).FontSize(13).FontWeight(600).TextColor(p.Label).SingleLine()
+						switch {
+						case fileError != "":
+							ui.Text(c, L("Couldn't download · Retry")).FontSize(11.5).TextColor(p.Red).SingleLine()
+						case detail != "":
+							ui.Text(c, detail).FontSize(11.5).TextColor(p.Label2).FontFeatures("tnum").SingleLine()
+						}
+					})
+				})
+				if evidence := output.Evidence; evidence != nil {
+					outputCheck(c, p, *evidence)
+				}
+			})
+		})
+		card.ContextMenu(func(menu *ui.Menu) {
+			if fileError != "" && attachment != nil {
+				if menu.Item(L("Try Again")).Chosen() {
+					store.RetryAttachment(*attachment, chat.ID, message.ID)
+				}
+			} else {
+				m.outputMenu(menu, message)
+			}
+			if message.CanBeQuoted() {
+				menu.Separator()
+				if menu.Item(L("Reply")).Chosen() {
+					m.startReply(s, message)
+				}
+				if menu.Item(L("Give Feedback…")).Chosen() {
+					m.presentFeedback(chat.ID, message)
+				}
+			}
+		})
+		if card.Clicked() {
+			if fileError != "" && attachment != nil {
+				store.RetryAttachment(*attachment, chat.ID, message.ID)
+			} else {
+				m.presentOutput(chat.ID, output.ID)
+			}
+		}
+	})
+}
+
+// outputCardPreview is an image output's picture across the top of its card: the whole picture when
+// it is wide, the top of it when it is tall, as a page's screenshot starts at its top.
+func outputCardPreview(c *ui.Context, attachment model.Attachment, path string) {
+	p := colors(c)
+	width, height := float32(max(attachment.Width, 4)), float32(max(attachment.Height, 3))
+	if attachment.Width == 0 || attachment.Height == 0 {
+		width, height = 4, 3
+	}
+	full := outputCardWidth * height / width
+	box := min(max(full, outputPreviewMin), outputPreviewMax)
+	// The card's rounded clip does not reach a picture everywhere, so the preview and its picture
+	// round their own top corners, inside the card's 1-DIP border.
+	frame := ui.Box(c).FillWidth().Height(box).Clip().Radius(11, 11, 0, 0).Background(p.Code)
+	frame.Children(func() {
+		bitmap := loadBitmap(path)
+		if bitmap == nil {
+			return
+		}
+		if full >= box {
+			ui.Image(c, bitmap).Width(outputCardWidth).Height(full).Radius(11, 11, 0, 0).Fit(ui.FillBox)
+		} else {
+			ui.Image(c, bitmap).FillWidth().Height(box).Radius(11, 11, 0, 0).Fit(ui.Cover)
+		}
+	})
+	ui.Box(c).FillWidth().Height(1).Background(p.Separator)
+}
+
+// outputCheck is what the bot checked: how it went, its summary, and the command it ran.
+func outputCheck(c *ui.Context, p *palette, evidence model.OutputEvidence) {
+	symbolName, tint := "circle.dashed", p.Label2
+	switch evidence.Status {
+	case "passed":
+		symbolName, tint = "checkmark.circle.fill", p.Green
+	case "failed":
+		symbolName, tint = "xmark.circle.fill", p.Red
+	}
+	ui.Box(c).FillWidth().Height(1).Background(p.Separator)
+	ui.Row(c).FillWidth().Padding(9, 12, 10, 12).Gap(8).AlignItems(ui.Start).Children(func() {
+		ui.Box(c).Margin(1, 0, 0, 0).TextColor(tint).Children(func() { symbol(c, symbolName, 15, 2) })
+		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(3).Children(func() {
+			ui.RichText(c,
+				ui.Span{Text: evidence.Title() + " · " + evidence.StatusText(), Weight: 600, Color: tint},
+			).FontSize(12)
+			if summary := strings.TrimSpace(evidence.Summary); summary != "" {
+				ui.Text(c, summary).FontSize(12).FixedLineHeight(16).TextColor(p.Label2).Selectable()
+			}
+			if evidence.Command != "" {
+				ui.Text(c, evidence.Command).Font(monoFont).FontSize(11).TextColor(p.Label3).SingleLine().Tooltip(evidence.Command)
+			}
+		})
+	})
 }
 
 // MARK: - Attachments

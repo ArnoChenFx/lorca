@@ -3,6 +3,7 @@ package model
 import (
 	"log"
 	"net/url"
+	"path"
 	"slices"
 	"strings"
 )
@@ -64,23 +65,101 @@ func (o Output) DocumentURL() string {
 	return parsed.String()
 }
 
+// OutputKind is what an output is, for its icon and its tint: a link or a kind of file.
+type OutputKind int
+
+const (
+	OutputFile OutputKind = iota
+	OutputLink
+	OutputImage
+	OutputVideo
+	OutputAudio
+	OutputPDF
+	OutputCode
+	OutputData
+	OutputTable
+	OutputArchive
+	OutputText
+)
+
+var outputExtensions = map[string]OutputKind{
+	"html": OutputCode, "htm": OutputCode, "css": OutputCode, "js": OutputCode, "mjs": OutputCode, "ts": OutputCode,
+	"tsx": OutputCode, "jsx": OutputCode, "go": OutputCode, "rs": OutputCode, "py": OutputCode, "rb": OutputCode,
+	"swift": OutputCode, "java": OutputCode, "kt": OutputCode, "c": OutputCode, "h": OutputCode, "cc": OutputCode,
+	"cpp": OutputCode, "sh": OutputCode, "sql": OutputCode, "svg": OutputCode, "diff": OutputCode, "patch": OutputCode,
+	"json": OutputData, "jsonl": OutputData, "yaml": OutputData, "yml": OutputData, "toml": OutputData, "xml": OutputData,
+	"csv": OutputTable, "tsv": OutputTable, "xls": OutputTable, "xlsx": OutputTable, "numbers": OutputTable,
+	"zip": OutputArchive, "gz": OutputArchive, "tgz": OutputArchive, "tar": OutputArchive, "7z": OutputArchive, "rar": OutputArchive,
+	"txt": OutputText, "md": OutputText, "log": OutputText, "rtf": OutputText, "doc": OutputText, "docx": OutputText,
+}
+
+// Kind is what the output is, from its link, its media type, or its file's extension.
+func (o Output) Kind() OutputKind {
+	if o.URL != "" {
+		return OutputLink
+	}
+	if kind, ok := outputExtensions[strings.ToLower(strings.TrimPrefix(path.Ext(o.Name), "."))]; ok {
+		return kind
+	}
+	switch {
+	case strings.HasPrefix(o.Mime, "image/"):
+		return OutputImage
+	case strings.HasPrefix(o.Mime, "video/"):
+		return OutputVideo
+	case strings.HasPrefix(o.Mime, "audio/"):
+		return OutputAudio
+	case o.Mime == "application/pdf":
+		return OutputPDF
+	case o.Mime == "application/json":
+		return OutputData
+	case strings.HasPrefix(o.Mime, "text/"):
+		return OutputText
+	}
+	return OutputFile
+}
+
 // Symbol is the SF Symbol name for what the output is.
 func (o Output) Symbol() string {
-	switch {
-	case o.URL != "":
+	switch o.Kind() {
+	case OutputLink:
 		return "link"
-	case strings.HasPrefix(o.Mime, "image/"):
-		return "photo"
-	case strings.HasPrefix(o.Mime, "video/"):
-		return "film"
-	case strings.HasPrefix(o.Mime, "audio/"):
-		return "waveform"
-	case o.Mime == "application/pdf":
+	case OutputImage:
+		return "doc.image"
+	case OutputVideo:
+		return "doc.play"
+	case OutputAudio:
+		return "doc.music"
+	case OutputPDF:
 		return "doc.richtext"
-	case strings.HasPrefix(o.Mime, "text/") || o.Mime == "application/json":
+	case OutputCode:
+		return "doc.code"
+	case OutputData:
+		return "doc.braces"
+	case OutputTable:
+		return "doc.table"
+	case OutputArchive:
+		return "doc.zipper"
+	case OutputText:
 		return "doc.text"
 	}
 	return "doc"
+}
+
+// TypeName is "HTML", "PNG", or the link's host: what the output's card says it is beside its size.
+func (o Output) TypeName() string {
+	if o.URL != "" {
+		if parsed, err := url.Parse(o.URL); err == nil {
+			return strings.TrimPrefix(parsed.Hostname(), "www.")
+		}
+		return ""
+	}
+	if ext := strings.TrimPrefix(path.Ext(o.Name), "."); ext != "" && len(ext) <= 8 {
+		return strings.ToUpper(ext)
+	}
+	if _, sub, ok := strings.Cut(o.Mime, "/"); ok && sub != "octet-stream" && len(sub) <= 8 {
+		return strings.ToUpper(sub)
+	}
+	return ""
 }
 
 // OutputSeries is an output and its versions, newest first. Each version is a message of its own.

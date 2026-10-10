@@ -19,6 +19,7 @@ import { engine } from "../core/engine";
 import { useStore } from "../core/store";
 import { language, t, tc, useLanguage } from "../i18n";
 import { AttachmentBlock } from "./attachments";
+import { OutputCard } from "./outputs";
 import { BotAvatar, ContactAvatar } from "./Avatar";
 import { daySeparator, firstLine, workingActivity } from "./format";
 import { Markdown } from "./Markdown";
@@ -274,6 +275,8 @@ export const MessageRow = memo(function MessageRow({
   const attachments = message.body.kind === "text" ? (message.body.attachments ?? []) : [];
   const failed = message.state.kind === "failed";
   const showsAvatar = isGroup && !isYou;
+  // A bot's published output is a card of its own, without a bubble.
+  const isOutput = message.output !== undefined && !isYou;
   // The bubble column is 80% of the pane, up to a readable line; the bubble pads 13 a side.
   // Attachments and the text both fit that width.
   const columnWidth = Math.min(Math.floor(paneWidth * 0.8), BUBBLE_COLUMN_MAX);
@@ -313,6 +316,11 @@ export const MessageRow = memo(function MessageRow({
           </Pressable>
         )}
         <GestureDetector gesture={swipe.pan}>
+        {isOutput ? (
+          <Animated.View style={pulsing}>
+            <OutputCard message={message} maxWidth={columnWidth - (showsAvatar ? AVATAR + GUTTER : 0)} />
+          </Animated.View>
+        ) : (
         <Animated.View
           style={[
             styles.bubble,
@@ -329,6 +337,7 @@ export const MessageRow = memo(function MessageRow({
             </View>
           )}
         </Animated.View>
+        )}
         </GestureDetector>
         {held && (
           <Pressable
