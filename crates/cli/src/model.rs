@@ -580,6 +580,20 @@ pub struct Message {
     /// Slack `ts`. Set on a contact's message and on what the bot sent there.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub external_id: Option<String>,
+    /// The browser recording the user sent a bot with this message. The steps and screenshots
+    /// stay encrypted on the Runner that recorded them; that Runner shows them to the bot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recording: Option<RecordingRef>,
+}
+
+/// A recording of what the user did in one of a bot's browser profiles.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RecordingRef {
+    pub id: String,
+    pub bot_id: String,
+    /// The profile's name.
+    pub profile: String,
+    pub steps: usize,
 }
 
 /// How much of a tool call's detail the apps get: enough for the "Messaged ◉ X" marker.
@@ -629,6 +643,7 @@ impl Message {
             queued: false,
             output: None,
             external_id: None,
+            recording: None,
         }
     }
 

@@ -1,11 +1,12 @@
 // A bot's browser profiles on its Runner, slid in from the Browser row in Details, as the Mac's
 // Browser sheet lists them: each profile and how it stands, and on a tap its menu. A profile opens
-// in a window on the Runner only, so that is where the user signs in; from here they take the
-// browser over, hand it back, take a screenshot into the chat, close it, add, or delete one.
+// in a window on the Runner only, so that is where the user signs in and records a workflow; from
+// here they take the browser over, hand it back, start and stop a recording in a browser open there,
+// take a screenshot into the chat, close it, add, or delete one.
 
 import { Host, OutlinedTextField, AlertDialog, Text as ComposeText, TextButton } from "@expo/ui/jetpack-compose";
 import { fillMaxWidth } from "@expo/ui/jetpack-compose/modifiers";
-import { Stack, useLocalSearchParams } from "expo-router";
+import { router, Stack, useLocalSearchParams } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Platform, PlatformColor, ScrollView, StyleSheet, Text, View, type ColorValue } from "react-native";
 import { engine } from "../core/engine";
@@ -60,6 +61,7 @@ export default function BrowserScreen() {
   if (!bot || !runner) return null;
   const runnerName = runner.name;
   const orange: ColorValue = Platform.OS === "ios" ? PlatformColor("systemOrange") : accentColor("orange", p.dark);
+  const red: ColorValue = Platform.OS === "ios" ? PlatformColor("systemRed") : accentColor("red", p.dark);
 
   async function perform(profile: BrowserProfile, method: string, label: string | undefined, failure: string, params: Record<string, string | number> = {}) {
     if (label) setPending((all) => ({ ...all, [profile.id]: label }));
@@ -80,6 +82,10 @@ export default function BrowserScreen() {
         return void perform(profile, "browser.takeover", t("Taking over…"), t("Couldn't take over the browser"));
       case "resume":
         return void perform(profile, "browser.resume", t("Returning…"), t("Couldn't hand the browser back"), { revision: profile.revision });
+      case "record":
+        return void perform(profile, "browser.record", t("Starting…"), t("Couldn't start recording"));
+      case "stoprecording":
+        return chatId && void stopRecording(profile, chatId);
       case "screenshot":
         return chatId && void perform(profile, "browser.screenshot", undefined, t("Couldn't take a screenshot"), { chat_id: chatId });
       case "stop":
@@ -89,6 +95,25 @@ export default function BrowserScreen() {
           { text: t("Cancel"), style: "cancel" },
           { text: t("Delete"), style: "destructive", onPress: () => void perform(profile, "browser.delete", t("Deleting…"), t("Couldn't delete the profile")) },
         ]);
+    }
+  }
+
+  /// Sends the recording to the bot in the chat, and goes back to the chat, where the bot answers.
+  async function stopRecording(profile: BrowserProfile, chat: string) {
+    setPending((all) => ({ ...all, [profile.id]: t("Stopping…") }));
+    loads.current++;
+    const text = t("I recorded this in the {name} browser. Make it a skill you can repeat, and ask me about anything the recording doesn't show.", { name: profile.name });
+    try {
+      if (await engine.stopBrowserRecording(botId, profile.id, chat, text)) {
+        router.dismissTo(`/chat/${chat}`);
+        return;
+      }
+      alert(t("Nothing was recorded"), t("Do the task in the browser while it records, then stop."));
+    } catch (error) {
+      alert(t("Couldn't stop recording"), error instanceof Error ? error.message : String(error));
+    } finally {
+      setPending(({ [profile.id]: _, ...rest }) => rest);
+      void load();
     }
   }
 
@@ -119,7 +144,7 @@ export default function BrowserScreen() {
     loadError ??
     (profiles?.length === 0
       ? t("A profile keeps sign-ins for {bot}'s browser. Add one, then open it on {runner} to sign in.", { bot: bot.name, runner: runnerName })
-      : t("Profiles open in a window on {runner}, where you sign in.", { runner: runnerName }));
+      : t("Profiles open in a window on {runner}, where you sign in and do the tasks you record.", { runner: runnerName }));
 
   return (
     <>
@@ -141,7 +166,7 @@ export default function BrowserScreen() {
                   title={profile.name}
                   icon="person.crop.circle"
                   accessory={
-                    <Text style={[styles.state, { color: !busy && profile.state === "human" ? orange : p.secondaryLabel }]} numberOfLines={1}>
+                    <Text style={[styles.state, { color: busy ? p.secondaryLabel : profile.recording ? red : profile.state === "human" ? orange : p.secondaryLabel }]} numberOfLines={1}>
                       {busy ?? profileStateWord(profile)}
                     </Text>
                   }
