@@ -590,7 +590,26 @@ enum Wire {
         var command: String?
         var run: Run?
         var replyTo: ReplyTo?
+        var reviewId: String?
+        var version: UInt64?
+        var state: String?
+        var account: String?
+        var draft: Draft?
+        var note: String?
+        var direct: Bool?
         var secret: SecretAsk?
+    }
+
+    struct Draft: Decodable {
+        struct File: Decodable { var name: String; var size: Int64? }
+        var kind: String
+        var to: [String]?
+        var cc: [String]?
+        var bcc: [String]?
+        var subject: String?
+        var body: String?
+        var attachments: [File]?
+        var reply: String?
     }
 
     struct SecretAsk: Decodable {
@@ -837,6 +856,18 @@ extension Wire.Message {
                             use: Lorca.SecretAsk.Use(rawValue: ask.use) ?? .command, site: ask.site,
                             fields: ask.fields.map { Lorca.SecretAsk.Field(name: $0.name, label: $0.label) })
                     }))
+        case "draft":
+            let draft = self.body.draft
+            body = .draft(
+                DraftCard(
+                    reviewID: self.body.reviewId ?? "", version: self.body.version ?? 0, state: self.body.state ?? "pending",
+                    pluginID: self.body.pluginId ?? "", account: self.body.account ?? "",
+                    fields: DraftCard.Fields(
+                        kind: draft?.kind ?? "email", to: draft?.to ?? [], cc: draft?.cc ?? [], bcc: draft?.bcc ?? [],
+                        subject: draft?.subject ?? "", body: draft?.body ?? "",
+                        attachments: (draft?.attachments ?? []).map { .init(name: $0.name, size: $0.size ?? 0) },
+                        reply: draft?.reply),
+                    note: self.body.note, direct: self.body.direct ?? false))
         default:
             body = .text(self.body.text ?? "")
         }

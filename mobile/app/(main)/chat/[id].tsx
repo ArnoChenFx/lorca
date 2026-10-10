@@ -58,6 +58,7 @@ import {
   quoteAuthorName,
   NoticeRow,
   PermissionRow,
+  DraftRow,
   CommandRow,
   StatusRow,
   WorkingRow,
@@ -797,6 +798,8 @@ export default function ChatScreen() {
               onFill={fillSecret}
             />
           );
+        case "draft":
+          return <DraftRow row={item} isGroup={isGroup} />;
         case "command":
           return (
             <CommandRow

@@ -267,6 +267,8 @@ func (m *mainWindow) chatRowView(c *ui.Context, chat *model.Chat, row chatRow, s
 			} else {
 				m.permissionCard(c, chat, message, cardAvatar, row.groupStart)
 			}
+		case model.BodyDraft:
+			m.draftCard(c, chat, message, cardAvatar, row.groupStart)
 		}
 	}
 }
