@@ -327,6 +327,11 @@ func mockChat(id string, kind ChatKind, botIDs []string, messages []*Message, ex
 	return chat
 }
 
+// mockSections are the demo's sidebar sections; mockChats files chats under them.
+func mockSections() []*Section {
+	return []*Section{{ID: "section-product", Name: "Product"}, {ID: "section-engineering", Name: "Engineering"}}
+}
+
 func mockChats() []*Chat {
 	return []*Chat{
 		mockChat("chat-relay", ChatGroup, []string{"bot-nova", "bot-patch", "bot-scout"}, launchRoomThread(), func(c *Chat) {
@@ -337,11 +342,20 @@ func mockChats() []*Chat {
 		}),
 		mockChat("chat-nova", ChatDM, []string{"bot-nova"}, managerThread(), func(c *Chat) {
 			c.CreatedAt = minutesAgo(60 * 30)
+			c.SectionID = "section-product"
 			c.Usage = &ChatUsage{ContextTokens: 18_400, ContextWindow: 400_000, InputTokens: 212_000, OutputTokens: 31_000, CacheReadTokens: 160_000,
 				CostUSD: 0.86, Turns: 14, Model: "gpt-5.5", SubscriptionEstimateUSD: 0.86, PricingKinds: []string{"subscription_estimate"}}
 		}),
-		mockChat("chat-patch", ChatDM, []string{"bot-patch"}, developerThread(), func(c *Chat) { c.UnreadCount = 2; c.CreatedAt = minutesAgo(60 * 26) }),
-		mockChat("chat-launch", ChatGroup, []string{"bot-quill", "bot-nova"}, launchThread(), func(c *Chat) { c.CustomTitle = "Launch copy"; c.CreatedAt = minutesAgo(60 * 52) }),
+		mockChat("chat-patch", ChatDM, []string{"bot-patch"}, developerThread(), func(c *Chat) {
+			c.UnreadCount = 2
+			c.CreatedAt = minutesAgo(60 * 26)
+			c.SectionID = "section-engineering"
+		}),
+		mockChat("chat-launch", ChatGroup, []string{"bot-quill", "bot-nova"}, launchThread(), func(c *Chat) {
+			c.CustomTitle = "Launch copy"
+			c.CreatedAt = minutesAgo(60 * 52)
+			c.SectionID = "section-product"
+		}),
 		mockChat("chat-scout", ChatDM, []string{"bot-scout"}, researcherThread(), func(c *Chat) {
 			c.UnreadCount = 1
 			c.CreatedAt = minutesAgo(60 * 24 * 12)
@@ -358,7 +372,11 @@ func mockChats() []*Chat {
 			mockMessage(You, textBody("Listen in our Telegram group for #feedback and file it in acme/app."), minutesAgo(60*22)),
 			mockMessage(BotAuthor("bot-tally"), textBody("Listening in the groups the Community bot is in, for mentions, replies, and #feedback. I'll file each one in acme/app and thank the person in their thread."), minutesAgo(60*22-1)),
 		}, func(c *Chat) { c.CreatedAt = minutesAgo(60 * 22) }),
-		mockChat("chat-ember", ChatDM, []string{"bot-ember"}, devopsThread(), func(c *Chat) { c.CreatedAt = minutesAgo(60 * 72) }),
+		mockChat("chat-ember", ChatDM, []string{"bot-ember"}, devopsThread(), func(c *Chat) {
+			c.CreatedAt = minutesAgo(60 * 72)
+			c.SectionID = "section-engineering"
+			c.Mute = &ChatMute{}
+		}),
 	}
 }
 

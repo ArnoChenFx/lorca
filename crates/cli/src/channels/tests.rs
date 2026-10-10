@@ -171,6 +171,10 @@ async fn messages_land_in_their_conversation_once_and_paused_channels_take_none(
     let account_id = account(app, TELEGRAM, "Community", &[(telegram::TOKEN, "1:abc")]);
     run_tool(&tool(app, false), json!({ "action": "create", "account": account_id, "listen": { "replies": true, "tags": ["feedback"] }, "task": "File it" })).await.unwrap();
     let channel = app.channels.statuses().remove(0);
+    // The bot's own chat is filed and muted: its conversations start there, as quiet.
+    let dm = app.dm_with(&bot(app).id, None).unwrap();
+    let section = app.create_section(None, "Community", Some(&dm.meta.id)).unwrap();
+    app.mute_chat(&dm.meta.id, Some(crate::model::Mute { until: None })).unwrap();
     let feedback = sample(&account_id, "#feedback the export button crashes");
     assert_eq!(ingest(app, &feedback).unwrap(), 1);
     assert_eq!(ingest(app, &feedback).unwrap(), 1, "a message read again is the same delivery");
@@ -180,6 +184,7 @@ async fn messages_land_in_their_conversation_once_and_paused_channels_take_none(
     let chat = &chats[0];
     assert_eq!(chat.meta.title.as_deref(), Some("Acme Community"));
     assert_eq!(chat.meta.kind, "dm");
+    assert_eq!((chat.meta.section_id.as_deref(), chat.meta.mute.clone()), (Some(section.id.as_str()), Some(crate::model::Mute { until: None })));
     assert_eq!(app.dm_with(&bot(app).id, None).unwrap().meta.channel, None, "the bot's own DM stays apart");
     let messages = app.messages(&chat.meta.id);
     assert_eq!(messages.len(), 1);

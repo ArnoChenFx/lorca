@@ -995,6 +995,14 @@ enum MockData {
         return access
     }
 
+    /// The demo's sidebar sections; `chats()` files chats under them.
+    static func sections() -> [SidebarSection] {
+        [
+            SidebarSection(id: "section-product", name: "Product"),
+            SidebarSection(id: "section-engineering", name: "Engineering"),
+        ]
+    }
+
     static func chats() -> [Chat] {
         [
             Chat(
@@ -1019,7 +1027,8 @@ enum MockData {
                 createdAt: minutesAgo(60 * 30),
                 usage: ChatUsage(
                     contextTokens: 18_400, contextWindow: 400_000, inputTokens: 212_000, outputTokens: 31_000, cacheReadTokens: 160_000,
-                    costUSD: 0.86, turns: 14, model: "gpt-5.5", subscriptionEstimateUSD: 0.86, pricingKinds: ["subscription_estimate"])
+                    costUSD: 0.86, turns: 14, model: "gpt-5.5", subscriptionEstimateUSD: 0.86, pricingKinds: ["subscription_estimate"]),
+                sectionID: "section-product"
             ),
             Chat(
                 id: "chat-patch",
@@ -1029,7 +1038,8 @@ enum MockData {
                 messages: developerThread(),
                 unreadCount: 2,
                 isPinned: false,
-                createdAt: minutesAgo(60 * 26)
+                createdAt: minutesAgo(60 * 26),
+                sectionID: "section-engineering"
             ),
             Chat(
                 id: "chat-launch",
@@ -1039,7 +1049,8 @@ enum MockData {
                 messages: launchThread(),
                 unreadCount: 0,
                 isPinned: false,
-                createdAt: minutesAgo(60 * 52)
+                createdAt: minutesAgo(60 * 52),
+                sectionID: "section-product"
             ),
             Chat(
                 id: "chat-scout",
@@ -1096,7 +1107,9 @@ enum MockData {
                 messages: devopsThread(),
                 unreadCount: 0,
                 isPinned: false,
-                createdAt: minutesAgo(60 * 72)
+                createdAt: minutesAgo(60 * 72),
+                sectionID: "section-engineering",
+                mute: Chat.Mute(until: nil)
             ),
         ]
     }

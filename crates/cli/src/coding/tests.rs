@@ -182,7 +182,7 @@ async fn setup() -> Scratch {
         let mut state = app.state.lock().unwrap();
         state.bots = vec![bot.clone()];
         state.chats.push(Chat {
-            meta: ChatMeta { id: "chat".into(), kind: "dm".into(), title: None, bot_ids: vec!["b1".into()], owner_bot_id: None, description: None, is_pinned: false, created_at: 0.0, channel: None },
+            meta: ChatMeta { id: "chat".into(), kind: "dm".into(), title: None, bot_ids: vec!["b1".into()], owner_bot_id: None, description: None, is_pinned: false, section_id: None, is_hidden: false, mute: None, created_at: 0.0, channel: None },
             unread_count: 0,
             usage: None,
             compactions: Vec::new(),

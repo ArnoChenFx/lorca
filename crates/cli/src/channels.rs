@@ -449,6 +449,11 @@ mod runner {
         if let Some(chat) = found {
             return Ok(chat);
         }
+        // The conversation is filed where the bot's own direct chat is, and is as quiet as it.
+        let (section_id, mute) = app.state.lock().unwrap().chats.iter()
+            .find(|chat| chat.meta.kind == "dm" && chat.meta.channel.is_none() && chat.meta.bot_ids == [config.bot_id.clone()])
+            .map(|dm| (dm.meta.section_id.clone(), dm.meta.mute.clone()))
+            .unwrap_or_default();
         let title = match &incoming.thread_id {
             // A Slack thread is named by where it is and how it starts.
             Some(_) if incoming.service == SLACK => format!("{}: {}", incoming.chat_title, first_words(&clean(&incoming.text, 200), 48)),
@@ -462,6 +467,9 @@ mod runner {
             owner_bot_id: None,
             description: None,
             is_pinned: false,
+            section_id,
+            is_hidden: false,
+            mute,
             created_at: 0.0,
             channel: Some(ChatChannel {
                 channel_id: channel_id.to_string(),
