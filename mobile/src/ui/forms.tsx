@@ -94,9 +94,10 @@ function MenuAccessory({ value, title, choices }: { value: string; title: string
 }
 
 /// An action row whose tap drops a native menu of choices, for an action that comes in kinds:
-/// the title in the tint color, as an action row's is. On iOS the row is the SwiftUI menu's
-/// label, drawn to match a `Row`; Android opens a Material dropdown from the row.
-export function MenuRow({ title, choices }: { title: string; choices: MenuChoice[] }) {
+/// the title in the tint color, after its symbol when it has one, as an action row's is. On iOS
+/// the row is the SwiftUI menu's label, drawn to match a `Row`; Android opens a Material dropdown
+/// from the row.
+export function MenuRow({ title, icon, choices }: { title: string; icon?: string; choices: MenuChoice[] }) {
   const p = usePalette();
   const menu = useRef<MenuComponentRef>(null);
   if (Platform.OS !== "ios") {
@@ -113,7 +114,7 @@ export function MenuRow({ title, choices }: { title: string; choices: MenuChoice
     );
     return (
       <MenuView ref={menu} title={title} actions={actions} shouldOpenOnLongPress onPressAction={({ nativeEvent }) => choices[Number(nativeEvent.event)]?.onPress()}>
-        <Row title={title} onPress={() => menu.current?.show()} />
+        <Row title={title} icon={icon} onPress={() => menu.current?.show()} />
       </MenuView>
     );
   }
@@ -122,7 +123,8 @@ export function MenuRow({ title, choices }: { title: string; choices: MenuChoice
       <Menu
         modifiers={[menuOrder("fixed"), tint(p.tint as any)]}
         label={
-          <HStack modifiers={[frame({ maxWidth: 10000, minHeight: 44, alignment: "leading" }), padding({ horizontal: 16 }), contentShape(shapes.rectangle())]}>
+          <HStack spacing={12} modifiers={[frame({ maxWidth: 10000, minHeight: 44, alignment: "leading" }), padding({ horizontal: 16 }), contentShape(shapes.rectangle())]}>
+            {icon ? <MenuImage systemName={icon as any} size={17} color={p.tint} modifiers={[frame({ width: 20 })]} /> : null}
             <MenuText modifiers={[font({ size: Font.body }), foregroundStyle(p.tint as any), lineLimit(1)]}>{title}</MenuText>
           </HStack>
         }
@@ -147,14 +149,18 @@ export function Row({
   chevron,
   subtitle,
   subtitleLines = 1,
+  titleLines = 1,
   leading,
   action,
+  disabled,
   onLongPress,
 }: {
   title: string;
   detail?: string;
   subtitle?: string;
   subtitleLines?: number;
+  /// How many lines a long title may wrap to before it is cut short.
+  titleLines?: number;
   icon?: string;
   leading?: ReactNode;
   accessory?: ReactNode;
@@ -165,15 +171,23 @@ export function Row({
   chevron?: boolean;
   /// Draws the title in the tint color, as an action is; by default a row that only acts on a tap.
   action?: boolean;
+  /// An action that can't be taken yet: its title in the tertiary color, and no tap.
+  disabled?: boolean;
   onLongPress?: () => void;
 }) {
   const p = usePalette();
-  const color = destructive ? p.red : (action ?? (onPress && !chevron && !accessory)) ? p.tint : p.label;
+  const color = disabled ? p.tertiaryLabel : destructive ? p.red : (action ?? (onPress && !chevron && !accessory)) ? p.tint : p.label;
   return (
-    <Pressable onPress={onPress} onLongPress={onLongPress} disabled={!onPress && !onLongPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: p.fill }]}>
+    <Pressable
+      onPress={onPress}
+      onLongPress={onLongPress}
+      disabled={disabled || (!onPress && !onLongPress)}
+      accessibilityState={disabled ? { disabled } : undefined}
+      style={({ pressed }) => [styles.row, pressed && { backgroundColor: p.fill }]}
+    >
       {leading ?? (icon ? <Symbol name={icon} size={20} color={color} /> : null)}
       <View style={menu ? styles.rowTextWhole : styles.rowText}>
-        <Text style={[styles.rowTitle, { color }]} numberOfLines={1}>
+        <Text style={[styles.rowTitle, { color }]} numberOfLines={titleLines}>
           {title}
         </Text>
         {subtitle ? (
@@ -240,20 +254,21 @@ export function FieldRow({ label, multiline, style, ...props }: TextInputProps &
 
 /// One choice of several: a checkmark after it on iOS, Material's radio button before it on
 /// Android, or its checkbox where several can be picked (`multiple`). A row that acts at once rather
-/// than marking a choice (`indicator={false}`) shows neither.
-export function CheckRow({ title, subtitle, checked, onPress, leading, multiple, indicator = true }: { title: string; subtitle?: string; checked: boolean; onPress: () => void; leading?: ReactNode; multiple?: boolean; indicator?: boolean }) {
+/// than marking a choice (`indicator={false}`) shows neither. A choice that can't be made right now
+/// (`disabled`) is dimmed and takes no tap.
+export function CheckRow({ title, subtitle, checked, onPress, leading, multiple, indicator = true, disabled }: { title: string; subtitle?: string; checked: boolean; onPress: () => void; leading?: ReactNode; multiple?: boolean; indicator?: boolean; disabled?: boolean }) {
   const p = usePalette();
   const android = Platform.OS === "android";
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.row, pressed && { backgroundColor: p.fill }]} accessibilityRole={multiple ? "checkbox" : "radio"} accessibilityState={{ checked }}>
+    <Pressable onPress={onPress} disabled={disabled} style={({ pressed }) => [styles.row, pressed && { backgroundColor: p.fill }]} accessibilityRole={multiple ? "checkbox" : "radio"} accessibilityState={{ checked, disabled }}>
       {android && indicator ? (
         <ComposeHost matchContents>
-          {multiple ? <Checkbox value={checked} onCheckedChange={onPress} /> : <RadioButton selected={checked} onClick={onPress} />}
+          {multiple ? <Checkbox value={checked} enabled={!disabled} onCheckedChange={onPress} /> : <RadioButton selected={checked} onClick={onPress} />}
         </ComposeHost>
       ) : null}
       {leading}
       <View style={styles.rowText}>
-        <Text style={[styles.rowTitle, { color: p.label }]} numberOfLines={1}>
+        <Text style={[styles.rowTitle, { color: disabled ? p.tertiaryLabel : p.label }]} numberOfLines={1}>
           {title}
         </Text>
         {subtitle ? (

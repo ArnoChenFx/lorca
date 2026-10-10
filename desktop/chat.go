@@ -232,7 +232,7 @@ func (m *mainWindow) chatRowView(c *ui.Context, chat *model.Chat, row chatRow, s
 		workingCell(c, bots, workingActivity(row.botIDs, chat), chat.IsGroup())
 	case rowMessage:
 		message := row.message
-		showsAvatar := chat.IsGroup() && message.Author.Kind == model.AuthorBot
+		showsAvatar := chat.ShowsSpeakers() && (message.Author.Kind == model.AuthorBot || message.Author.Kind == model.AuthorContact)
 		var cardAvatar *avatarContent
 		if showsAvatar {
 			content := authorAvatar(message.Author)
@@ -242,7 +242,9 @@ func (m *mainWindow) chatRowView(c *ui.Context, chat *model.Chat, row chatRow, s
 		case model.BodyText:
 			m.messageCell(c, chat, message, row.groupStart, showsAvatar, s)
 		case model.BodyTool:
-			if body.Tool.Run != nil {
+			if body.Tool.Agent != nil {
+				m.agentCard(c, chat, message, cardAvatar, row.groupStart)
+			} else if body.Tool.Run != nil {
 				m.commandCard(c, chat, message, cardAvatar, row.groupStart)
 			} else {
 				var to *model.Bot
@@ -254,14 +256,21 @@ func (m *mainWindow) chatRowView(c *ui.Context, chat *model.Chat, row chatRow, s
 		case model.BodyHandoff:
 			h := body.Handoff
 			mode := handoffMode{kind: handoffBetween, from: store.Bot(h.From), to: store.Bot(h.To)}
-			if !chat.IsGroup() && slices.Contains(chat.BotIDs, h.To) {
+			// From a bot outside the chat, as a DM's request or a handoff's report: a message.
+			if slices.Contains(chat.BotIDs, h.To) && !slices.Contains(chat.BotIDs, h.From) {
 				mode = handoffMode{kind: handoffIncoming, from: store.Bot(h.From)}
 			}
 			handoffCell(c, mode, h.Reason, row.groupStart)
 		case model.BodyNotice:
 			noticeCell(c, body.Text, row.groupStart)
 		case model.BodyPermission:
-			m.permissionCard(c, chat, message, cardAvatar, row.groupStart)
+			if body.Request.IsSecret() {
+				m.secretCard(c, chat, message, cardAvatar, row.groupStart)
+			} else {
+				m.permissionCard(c, chat, message, cardAvatar, row.groupStart)
+			}
+		case model.BodyDraft:
+			m.draftCard(c, chat, message, cardAvatar, row.groupStart)
 		}
 	}
 }
@@ -288,6 +297,8 @@ func quoteAuthorName(author model.Author) string {
 			return bot.Name
 		}
 		return L("Bot")
+	case model.AuthorContact:
+		return author.Name
 	}
 	return "Lorca"
 }
@@ -324,6 +335,9 @@ func (m *mainWindow) messageCell(c *ui.Context, chat *model.Chat, message *model
 				name, tint := L("Bot"), p.Label2
 				if bot != nil {
 					name, tint = bot.Name, p.accentColor(bot.Accent)
+				}
+				if message.Author.Kind == model.AuthorContact {
+					name = message.Author.Name
 				}
 				ui.Text(c, name).Padding(0, 0, 0, 4).Margin(0, 0, 2, 0).FontSize(11).FontWeight(600).FixedLineHeight(16).TextColor(tint).SingleLine()
 			}
@@ -364,6 +378,18 @@ func (m *mainWindow) messageCell(c *ui.Context, chat *model.Chat, message *model
 				replyMenu = func(menu *ui.Menu) {
 					if menu.Item(L("Reply")).Chosen() {
 						m.startReply(s, message)
+					}
+					if message.Author.BotID != "" && menu.Item(L("Give Feedback…")).Chosen() {
+						m.presentFeedback(chat.ID, message)
+					}
+					if strings.TrimSpace(message.Body.Text) != "" {
+						title := L("Save as Skill…")
+						if message.Author.Kind == model.AuthorYou {
+							title = L("Save as Standing Instruction…")
+						}
+						if menu.Item(title).Chosen() {
+							m.presentPlaybookCapture(chat.ID, message)
+						}
 					}
 				}
 				bubble.ContextMenu(replyMenu)

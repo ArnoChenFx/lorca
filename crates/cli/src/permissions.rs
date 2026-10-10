@@ -57,6 +57,10 @@ pub struct BotPermissions {
     pub filesystem: FilesystemAccess,
     #[serde(default = "enabled")]
     pub shell: bool,
+    /// Whether an email or Slack message the bot writes in a chat waits as a draft card for the
+    /// user to send ([`crate::drafts`]). Off, the bot calls the service's tool itself.
+    #[serde(default = "enabled")]
+    pub drafts: bool,
 }
 
 fn enabled() -> bool {
@@ -65,8 +69,13 @@ fn enabled() -> bool {
 
 impl Default for BotPermissions {
     fn default() -> Self {
-        Self { connections: None, filesystem: FilesystemAccess::Write, shell: true }
+        Self { connections: None, filesystem: FilesystemAccess::Write, shell: true, drafts: true }
     }
+}
+
+/// Whether `bot` drafts messages for the user to send: on unless its Access turns it off.
+pub fn drafts_messages(bot: &Bot) -> bool {
+    bot.permissions.as_ref().is_none_or(|permissions| permissions.drafts)
 }
 
 impl BotPermissions {
@@ -90,7 +99,7 @@ impl BotPermissions {
     }
 
     fn local_denial(&self, tool: &str) -> Option<String> {
-        if matches!(tool, "bash" | "bash_input" | "bash_output") && !self.shell {
+        if matches!(tool, "bash" | "bash_input" | "bash_output" | "coding_agent") && !self.shell {
             return Some("shell commands are off for this bot".into());
         }
         if matches!(tool, "read" | "grep" | "find" | "ls") && self.filesystem == FilesystemAccess::None {
@@ -177,6 +186,16 @@ pub fn check_connection(app: &Arc<App>, bot: &Bot, connection: &str, tool: &str,
     }
 }
 
+/// The plugin as a whole, for a tool of Lorca's own that works with it (`browser_session` for
+/// Browser): any grant to the plugin covers it, whichever of the plugin's tools the grant lists.
+pub fn check_plugin(app: &Arc<App>, bot: &Bot, connection: &str, tool: &str) -> Result<(), AccessDenied> {
+    let current = current(app, bot, tool, Some(connection))?;
+    match current.permissions.as_ref().filter(|policy| !policy.allows_connection(connection)) {
+        Some(_) => Err(AccessDenied { tool: tool.into(), connection_id: Some(connection.into()), capability: None, reason: format!("{} is off for this bot", connection_name(app, connection)), grantable: true }),
+        None => Ok(()),
+    }
+}
+
 /// What the user calls an installed plugin: its status name, which tells two accounts of one
 /// service apart.
 fn connection_name(app: &App, connection: &str) -> String {
@@ -243,7 +262,7 @@ pub fn refuse(app: &Arc<App>, chat_id: &str, bot: &Bot, denied: AccessDenied) ->
             }
             None => {
                 let what = match denied.tool.as_str() {
-                    "bash" | "bash_input" | "bash_output" => "Shell commands",
+                    "bash" | "bash_input" | "bash_output" | "coding_agent" => "Shell commands",
                     "write" | "edit" => "Changing files",
                     _ => "Reading files",
                 };
@@ -265,6 +284,7 @@ pub fn refuse(app: &Arc<App>, chat_id: &str, bot: &Bot, denied: AccessDenied) ->
                 rule: None,
                 code: None,
                 link: None,
+                secret: None,
             },
         );
         app.upsert_message(message, true);
@@ -394,7 +414,7 @@ mod tests {
         for tool in ["bash", "bash_input", "bash_output", "write", "edit"] {
             assert!(policy.local_denial(tool).is_some(), "{tool}");
         }
-        for tool in ["read", "grep", "find", "ls", "codemode", "memory_update", "message_bot"] {
+        for tool in ["read", "grep", "find", "ls", "codemode", "memory_update", "message_bot", "attention", "project_context", "workflow_feedback"] {
             assert_eq!(policy.local_denial(tool), None, "{tool}");
         }
         let none = BotPermissions { filesystem: FilesystemAccess::None, ..Default::default() };

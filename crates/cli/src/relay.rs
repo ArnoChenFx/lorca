@@ -166,7 +166,7 @@ fn tls() -> Arc<rustls::ClientConfig> {
 
 /// The relay protocol this client speaks, sent as `Lorca-Protocol` with every request. A
 /// relay may refuse one it no longer serves with `426`. 1: group paging, `DELETE /v1/identity`.
-/// 2: `POST /v1/machines`.
+/// 2: `POST /v1/machines`. 3: durable subject records (tasks, reviews, attention, shared project context) and sealed event envelopes.
 pub const PROTOCOL: u32 = 3;
 
 const FILE_TRANSFER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10 * 60);
@@ -410,6 +410,41 @@ impl RelayClient {
     /// Deletes every blob of a group. Good to repeat.
     pub async fn delete_group(&self, url: &str, token: &str, group: &str) -> RelayResult<()> {
         Self::check(self.http().delete(format!("{url}/v1/groups/{group}")).bearer_auth(token).send().await?).await?;
+        Ok(())
+    }
+
+    // MARK: - Shared links
+
+    /// Puts a shared link's ciphertext under `id`, replacing what the id held.
+    pub async fn put_share(&self, url: &str, token: &str, id: &str, ciphertext: Vec<u8>) -> RelayResult<()> {
+        let request = self.http().put(format!("{url}/v1/shares/{id}")).bearer_auth(token);
+        Self::check(request.header(reqwest::header::CONTENT_TYPE, "application/octet-stream").body(ciphertext).send().await?).await?;
+        Ok(())
+    }
+
+    /// A shared link's ciphertext, which anyone may read; `None` when the relay holds nothing
+    /// under `id`.
+    pub async fn get_share(&self, url: &str, id: &str) -> RelayResult<Option<Vec<u8>>> {
+        let mut response = self.http().get(format!("{url}/v1/shares/{id}")).send().await?;
+        if !response.status().is_success() {
+            let error = Self::check(response).await.err().unwrap_or_else(|| RelayError { status: None, message: "Unexpected answer".into() });
+            // A relay older than shared links has no such route and says so without a word.
+            return if error.status == Some(404) && error.message == "No such link" { Ok(None) } else { Err(error) };
+        }
+        let max = crate::templates::format::MAX_BYTES + crate::crypto::ENVELOPE_OVERHEAD;
+        let too_large = || RelayError { status: None, message: "The shared link is larger than a template".into() };
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await? {
+            if chunk.len() > max - bytes.len() {
+                return Err(too_large());
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        Ok(Some(bytes))
+    }
+
+    pub async fn delete_share(&self, url: &str, token: &str, id: &str) -> RelayResult<()> {
+        Self::check(self.http().delete(format!("{url}/v1/shares/{id}")).bearer_auth(token).send().await?).await?;
         Ok(())
     }
 

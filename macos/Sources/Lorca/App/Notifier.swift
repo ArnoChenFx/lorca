@@ -38,6 +38,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
                 self.watchingChanged()
             case let .messageAdded(chatID, messageID), let .messageChanged(chatID, messageID):
                 self.permissionChanged(chatID, messageID)
+                self.attentionMessageChanged(chatID, messageID)
             case let .messageRemoved(_, messageID): self.clearPermission(messageID)
             case let .turnFinished(chatID, botID, startedAt): self.turnFinished(chatID, botID, startedAt)
             default: break
@@ -72,6 +73,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             switch message.body {
             case let .permission(request) where request.isPending: message.id
             case let .tool(tool) where tool.run?.state == .asking: message.id
+            case let .tool(tool) where tool.agent?.state == .asking: message.id
             default: nil
             }
         })
@@ -92,6 +94,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         switch message.body {
         case let .permission(request): asks = request.isPending
         case let .tool(tool) where tool.run != nil: asks = tool.run?.state == .asking
+        case let .tool(tool) where tool.agent != nil: asks = tool.agent?.state == .asking
         default: return
         }
         guard asks else { clearPermission(messageID); return }
@@ -120,12 +123,34 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
+    private var announcedAttention: Set<Message.ID> = []
+
+    private func attentionMessageChanged(_ chatID: Chat.ID, _ messageID: Message.ID) {
+        guard let message = store.chat(chatID)?.messages.first(where: { $0.id == messageID }),
+            let notification = ChatNotification(message), notification.kind == .summary || notification.kind == .urgent,
+            announcedAttention.insert(messageID).inserted else { return }
+        let identityID = store.identityID
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 3_000_000_000)
+            guard let self, self.store.identityID == identityID else { return }
+            self.post(notification, in: chatID)
+        }
+    }
+
+    private func allows(_ notification: ChatNotification) -> Bool {
+        switch notification.kind {
+        case .summary: store.attention.preferences.summaries
+        case .urgent: store.attention.preferences.urgentDirect
+        default: true
+        }
+    }
+
     private func post(_ notification: ChatNotification, in chatID: Chat.ID) {
-        guard let center, let chat = store.chat(chatID), notification.canDeliver(in: chat, watchedChat: watchedChat) else { return }
+        guard let center, let chat = store.chat(chatID), allows(notification), notification.canDeliver(in: chat, watchedChat: watchedChat) else { return }
 
         let content = UNMutableNotificationContent()
         content.title = store.bot(notification.botID)?.name ?? store.title(for: chat)
-        if !chat.isDM { content.subtitle = store.title(for: chat) }
+        if !chat.isBotDM { content.subtitle = store.title(for: chat) }
         content.body = String(notification.body.split(whereSeparator: \.isNewline).joined(separator: " ").prefix(280))
         content.sound = .default
         content.threadIdentifier = chatID
@@ -137,6 +162,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
             guard await self.authorized(center) else { return }
             // Notification authorization can stay open while the chat is read or answered.
             guard self.store.identityID == identityID,
+                self.allows(notification),
                 let chat = self.store.chat(chatID), notification.canDeliver(in: chat, watchedChat: self.watchedChat)
             else { return }
             do { try await center.add(request) } catch { NSLog("Posting a notification failed: \(error.localizedDescription)") }

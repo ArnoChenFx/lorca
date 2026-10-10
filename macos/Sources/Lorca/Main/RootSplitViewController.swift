@@ -193,6 +193,11 @@ final class RootSplitViewController: NSSplitViewController {
     private func makeInspector() -> InspectorViewController {
         let controller = InspectorViewController()
         controller.onOpenDevice = { [weak self] id in self?.openDevice(id) }
+        controller.onOpenChat = { [weak self] chatID in self?.open(chatID) }
+        controller.onShowMessage = { [weak self] chatID, messageID in
+            self?.open(chatID)
+            self?.chatController?.reveal(loading: messageID)
+        }
         controller.onRemoveBot = { [weak self] botID in
             guard case let .chat(chatID) = self?.selection else { return }
             self?.store.removeBot(botID, from: chatID)
@@ -436,10 +441,12 @@ final class RootSplitViewController: NSSplitViewController {
             switch pane {
             case .general: GeneralSettingsViewController()
             case .autoReview: AutoReviewSettingsViewController()
+            case .sharedLinks: SharedLinksSettingsViewController()
             case .advanced: AdvancedSettingsViewController()
             case .bots: BotsSettingsViewController()
             case .providers: ProvidersSettingsViewController()
             case .plugins: PluginsSettingsViewController()
+            case .secrets: SecretsSettingsViewController()
             case .device: AboutDeviceSettingsViewController()
             }
         if let controller = controller as? DevicePaneViewController {
@@ -496,6 +503,11 @@ final class RootSplitViewController: NSSplitViewController {
         presentAsSheet(sheet)
     }
 
+    /// New Bot from Template, on a shared bot's link when one opened the app.
+    func presentTemplateImport(link: String? = nil) {
+        presentAsSheet(TemplateImportViewController(source: link.map { .link($0) }) { [weak self] chatID in self?.open(chatID) })
+    }
+
     func open(_ chatID: Chat.ID) {
         select(.chat(chatID))
         chatController?.focusComposer()
@@ -545,6 +557,17 @@ final class RootSplitViewController: NSSplitViewController {
         presentAsSheet(sheet)
     }
 
+    /// A new skill for the bot in the DM on screen, or for the group.
+    @objc func newSkill(_ sender: Any?) {
+        guard case let .chat(chatID) = selection, let chat = store.chat(chatID),
+            let scope = InspectorViewController.skillScope(of: chat, members: store.bots(in: chat))
+        else {
+            NSSound.beep()
+            return
+        }
+        presentAsSheet(PlaybookViewController(scope: scope))
+    }
+
     @objc func renameChat(_ sender: Any?) {
         guard case let .chat(chatID) = selection, let chat = store.chat(chatID), chat.isGroup else {
             NSSound.beep()
@@ -578,6 +601,20 @@ final class RootSplitViewController: NSSplitViewController {
         sidebar.scrollSelectionToVisible()
     }
 
+    /// The bot of the direct chat that is showing, shared as a template.
+    @objc func shareBotTemplate(_ sender: Any?) {
+        guard let bot = selectedDMBot else {
+            NSSound.beep()
+            return
+        }
+        presentAsSheet(TemplateShareViewController(bot: bot))
+    }
+
+    private var selectedDMBot: Bot? {
+        guard case let .chat(chatID) = selection, let chat = store.chat(chatID), chat.isDM else { return nil }
+        return store.bots(in: chat).first
+    }
+
     @objc func togglePinChat(_ sender: Any?) {
         guard case let .chat(chatID) = selection else { return }
         store.togglePin(chatID)
@@ -592,7 +629,7 @@ final class RootSplitViewController: NSSplitViewController {
         }
         let alert = NSAlert()
         alert.messageText = L("Delete \"%@\"?", store.title(for: chat))
-        let deletesBot = chat.isDM && chat.botIDs.first.flatMap(store.bot) != nil
+        let deletesBot = chat.isBotDM && chat.botIDs.first.flatMap(store.bot) != nil
         alert.informativeText = deletesBot
             ? L("The bot, its routines, and this direct chat are removed from this Device and from paired Devices.")
             : L("The transcript is removed from this Device and from paired Devices.")
@@ -641,16 +678,23 @@ extension RootSplitViewController: NSMenuItemValidation {
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         if menuItem.action == #selector(deleteChat(_:)) {
             guard case let .chat(id) = selection, let chat = store.chat(id) else { return false }
-            menuItem.title = chat.isDM ? L("Delete Bot") : L("Delete Chat")
+            menuItem.title = chat.isBotDM ? L("Delete Bot") : L("Delete Chat")
             return true
         }
         if menuItem.action == #selector(addBotToChat(_:)) {
             guard case let .chat(id) = selection, let chat = store.chat(id) else { return false }
             return !botsAvailableToAdd(to: chat).isEmpty
         }
+        if menuItem.action == #selector(newSkill(_:)) {
+            guard case let .chat(id) = selection, let chat = store.chat(id) else { return false }
+            return InspectorViewController.skillScope(of: chat, members: store.bots(in: chat)) != nil
+        }
         if menuItem.action == #selector(renameChat(_:)) {
             guard case let .chat(id) = selection, let chat = store.chat(id) else { return false }
             return chat.isGroup
+        }
+        if menuItem.action == #selector(shareBotTemplate(_:)) {
+            return selectedDMBot != nil
         }
         if menuItem.action == #selector(goToChat(_:)) {
             return sidebar.chatSelection(forShortcut: menuItem.tag) != nil

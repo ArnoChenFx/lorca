@@ -59,6 +59,8 @@ export interface Device {
   last_seen: number;
   /// Plugins installed on that Runner, with their setup state.
   plugins?: PluginStatus[];
+  /// The channels its bots listen on.
+  channels?: ChannelStatus[];
   /// The `lorca` that Device runs, as `lorca --version` says it.
   version?: string;
   /// Only on a Runner whose CLI replaces itself (installed with lorca.app's script).
@@ -82,6 +84,21 @@ export interface UpdateStatus {
 }
 
 /// A plugin as its Runner advertises it: installed, and in what state.
+/// The Browser plugin, whose screen lists a bot's browser profiles.
+export const BROWSER_PLUGIN_ID = "playwright";
+
+/// One of a bot's browser profiles, as its Runner reports it (`browser.sessions`). Each keeps its
+/// own sign-ins there. `revision` goes up with every change of control; Return to Bot sends the
+/// one this phone last saw.
+export interface BrowserProfile {
+  id: string;
+  name: string;
+  state: "stopped" | "bot" | "taking_over" | "human";
+  revision: number;
+  /// The user records a workflow in it for the bot to learn, with the browser in hand.
+  recording?: boolean;
+}
+
 export interface PluginStatus {
   id: string;
   name: string;
@@ -89,8 +106,18 @@ export interface PluginStatus {
   version?: string;
   /// An SF Symbol name.
   icon?: string;
-  state: "ready" | "needs_setup" | "needs_auth" | "connecting" | "error";
+  state: "ready" | "needs_setup" | "needs_auth" | "insufficient_access" | "connecting" | "error";
   detail?: string;
+  /// A named account's marketplace service (gmail) and the user's name for it (Work); its `id`
+  /// is the account's own.
+  service_id?: string;
+  account_name?: string;
+}
+
+/// An installed plugin as its Runner details it: here, how each server signs in.
+export interface PluginDetail {
+  status: PluginStatus;
+  servers: { name: string; kind: string; auth: { oauth?: boolean; signed_in?: boolean } }[];
 }
 
 /// The connected kinds a bot can run with: built-ins first, then custom providers in the order
@@ -132,7 +159,19 @@ export interface Bot {
   /** How much the model thinks: off, minimal, low, medium, high, xhigh, max. */
   thinking?: string;
   workdir?: string;
+  /** The user's Access for it (`src/core/access.ts`); none is full access. */
+  permissions?: BotPermissions;
   created_at: number;
+}
+
+/// A bot's Access, as the CLI keeps it in the encrypted roster: without `connections` every plugin
+/// on the Runner, else only those it lists; files `write` and shell on unless they say otherwise.
+export interface BotPermissions {
+  connections?: Record<string, { capabilities: string[]; tools?: string[] }>;
+  filesystem?: "none" | "read" | "write";
+  shell?: boolean;
+  /** Whether the bot's emails and Slack messages wait in the chat as drafts for the user to send; on unless false. */
+  drafts?: boolean;
 }
 
 /// A recurring task a bot runs on a schedule in its direct chat, as the roster carries it, with
@@ -143,12 +182,19 @@ export interface Routine {
   name: string;
   /** The task, written to the bot, handed to it on every run. */
   prompt: string;
-  /** `every 30m`, `every 2h`, `every 1d`, or five cron fields in the Runner's local time. */
+  /** `every 30m`, `every 2h`, `every 1d`, or five cron fields in `timezone`. */
   schedule: string;
+  /** The IANA timezone a cron schedule reads in. */
+  timezone?: string;
+  /** After due times its Runner missed: "coalesce" runs once when it is back, "skip" waits for the next one. */
+  missed_run_policy?: "coalesce" | "skip";
+  /** How it stands, from the core: "on", "running", "paused", "blocked", "failed", or "waiting_for_runner". */
+  state?: string;
+  health?: RoutineHealth;
   /** "Weekdays at 9:00 AM" */
   schedule_text: string;
   is_enabled: boolean;
-  /** Why Lorca paused it, when it did: "away". */
+  /** Why Lorca paused it, when it did: "away", or "authentication" after three failed sign-ins in a row. */
   paused_reason?: string;
   last_run_at?: number;
   /** "sent", "pass", or "error". */
@@ -158,9 +204,28 @@ export interface Routine {
   /** The script the Runner runs at each due time before the bot does; `next_run_at` is then the next check. */
   check?: string | null;
   created_at: number;
+  /** When a one-time routine runs; its Runner removes it after that run. */
+  once_at?: number | null;
+  /** The pull request a watch reads at each due time, until it merges or closes. */
+  pull_request?: { repo: string; number: number; title?: string; url?: string } | null;
+  /** The calendar events a routine around events runs before or after: so many minutes before they start, or after they end. */
+  calendar?: { account?: string; matching?: string | null; minutes?: number | null; after?: boolean | null; next_event?: { title?: string; start?: number; end?: number } | null } | null;
 }
 
-export type Author = { kind: "you" } | { kind: "bot"; bot_id: string } | { kind: "system" };
+/// How a routine's checks and runs have gone, as its Runner records them.
+export interface RoutineHealth {
+  last_check_at?: number | null;
+  last_success_at?: number | null;
+  /** How the last check went: "quiet", "ready", "failed", or "blocked". */
+  status?: string | null;
+  connection_failures?: number;
+  authentication_failures?: number;
+  /** The runs' own streak with the model provider, which checks do not clear. */
+  model?: { status?: string | null; authentication_failures?: number };
+}
+
+/// `contact` is someone outside Lorca, in a channel's conversation.
+export type Author = { kind: "you" } | { kind: "bot"; bot_id: string } | { kind: "system" } | { kind: "contact"; name: string };
 
 export interface ChatSearchResults {
   chats: { chat_id: string; snippet: string }[];
@@ -220,13 +285,57 @@ export type Body =
       script_command?: string;
       /** A bash call's card, from Auto-review's question to how the command ended. */
       run?: CommandRun;
+      /** The card of the coding agent a coding_agent call started, shown from the start. */
+      agent?: AgentRun;
     }
   | { kind: "handoff"; from: string; to: string; reason: string }
   | { kind: "notice"; text: string; routine_id?: string }
   /// The bot asks before a plugin or shell action, or before installing a plugin (`tool` is `install`).
   /// `rule` is the rule Always allow adds, which Auto-review proposed for a shell command (`plugin_id` is `computer`);
   /// `command` is that command in full, where `summary` is its first line.
-  | { kind: "permission"; plugin_id: string; plugin_name: string; tool: string; summary: string; decision: "pending" | "allowed" | "always" | "denied" | "expired" | "dismissed" | "connected" | "failed"; reason?: string; rule?: string; command?: string; link?: string; code?: string };
+  | { kind: "permission"; plugin_id: string; plugin_name: string; tool: string; summary: string; decision: "pending" | "allowed" | "always" | "denied" | "expired" | "dismissed" | "connected" | "failed"; reason?: string; rule?: string; command?: string; link?: string; code?: string; secret?: SecretAsk }
+  /// An email or Slack message the bot wrote in the chat, waiting for the user to send it: the
+  /// chat's view of its review item, whose `version` Send and Discard name. `note` says why it
+  /// was not sent or needs another look; `direct` is whether, with drafts off, the bot sends such
+  /// messages itself (Slack), where Gmail only keeps drafts.
+  | { kind: "draft"; review_id: string; version: number; state: ReviewState; plugin_id: string; account: string; draft: MessageDraft; note?: string; direct?: boolean };
+
+/// The parts of a message a bot wrote, as its draft card shows and edits them.
+export interface MessageDraft {
+  /** `email` or `slack`. */
+  kind: string;
+  /** Email addresses, or the Slack channel or person. */
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  subject?: string;
+  body: string;
+  /** The files it carries; an edit keeps the ones it still names. */
+  attachments?: { name: string; size: number }[];
+  /** What it answers: an email's id or a Slack thread. */
+  reply?: string;
+}
+
+/// What a secret request asks for (a permission card with `tool` `secret`): the values the bot
+/// names, and where its Runner uses them. The card takes the values; they go sealed to the Runner
+/// and never come back.
+export interface SecretAsk {
+  /** `browser` (typed into a sign-in page of `site` in the bot's Browser), `command` (an environment variable of its commands), or `plugin` (a setting of the card's plugin). */
+  use: "browser" | "command" | "plugin";
+  site?: string;
+  fields: { name: string; label: string }[];
+}
+
+/// A secret kept on a Runner for one of its bots, as Settings lists it: never its value.
+export interface SavedSecret {
+  id: string;
+  bot_id: string;
+  name: string;
+  label: string;
+  use: SecretAsk["use"];
+  site?: string;
+  updated_at: number;
+}
 
 /// Where a bash call's command stands: Auto-review checking it, the question it asks, the command
 /// running in its terminal, what the command asks, and that it ended. While it asks, its card takes
@@ -258,6 +367,67 @@ export interface CommandRun {
   reason?: string;
   /** The rule Always allow adds. */
   rule?: string;
+}
+
+/// A coding agent a bot runs on its Runner, Claude Code or Codex, as the card of the call that
+/// started it shows it: Auto-review's question before it starts, what it works on and where, how it
+/// stands, its last lines, and what it asks. A question about starting it or a command it wants to
+/// run is answered like a command's (`chats.permission`); one its pane asks, with a choice or text
+/// (`coding.answer`). Stop is `coding.stop`; its transcript, `coding.transcript`.
+export interface AgentRun {
+  id: string;
+  /** `claude` or `codex`. */
+  kind: string;
+  /** `herdr` or `luvus` when it runs in a pane of that terminal host on its Runner. */
+  host?: string;
+  task: string;
+  /** Where it works, from the home folder. */
+  folder?: string;
+  branch?: string;
+  state: "checking" | "asking" | "starting" | "working" | "idle" | "exited" | "failed" | "stopped" | "denied" | "expired" | "dismissed";
+  /** Working, with nothing new for a while. */
+  stalled?: boolean;
+  question?: AgentQuestion;
+  output?: string;
+  outcome?: string;
+  device?: string;
+  started_at?: number;
+}
+
+/// What a coding agent's card asks: whether it may start (`start`) or run a command (`command`),
+/// or what its pane asks, with a menu of choices (`choices`) or for text (`text`).
+export interface AgentQuestion {
+  kind: "start" | "command" | "choices" | "text";
+  text?: string;
+  command?: string;
+  choices?: string[];
+  reason?: string;
+  rule?: string;
+}
+
+/// Its product's name, which is not translated.
+export function agentName(agent: AgentRun): string {
+  return agent.kind === "codex" ? "Codex" : "Claude Code";
+}
+
+export function agentIsOpen(agent: AgentRun): boolean {
+  return ["checking", "asking", "starting", "working", "idle"].includes(agent.state);
+}
+
+/// Stop ends it: not while Auto-review decides whether it may start, and not once it is done,
+/// waiting for a follow-up.
+export function agentIsRunning(agent: AgentRun): boolean {
+  return agentIsOpen(agent) && agent.state !== "checking" && agent.state !== "idle" && agent.question?.kind !== "start";
+}
+
+/// It started, so it has a transcript to read.
+export function agentStarted(agent: AgentRun): boolean {
+  return !["checking", "denied", "expired", "dismissed"].includes(agent.state) && agent.question?.kind !== "start";
+}
+
+/// Where it works, in a word: its branch, else its folder's name.
+export function agentPlace(agent: AgentRun): string {
+  return agent.branch ?? (agent.folder ?? "").split("/").filter(Boolean).pop() ?? "";
 }
 
 export function isLive(run: CommandRun): boolean {
@@ -438,6 +608,55 @@ export interface ChatMeta {
   description?: string | null;
   is_pinned: boolean;
   created_at: number;
+  /// A conversation a channel keeps: one Telegram chat or topic, or one Slack thread, named by
+  /// `title`. The bot's own DM has none.
+  channel?: ChatChannel | null;
+}
+
+/// Where a channel's conversation happens.
+export interface ChatChannel {
+  channel_id: string;
+  service: string;
+  account_id: string;
+  chat_id: string;
+  thread_id?: string | null;
+}
+
+/// What a channel takes.
+export interface ChannelListen {
+  every?: boolean;
+  mentions?: boolean;
+  replies?: boolean;
+  tags?: string[];
+}
+
+/// A bot listening on a Telegram or Slack account, as its Runner advertises it.
+export interface ChannelStatus {
+  id: string;
+  bot_id: string;
+  name: string;
+  /// `telegram` or `slack`.
+  service: string;
+  account_id: string;
+  chats?: { id: string; title?: string }[];
+  listen: ChannelListen;
+  task: string;
+  /// `listening`, `paused`, `held` (a message's turn didn't finish, so later ones wait), or
+  /// `offline` (the account can't be read now).
+  state: "listening" | "paused" | "held" | "offline";
+  detail?: string;
+  held_delivery?: string | null;
+}
+
+/// The one DM a bot has with the user: a direct chat that is not a channel's conversation.
+export function isBotDM(chat: ChatMeta): boolean {
+  return chat.kind === "dm" && !chat.channel;
+}
+
+/// A transcript with more than one speaker on the bots' side: a group, or a channel's
+/// conversation with the people there.
+export function showsSpeakers(chat: ChatMeta): boolean {
+  return chat.kind === "group" || !!chat.channel;
 }
 
 /// The tokens and money the turns in a chat used, from its Runner.
@@ -862,6 +1081,39 @@ export function thinkingLabel(level: string): string {
 /// (and so its Runner), what done looks like, the next step, the tasks it waits for, and, once a
 /// run ends, a result with what supports it. Not the Running tasks of `app/tasks`, which are a
 /// chat's terminal commands.
+/// A draft or an exact call a bot left for the user to approve, as its Runner keeps it: what it
+/// would do (`payload`), where (`target`), why (`rationale`), and how it ended. Only that Runner
+/// changes it, and a decision names the `version` the user saw.
+export interface ReviewItem {
+  id: string;
+  runner_id: string;
+  bot_id: string;
+  origin: { chat_id: string; message_id?: string | null; routine_id?: string | null; task_id?: string | null };
+  target: { account: string; resource: string };
+  rationale: string;
+  payload: ReviewPayload;
+  version: number;
+  revision: number;
+  preconditions: { workdir: string; files: { path: string; hash?: string | null }[] };
+  state: ReviewState;
+  outcome?: { summary: string; result?: { text?: string } | null; message_id: string } | null;
+  created_at: number;
+  /** An email or Slack message: its draft card in the chat is where it is decided. */
+  is_message?: boolean;
+}
+
+export type ReviewPayload =
+  | { kind: "draft"; text: string }
+  | { kind: "shell"; arguments: { command?: string } }
+  | { kind: "plugin"; plugin_id: string; server_name: string; tool: string; arguments: unknown };
+
+export type ReviewState = "pending" | "approved" | "executing" | "succeeded" | "failed" | "rejected" | "cancelled" | "uncertain";
+
+/// Waiting for the user, or approved and about to run.
+export function reviewIsOpen(item: ReviewItem): boolean {
+  return item.state === "pending" || item.state === "approved" || item.state === "executing";
+}
+
 export interface DurableTask {
   id: string;
   revision: number;
@@ -928,4 +1180,205 @@ export function taskSymbol(state: DurableTaskState): string {
 /// What waits on the user first, then open work, then finished tasks.
 export function taskOrder(state: DurableTaskState): number {
   return { blocked: 0, awaiting_review: 1, working: 2, queued: 3, completed: 4, cancelled: 4 }[state];
+}
+
+/// What a DM's turns, a task's runs, or a routine's runs may use on the bot's Runner. A missing
+/// limit is none; zero allows nothing.
+export interface BudgetLimits {
+  max_usd?: number | null;
+  max_tokens?: number | null;
+  max_runtime_secs?: number | null;
+  max_retries?: number | null;
+  max_connector_calls?: number | null;
+}
+
+/// One allowance as its Runner keeps it. `chat` holds the limits each new turn in a DM starts
+/// with; `job` is one turn; `task` and `routine` all of their runs.
+export interface BudgetState {
+  kind: "chat" | "job" | "task" | "routine";
+  id: string;
+  runner_id: string;
+  chat_id: string;
+  limits: BudgetLimits;
+  usage: {
+    tokens: number;
+    api_cost_usd: number;
+    subscription_estimate_usd: number;
+    unknown_price_calls: number;
+    runtime_secs: number;
+    retries: number;
+    connector_calls: number;
+  };
+  state: "ready" | "running" | "complete" | "budget_exhausted" | "interrupted";
+  /// The limit it stopped at: usd, tokens, runtime, retries, connector_calls, or unknown_price.
+  reached?: string | null;
+  updated_at: number;
+}
+
+/// A plugin account's call limit on its Runner, shared by every bot there.
+export interface CallLimits {
+  limits: { max_calls: number; window_secs: number; max_concurrency: number };
+  /// When the service asked the calls to wait until, in seconds.
+  retry_at?: number | null;
+  plugin_id: string;
+  service_id: string;
+}
+
+/// A group's shared project context, after the desktop apps' Project section: the briefs, goals,
+/// constraints, decisions, facts, links (`document`), and files (`asset`) every bot in the group
+/// can read. The core owns scope, revisions, source checks, and sync.
+export type ProjectKind = "brief" | "goal" | "constraint" | "decision" | "fact" | "document" | "asset";
+
+/// The order the Project section lists the kinds in, and the + menu offers them.
+export const PROJECT_KINDS: ProjectKind[] = ["brief", "goal", "constraint", "decision", "fact", "document", "asset"];
+
+/// Where an entry came from, kept whole so a correction carries a cited output along.
+export interface ProjectSource {
+  kind: "user" | "bot" | "url" | "message" | "output";
+  label: string;
+  url?: string | null;
+  message_id?: string | null;
+  output?: { chat_id: string; message_id: string; output_id: string; version: number } | null;
+}
+
+export interface ProjectEntry {
+  id: string;
+  kind: ProjectKind;
+  title: string;
+  text: string;
+  source: ProjectSource;
+  verification: string;
+  freshness: string;
+  updated_at: number;
+  verified_at?: number | null;
+  fetched_at?: number | null;
+  asset?: Attachment | null;
+  refresh_error?: string | null;
+  supersedes?: string[];
+  current?: boolean;
+  removed?: boolean;
+}
+
+/// A group's current entries in list order, and the entries that are two versions of one (two
+/// Devices changed it at once).
+export interface ProjectContext {
+  entries: ProjectEntry[];
+  conflicts: string[][];
+}
+
+/// Briefs first and files last, newest first within a kind.
+export function orderProjectEntries(entries: ProjectEntry[]): ProjectEntry[] {
+  return [...entries].sort((a, b) => PROJECT_KINDS.indexOf(a.kind) - PROJECT_KINDS.indexOf(b.kind) || b.updated_at - a.updated_at || a.id.localeCompare(b.id));
+}
+
+/// The other current versions of an entry two Devices changed at once.
+export function otherVersions(context: ProjectContext | undefined, id: string): string[] {
+  return context?.conflicts.find((versions) => versions.includes(id))?.filter((other) => other !== id) ?? [];
+}
+
+/// A bot's proposal, waiting for the user to accept it.
+export function isSuggestion(entry: ProjectEntry): boolean {
+  return entry.verification === "unverified" && entry.source.kind === "bot";
+}
+
+/// A bot reads the link again before it relies on it; an agreed decision is the user's to change.
+export function canCheckLink(entry: ProjectEntry): boolean {
+  return !!entry.source.url && !(entry.kind === "decision" && entry.verification === "agreed");
+}
+
+/// The last time the link was read or confirmed, in seconds.
+export function linkChecked(entry: ProjectEntry): number | undefined {
+  const times = [entry.fetched_at, entry.verified_at].filter((at): at is number => typeof at === "number");
+  return times.length ? Math.max(...times) : undefined;
+}
+
+/// The host of the entry's link, for its row.
+export function projectHost(entry: ProjectEntry): string | undefined {
+  if (!entry.source.url) return undefined;
+  try {
+    return new URL(entry.source.url).hostname.replace(/^www\./, "");
+  } catch {
+    return undefined;
+  }
+}
+
+export function projectSymbol(kind: ProjectKind): string {
+  return { brief: "doc.text", goal: "flag", constraint: "hand.raised", decision: "checkmark.seal", fact: "info.circle", document: "link", asset: "paperclip" }[kind];
+}
+
+/// What the core answers when the entry being saved changed on another Device first.
+export const STALE_PROJECT_ENTRY = "This entry changed on another Device.";
+
+/// Whose skill it is: one bot's, in every chat it is in (`bot`), or a group's, for the bots in
+/// that group (`project`).
+export interface PlaybookScope {
+  kind: "bot" | "project";
+  id: string;
+}
+
+/// A reference or a script the skill carries, as text: `references/checklist.md`.
+export interface PlaybookFile {
+  path: string;
+  text: string;
+}
+
+export interface PlaybookContent {
+  name: string;
+  description: string;
+  instructions: string;
+  examples: string;
+  references: PlaybookFile[];
+  scripts: PlaybookFile[];
+}
+
+/// A skill as the roster lists it, without its body.
+export interface PlaybookSummary {
+  id: string;
+  scope: PlaybookScope;
+  name: string;
+  description: string;
+  status: "draft" | "saved" | "deleted";
+  revision: number;
+  hash: string;
+  updated_at: number;
+}
+
+/// One step of a skill's history: who changed it where, and what it said then.
+export interface PlaybookRevision {
+  id: string;
+  revision: number;
+  status: "draft" | "saved" | "deleted";
+  content: PlaybookContent | null;
+  provenance: { kind: string; chat_id?: string | null; message_ids: string[] };
+  device_id: string;
+  created_at: number;
+}
+
+/// A skill with its body and history, fetched when it opens.
+export interface PlaybookRecord {
+  id: string;
+  scope: PlaybookScope;
+  status: "draft" | "saved" | "deleted";
+  revision: number;
+  hash: string;
+  content: PlaybookContent | null;
+  revisions: PlaybookRevision[];
+}
+
+/// Whose skills a chat shows: the bot's in a DM, the group's in a group.
+export function skillScopeOf(chat: ChatMeta): PlaybookScope | undefined {
+  if (chat.kind === "group") return { kind: "project", id: chat.id };
+  return chat.bot_ids[0] ? { kind: "bot", id: chat.bot_ids[0] } : undefined;
+}
+
+/// What the core answers when a skill being saved changed on another Device first.
+export function isStaleSkill(error: string): boolean {
+  return error.includes("changed since");
+}
+
+/// Whether two drafts say the same: an unchanged card sends without an edit.
+export function sameDraft(a: MessageDraft, b: MessageDraft): boolean {
+  const list = (values?: string[]) => (values ?? []).join("\n");
+  const files = (draft: MessageDraft) => (draft.attachments ?? []).map((file) => file.name).join("\n");
+  return list(a.to) === list(b.to) && list(a.cc) === list(b.cc) && list(a.bcc) === list(b.bcc) && (a.subject ?? "") === (b.subject ?? "") && a.body === b.body && files(a) === files(b);
 }

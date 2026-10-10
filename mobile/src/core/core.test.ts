@@ -4,6 +4,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   addModelRow,
+  agentIsRunning,
+  agentName,
+  agentPlace,
+  agentStarted,
+  type AgentRun,
   attachmentSummary,
   connectedProviders,
   contextWindowLabel,
@@ -109,6 +114,27 @@ describe("model", () => {
     // Ended.
     for (const state of ["exited", "failed", "stopped", "denied", "expired", "dismissed"] as const) expect(call(false, state, true)).toBe(false);
     expect(showsCard({ kind: "tool", name: "read", summary: "", detail: "", is_running: false })).toBe(false);
+  });
+
+  test("a coding agent's card offers Stop while it runs and its transcript once it started", () => {
+    const agent = (state: AgentRun["state"], question?: AgentRun["question"]): AgentRun => ({ id: "agent-1", kind: "claude", task: "Fix it", folder: "~/.lorca/worktrees/site-1a2b3c/fix-it", branch: "fix-it", state, question });
+    expect(agentName(agent("working"))).toBe("Claude Code");
+    expect(agentName({ ...agent("working"), kind: "codex" })).toBe("Codex");
+    expect(agentPlace(agent("working"))).toBe("fix-it");
+    expect(agentPlace({ ...agent("working"), branch: undefined })).toBe("fix-it");
+    expect(agentIsRunning(agent("working"))).toBe(true);
+    expect(agentIsRunning(agent("asking", { kind: "command", command: "git push" }))).toBe(true);
+    // Before it starts there is nothing to stop or read; done, it waits for a follow-up.
+    expect(agentIsRunning(agent("asking", { kind: "start" }))).toBe(false);
+    expect(agentStarted(agent("asking", { kind: "start" }))).toBe(false);
+    expect(agentIsRunning(agent("checking"))).toBe(false);
+    expect(agentIsRunning(agent("idle"))).toBe(false);
+    expect(agentStarted(agent("idle"))).toBe(true);
+    for (const state of ["exited", "failed", "stopped"] as const) {
+      expect(agentIsRunning(agent(state))).toBe(false);
+      expect(agentStarted(agent(state))).toBe(true);
+    }
+    expect(agentStarted(agent("denied"))).toBe(false);
   });
 
   test("a command runs in its terminal from its session's start to its end", () => {
@@ -574,6 +600,9 @@ describe("format", () => {
     expect(preview(chat("dm", [sent]), bots)).toBe("Messaged Scout: please look");
     const handoff = msg({ kind: "bot", bot_id: "b1" }, { kind: "handoff", from: "b1", to: "b2", reason: "over to you" });
     expect(preview({ ...chat("dm", [handoff]), bot_ids: ["b2"] }, bots)).toBe("Message from Chef: over to you");
+    // A handoff's report reaches the requesting bot's group from outside it.
+    const report = msg({ kind: "bot", bot_id: "b2" }, { kind: "handoff", from: "b2", to: "b1", reason: "done" });
+    expect(preview({ ...chat("group", [report]), bot_ids: ["b1", "b3"] }, bots)).toBe("Message from Scout: done");
   });
 
   test("the working row reads what the one bot at work is doing", () => {

@@ -1,8 +1,8 @@
 // One durable task, slid in from the chat's details, after the desktop apps' task sheet: where it
-// stands, why when it is blocked or cancelled, its result and what supports it, and the one step
-// the state allows (Start, Resume, Mark Complete, Reopen); then the goal, owner, next step, and
-// what done looks like, which Save writes back, and what it waits for and links to. `new` as the
-// id is the same form for a new task in the chat; once created, the screen shows the task.
+// stands, why when it is blocked or cancelled, its result and what supports it, the one step the
+// state allows (Start, Resume, Mark Complete, Reopen), and its Limits; then the goal, owner, next
+// step, and what done looks like, which Save writes back, and what it waits for and links to.
+// `new` as the id is the same form for a new task in the chat; once created, the screen shows it.
 //
 // Edits start from the version the screen showed. A change from elsewhere replaces an untouched
 // form. When a save meets a newer revision, the screen takes it under the user's edits and says
@@ -10,10 +10,10 @@
 
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Platform, PlatformColor, ScrollView, StyleSheet, Text, View } from "react-native";
 import { engine } from "../../../src/core/engine";
 import { CANCELLED_BY_USER, taskCanStart, taskIsFinished, taskSymbol, type DurableTask, type TaskEvidence } from "../../../src/core/model";
-import { useBotMap, useDurableTask, useStore } from "../../../src/core/store";
+import { useBotMap, useBudget, useDurableTask, useStore } from "../../../src/core/store";
 import { t, useLanguage } from "../../../src/i18n";
 import { alert } from "../../../src/ui/alert";
 import { taskStateTitle, useTaskTint } from "../../../src/ui/durableTasks";
@@ -22,7 +22,8 @@ import { FieldRow, Row, Section } from "../../../src/ui/forms";
 import { SaveToolbar } from "../../../src/ui/navigation";
 import { openLink } from "../../../src/ui/outputs";
 import { Symbol } from "../../../src/ui/Symbol";
-import { usePalette } from "../../../src/ui/theme";
+import { accentColor, Font, usePalette } from "../../../src/ui/theme";
+import { isStopped, limitsSummary, stoppedLabel } from "../../../src/ui/limits";
 
 interface Form {
   goal: string;
@@ -69,6 +70,10 @@ export default function DurableTaskScreen() {
   );
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string>();
+  // What the task's runs may use; a task its limits stopped resumes there.
+  const limits = useBudget("task", latest?.id, latest?.runner_id);
+  const stopped = isStopped(limits) ? limits : undefined;
+  const orange = Platform.OS === "ios" ? PlatformColor("systemOrange") : accentColor("orange", p.dark);
   // A request and its id: a retry after an unclear failure sends the same id, so the core answers it once.
   const sent = useRef<{ body: string; id: string } | undefined>(undefined);
 
@@ -147,6 +152,10 @@ export default function DurableTaskScreen() {
 
   /// Saves what the user changed, then starts a run in this chat when the owner is in it, or in
   /// the first of the task's chats it is in, and goes back to the chat's details.
+  function openLimits(task: DurableTask) {
+    router.push({ pathname: "/chat-info/limits", params: { kind: "task", id: task.id, bot: task.owner_bot_id } });
+  }
+
   async function start() {
     if (!base) return;
     const saved = edited ? await update({}) : base;
@@ -189,7 +198,8 @@ export default function DurableTaskScreen() {
         break;
       case "blocked":
         detail = task.reason ?? "";
-        action = { title: t("Resume"), icon: "play", run: () => void start() };
+        // A run would only be refused again while the task's limits stopped it.
+        action = { title: t("Resume"), icon: "play", run: stopped ? () => openLimits(task) : () => void start() };
         break;
       case "working": {
         const owner = bots.get(task.owner_bot_id);
@@ -232,6 +242,13 @@ export default function DurableTaskScreen() {
               <EvidenceRow key={index} item={item} />
             ))}
             {action && !busy ? <Row title={action.title} icon={action.icon} onPress={action.run} /> : null}
+            <Row
+              title={t("Limits")}
+              detail={stopped ? undefined : limitsSummary(limits?.limits)}
+              accessory={stopped ? <Text style={{ color: orange, fontSize: Font.body }}>{stoppedLabel(stopped)}</Text> : undefined}
+              chevron
+              onPress={() => openLimits(task)}
+            />
           </Section>
         )}
 

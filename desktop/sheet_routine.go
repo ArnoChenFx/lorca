@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"strings"
 	"unicode"
 
@@ -61,7 +62,12 @@ func (w *appWindow) routineView(c *ui.Context, s *sheet, title, routineID string
 		}
 		problem := routine.Problem()
 		state, tint := L("Paused"), p.Label2
+		// A routine stopped at its limits runs again only once the user resumes it in Limits.
+		budget := store.Budget("routine", routine.ID, bot.RunnerID)
+		stopped := budget != nil && budget.IsStopped()
 		switch {
+		case stopped:
+			state, tint = budget.StoppedLabel(), p.Orange
 		case routine.IsRunning:
 			state, tint = L("Running…"), p.Accent
 		case problem != model.ProblemNone:
@@ -80,7 +86,9 @@ func (w *appWindow) routineView(c *ui.Context, s *sheet, title, routineID string
 		}
 		section(c, L("Schedule"), sectionCaption, nil, func(k *card) {
 			keyValueRow(c, k, L("State"), state, false, &tint)
-			if problem != model.ProblemNone {
+			if stopped {
+				noteRow(c.Key("problem"), k, budget.StoppedDetail(), nil)
+			} else if problem != model.ProblemNone {
 				noteRow(c.Key("problem"), k, problem.Explanation(bot.Name, runner), nil)
 			}
 			scheduleTooltip := routine.Schedule
@@ -88,22 +96,46 @@ func (w *appWindow) routineView(c *ui.Context, s *sheet, title, routineID string
 				scheduleTooltip += " · " + routine.Timezone
 			}
 			keyValueRow(c.Key("schedule"), k, L("Schedule"), routine.ScheduleSummary(), false, nil).Tooltip(scheduleTooltip)
+			// The pull request opens on GitHub; the calendar names its account.
+			if watch := routine.PullRequest; watch != nil {
+				title := cmp.Or(watch.Title, watch.Label())
+				row := keyValueRow(c.Key("pull-request"), k, L("Pull request"), title, false, nil)
+				if watch.URL != "" {
+					row.Tooltip(watch.URL).Cursor(ui.CursorPointer)
+					if row.Clicked() {
+						openLink(watch.URL)
+					}
+				}
+			}
+			if events := routine.Calendar; events != nil && events.Account != "" {
+				keyValueRow(c.Key("calendar"), k, L("Calendar"), events.Account, false, nil)
+			}
 			next, nextLabel := "—", L("Next run")
-			if routine.HasCheck {
+			if routine.LooksFirst() {
 				nextLabel = L("Next check")
 			}
+			if routine.Calendar != nil && routine.IsEnabled {
+				next = L("None in the next day")
+			}
 			if !routine.NextRunAt.IsZero() {
-				// "Tomorrow 9:00 AM" on a line of its own, as the last check and run read.
+				// "Tomorrow 9:00 AM" on a line of its own, as the last check and run read; a
+				// routine around events names the event it runs for.
 				runes := []rune(model.Upcoming(routine.NextRunAt))
 				runes[0] = unicode.ToUpper(runes[0])
 				next = string(runes)
+				if routine.Calendar != nil && routine.Calendar.NextEventTitle != "" {
+					next += " · " + routine.Calendar.NextEventTitle
+				}
 			}
 			keyValueRow(c.Key("next"), k, nextLabel, next, false, nil)
-			missed, missedTooltip := L("Run once"), L("When %@ was off at a scheduled time, the routine runs once when it’s back.", runner)
-			if routine.MissedRunPolicy == "skip" {
-				missed, missedTooltip = L("Skip"), L("When %@ was off at a scheduled time, the routine waits for the next one.", runner)
+			// A one-time routine runs once its Runner is back, whatever the policy.
+			if routine.OnceAt.IsZero() {
+				missed, missedTooltip := L("Run once"), L("When %@ was off at a scheduled time, the routine runs once when it’s back.", runner)
+				if routine.MissedRunPolicy == "skip" {
+					missed, missedTooltip = L("Skip"), L("When %@ was off at a scheduled time, the routine waits for the next one.", runner)
+				}
+				keyValueRow(c.Key("missed"), k, L("Missed runs"), missed, false, nil).Tooltip(missedTooltip)
 			}
-			keyValueRow(c.Key("missed"), k, L("Missed runs"), missed, false, nil).Tooltip(missedTooltip)
 			if lastCheck := routine.LastCheckSummary(); lastCheck != "" {
 				keyValueRow(c.Key("last-check"), k, L("Last check"), lastCheck, false, nil)
 				// Only a failing check has a success to tell apart from it.
@@ -116,6 +148,14 @@ func (w *appWindow) routineView(c *ui.Context, s *sheet, title, routineID string
 				}
 			}
 			keyValueRow(c.Key("last-run"), k, L("Last run"), routine.LastRunSummary(), false, nil)
+			// What its runs may use; the Limits sheet is where a stopped routine resumes.
+			limits := Lc("None", "limits")
+			if budget != nil {
+				limits = budget.Limits.Summary()
+			}
+			if disclosureRow(c.Key("limits"), k, L("Limits"), limits, nil) {
+				w.presentBudget(bot, store.DM(bot.ID), routine.ID)
+			}
 		})
 		section(c, L("Task"), sectionCaption, nil, func(k *card) {
 			k.row(ui.Scroll(c).Height(96).Padding(8, 12).Children(func() {
@@ -143,8 +183,10 @@ func (w *appWindow) routineActions(c *ui.Context, s *sheet, routine *model.Routi
 		if runner := store.Device(bot.RunnerID); runner != nil {
 			tooltip = L("Runs on %@ now", runner.Name)
 		}
-		// A run needs its Runner online, and a routine paused by failed sign-ins needs Resume.
-		blocked := routine.IsRunning || routine.State == "waiting_for_runner" || routine.PausedReason == "authentication"
+		// A run needs its Runner online, a routine paused by failed sign-ins needs Resume, and one
+		// stopped at its limits resumes in Limits.
+		budget := store.Budget("routine", routine.ID, bot.RunnerID)
+		blocked := routine.IsRunning || routine.State == "waiting_for_runner" || routine.PausedReason == "authentication" || budget != nil && budget.IsStopped()
 		if pushButton(c, L("Run Now"), pushOptions{Disabled: blocked, Tooltip: tooltip}).Clicked() {
 			store.RunRoutine(routine.ID)
 		}

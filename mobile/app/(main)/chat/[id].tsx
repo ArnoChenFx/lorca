@@ -29,7 +29,7 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { SoftScrollEdgeView } from "../../../modules/lorca-core/SoftScrollEdgeView";
 import { chatTitle, engine, type PickedFile } from "../../../src/core/engine";
-import { isLive, type Bot, type Message } from "../../../src/core/model";
+import { isLive, showsSpeakers, type Bot, type Message } from "../../../src/core/model";
 import {
   useBotMap,
   useChat,
@@ -47,6 +47,7 @@ import { Symbol } from "../../../src/ui/Symbol";
 import { usePalette, withAlpha } from "../../../src/ui/theme";
 import { quoteText } from "../../../src/ui/format";
 import { AnswerSheet } from "../../../src/ui/AnswerSheet";
+import { SecretSheet } from "../../../src/ui/SecretSheet";
 import { alert } from "../../../src/ui/alert";
 import {
   buildRows,
@@ -57,6 +58,8 @@ import {
   quoteAuthorName,
   NoticeRow,
   PermissionRow,
+  AgentRow,
+  DraftRow,
   CommandRow,
   StatusRow,
   WorkingRow,
@@ -678,6 +681,8 @@ export default function ChatScreen() {
     [botIds, bots],
   );
   const isGroup = chat?.kind === "group";
+  // A channel's conversation shows its speakers by name, as a group does.
+  const speakers = chat ? showsSpeakers(chat) : false;
   const title = chat ? chatTitle(chat) : t("Chat");
   // After the Mac app: "Message Chef", or the group's title with a hint that @ addresses one bot.
   const placeholder =
@@ -692,6 +697,11 @@ export default function ChatScreen() {
   const [answeringId, setAnsweringId] = useState<string | null>(null);
   const answering = answeringId ? chat?.messages.find((m) => m.id === answeringId) : undefined;
   const answeringRun = answering?.body.kind === "tool" ? answering.body.run : undefined;
+  const answeringAgent = answering?.body.kind === "tool" && answering.body.agent?.question?.kind === "text" ? answering.body.agent : undefined;
+  /// The secret request whose sheet is up, while it still asks.
+  const [fillingId, setFillingId] = useState<string | null>(null);
+  const filling = fillingId ? chat?.messages.find((m) => m.id === fillingId) : undefined;
+  const fillingAsk = filling?.body.kind === "permission" && filling.body.decision === "pending" ? filling.body.secret : undefined;
 
   /// The message the draft answers, from a swipe on its bubble; another chat starts without one.
   const [replying, setReplying] = useState<{ messageID: string; name: string; text: string } | null>(null);
@@ -768,12 +778,15 @@ export default function ChatScreen() {
   }, []);
 
   const answerCommand = useCallback((message: Message) => setAnsweringId(message.id), []);
+  const fillSecret = useCallback((message: Message) => setFillingId(message.id), []);
   const stopCommand = useCallback((message: Message) => engine.stopCommand(message.chat_id, message.id), []);
   const stopTurn = useCallback(() => {
     void engine.stopTurn(id).catch((error) => {
       alert(t("Could not stop"), error instanceof Error ? error.message : String(error));
     });
   }, [id]);
+  const stopAgent = useCallback((message: Message) => engine.stopAgent(message.chat_id, message.id), []);
+  const chooseForAgent = useCallback((message: Message, choice: number) => engine.answerAgentChoice(message.chat_id, message.id, choice), []);
 
   const renderItem = useCallback(
     ({ item }: { item: Row }) => {
@@ -785,7 +798,7 @@ export default function ChatScreen() {
             <MessageRow
               row={item}
               bots={bots}
-              isGroup={isGroup}
+              isGroup={speakers}
               onReply={startReply}
               onQuotePress={revealQuoted}
               flashing={flashId === item.message.id}
@@ -799,18 +812,32 @@ export default function ChatScreen() {
           return (
             <PermissionRow
               row={item}
-              isGroup={isGroup}
+              isGroup={speakers}
               onDecide={answerCard}
+              onFill={fillSecret}
             />
           );
+        case "draft":
+          return <DraftRow row={item} isGroup={isGroup} />;
         case "command":
           return (
             <CommandRow
               row={item}
-              isGroup={isGroup}
+              isGroup={speakers}
               onDecide={answerCard}
               onAnswer={answerCommand}
               onStop={stopCommand}
+            />
+          );
+        case "agent":
+          return (
+            <AgentRow
+              row={item}
+              isGroup={isGroup}
+              onDecide={answerCard}
+              onChoose={chooseForAgent}
+              onAnswer={answerCommand}
+              onStop={stopAgent}
             />
           );
         case "working":
@@ -819,7 +846,7 @@ export default function ChatScreen() {
           return <StatusRow text={item.text} />;
       }
     },
-    [answerCard, answerCommand, bots, id, isGroup, openMarker, startReply, revealQuoted, flashId, stopCommand],
+    [answerCard, answerCommand, fillSecret, bots, id, isGroup, speakers, openMarker, startReply, revealQuoted, flashId, stopCommand],
   );
 
   if (!chat) {
@@ -971,6 +998,20 @@ export default function ChatScreen() {
           run={answeringRun}
           onDismiss={() => setAnsweringId(null)}
           onSend={(text) => engine.answerCommand(answering.chat_id, answering.id, text)}
+        />
+      ) : null}
+      {answering && answeringAgent ? (
+        <AnswerSheet
+          prompt={(answeringAgent.question?.text ?? "").split("\n").map((line) => line.trim()).filter(Boolean).pop()}
+          onDismiss={() => setAnsweringId(null)}
+          onSend={(text) => engine.answerAgentText(answering.chat_id, answering.id, text)}
+        />
+      ) : null}
+      {filling && fillingAsk ? (
+        <SecretSheet
+          fields={fillingAsk.fields}
+          onDismiss={() => setFillingId(null)}
+          onSave={(values) => engine.answerSecret(filling.chat_id, filling.id, values)}
         />
       ) : null}
     </View>

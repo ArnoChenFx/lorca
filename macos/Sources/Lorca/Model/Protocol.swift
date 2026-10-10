@@ -33,12 +33,33 @@ enum Wire {
         var bots: [Bot]
         var chats: [Chat]
         var routines: [Routine]?
+        var reviews: [ReviewItem]?
         var tasks: [DurableTask]?
+        var playbooks: [PlaybookSummary]?
         var autoReview: AutoReview?
+        var sharedLinks: [SharedLink]?
         var providers: [Provider]?
         var models: [Model]?
         var runningChatIds: [String]
         var runningTurns: [RunningTurn]?
+        var attention: AttentionView?
+        var budgets: [BudgetState]?
+    }
+
+    struct BudgetsChanged: Decodable { var budgets: [BudgetState] }
+
+    /// `connector_limits.get`: an installed plugin account's shared call limit on its Runner.
+    struct CallLimits: Decodable {
+        struct Limits: Decodable {
+            var maxCalls: Int
+            var windowSecs: Int
+            var maxConcurrency: Int
+        }
+        var limits: Limits
+        var retryAt: Double?
+        /// The service the account belongs to; another account of it shares the service's limit.
+        var serviceId: String
+        var pluginId: String
     }
 
     /// A model the CLI's catalog offers, in the catalog's order.
@@ -119,10 +140,39 @@ enum Wire {
         var missedRunPolicy: String?
         var state: String?
         var health: Health?
+        var onceAt: Double?
+        var pullRequest: PullRequest?
+        var calendar: Calendar?
+
+        struct PullRequest: Decodable {
+            var repo: String
+            var number: Int
+            var title: String?
+            var url: String?
+        }
+
+        struct Calendar: Decodable {
+            struct Event: Decodable { var title: String? }
+            var account: String?
+            var matching: String?
+            var minutes: Int?
+            var after: Bool?
+            var nextEvent: Event?
+        }
 
         func toModel() -> Lorca.Routine {
-            Lorca.Routine(
-                id: id, botID: botId, name: name, prompt: prompt, schedule: schedule, scheduleText: Format.schedule(scheduleText ?? schedule),
+            let watch = pullRequest.map { RoutineWatch(repo: $0.repo, number: $0.number, title: $0.title ?? "", url: $0.url.flatMap(URL.init(string:))) }
+            let events = calendar.map {
+                RoutineCalendar(account: $0.account ?? "", matching: $0.matching, minutes: $0.minutes ?? 0, after: $0.after ?? false, nextEventTitle: $0.nextEvent?.title)
+            }
+            let zone = TimeZone(identifier: timezone ?? "") ?? .current
+            let words: String =
+                if let watch { L("Watches %@", watch.label) }
+                else if let events { Format.aroundEvents(minutes: events.minutes, after: events.after, matching: events.matching) }
+                else if let onceAt { Format.once(Date(timeIntervalSince1970: onceAt), in: zone) }
+                else { Format.schedule(scheduleText ?? schedule) }
+            return Lorca.Routine(
+                id: id, botID: botId, name: name, prompt: prompt, schedule: schedule, scheduleText: words,
                 isEnabled: isEnabled, pausedReason: pausedReason, lastRunAt: lastRunAt.map { Date(timeIntervalSince1970: $0) },
                 lastOutcome: lastOutcome, nextRunAt: nextRunAt.map { Date(timeIntervalSince1970: $0) }, isRunning: isRunning ?? false,
                 createdAt: Date(timeIntervalSince1970: createdAt), check: check,
@@ -133,7 +183,8 @@ enum Wire {
                     lastSuccessAt: health?.lastSuccessAt.map { Date(timeIntervalSince1970: $0) },
                     status: health?.status, connectionFailures: health?.connectionFailures ?? 0,
                     authenticationFailures: health?.authenticationFailures ?? 0, modelStatus: health?.model?.status,
-                    modelAuthenticationFailures: health?.model?.authenticationFailures ?? 0))
+                    modelAuthenticationFailures: health?.model?.authenticationFailures ?? 0),
+                onceAt: onceAt.map { Date(timeIntervalSince1970: $0) }, pullRequest: watch, calendar: events)
         }
     }
 
@@ -206,6 +257,7 @@ enum Wire {
         var status: String
         var lastSeen: Double
         var plugins: [PluginStatus]?
+        var channels: [ChannelStatus]?
         var version: String?
         var update: CLIUpdate?
         /// The relay lists the machine, but it never sent its `machine` blob: no name, no `os`.
@@ -219,6 +271,39 @@ enum Wire {
         var error: String?
     }
 
+    struct ChannelStatus: Decodable {
+        struct Chat: Decodable {
+            var id: String
+            var title: String?
+        }
+        struct Listen: Decodable {
+            var every: Bool?
+            var mentions: Bool?
+            var replies: Bool?
+            var tags: [String]?
+        }
+        var id: String
+        var botId: String
+        var name: String
+        var service: String
+        var accountId: String
+        var chats: [Chat]?
+        var listen: Listen
+        var task: String
+        var state: String
+        var detail: String?
+        var heldDelivery: String?
+
+        func toModel() -> Lorca.ChannelStatus {
+            Lorca.ChannelStatus(
+                id: id, botID: botId, name: name, service: service, accountID: accountId,
+                chats: (chats ?? []).map { .init(id: $0.id, title: $0.title ?? "") },
+                listen: listen.toModel(), task: task,
+                state: Lorca.ChannelStatus.State(rawValue: state) ?? .listening, detail: detail ?? "",
+                heldDelivery: heldDelivery)
+        }
+    }
+
     struct PluginStatus: Decodable {
         var id: String
         var name: String
@@ -228,11 +313,14 @@ enum Wire {
         var state: String
         var detail: String?
         var source: String?
+        var serviceId: String?
+        var accountName: String?
 
         func toModel() -> InstalledPlugin {
             InstalledPlugin(
                 id: id, name: name, description: description ?? "", version: version ?? "", icon: icon ?? "",
-                state: InstalledPlugin.State(rawValue: state) ?? .unknown, detail: detail ?? "", source: source)
+                state: InstalledPlugin.State(rawValue: state) ?? .unknown, detail: detail ?? "", source: source,
+                serviceID: serviceId, accountName: accountName)
         }
     }
 
@@ -268,9 +356,11 @@ enum Wire {
         var variables: [Variable]?
         var skills: [Skill]?
         var installedOn: [String]?
+        var namedAccounts: Bool?
 
         func toModel() -> Lorca.MarketplacePlugin {
-            let servers = (servers ?? [:]).sorted { $0.key < $1.key }.map { name, server in
+            // A server Lorca answers itself (Telegram's, Slack's bot) is Lorca, not one to list.
+            let servers = (servers ?? [:]).filter { $0.value.type != "builtin" }.sorted { $0.key < $1.key }.map { name, server in
                 Lorca.MarketplacePlugin.Server(
                     name: name,
                     address: server.url ?? ([server.command ?? ""] + (server.args ?? [])).joined(separator: " "),
@@ -284,7 +374,7 @@ enum Wire {
                 variables: (variables ?? []).map {
                     .init(name: $0.name, description: $0.description ?? "", secret: $0.secret ?? false, required: $0.required ?? false)
                 },
-                installedOn: installedOn ?? [])
+                installedOn: installedOn ?? [], namedAccounts: namedAccounts ?? false)
         }
     }
 
@@ -319,6 +409,7 @@ enum Wire {
     }
 
     struct Marketplace: Decodable {
+        var packs: [WorkflowPack]?
         var plugins: [MarketplacePlugin]
         var bots: [BotTemplate]
     }
@@ -383,10 +474,19 @@ enum Wire {
         var createdAt: Double
     }
 
+    struct ChatChannel: Decodable {
+        var channelId: String
+        var service: String
+        var accountId: String
+        var chatId: String
+        var threadId: String?
+    }
+
     struct Chat: Decodable {
         var id: String
         var kind: String
         var title: String?
+        var channel: ChatChannel?
         var botIds: [String]
         var ownerBotId: String?
         var description: String?
@@ -432,6 +532,10 @@ enum Wire {
         var costUsd: Double
         var turns: Int
         var model: String
+        var apiCostUsd: Double?
+        var subscriptionEstimateUsd: Double?
+        var unknownPriceCalls: Int?
+        var pricingKinds: [String]?
     }
 
     struct BotMemory: Decodable {
@@ -487,6 +591,7 @@ enum Wire {
     struct Author: Decodable {
         var kind: String
         var botId: String?
+        var name: String?
     }
 
     struct Attachment: Decodable {
@@ -529,7 +634,84 @@ enum Wire {
         var rule: String?
         var command: String?
         var run: Run?
+        var agent: Agent?
         var replyTo: ReplyTo?
+        var reviewId: String?
+        var version: UInt64?
+        var state: String?
+        var account: String?
+        var draft: Draft?
+        var note: String?
+        var direct: Bool?
+        var secret: SecretAsk?
+    }
+
+    struct Draft: Decodable {
+        struct File: Decodable { var name: String; var size: Int64? }
+        var kind: String
+        var to: [String]?
+        var cc: [String]?
+        var bcc: [String]?
+        var subject: String?
+        var body: String?
+        var attachments: [File]?
+        var reply: String?
+    }
+
+    struct SecretAsk: Decodable {
+        var use: String
+        var site: String?
+        var fields: [Field]
+
+        struct Field: Decodable {
+            var name: String
+            var label: String
+        }
+    }
+
+    struct SecretList: Decodable {
+        var secrets: [Secret]
+    }
+
+    struct Secret: Decodable {
+        var id: String
+        var botId: String
+        var name: String
+        var label: String
+        var use: String
+        var site: String?
+        var updatedAt: Double
+
+        func toModel() -> SavedSecret {
+            SavedSecret(
+                id: id, botID: botId, name: name, label: label, use: Lorca.SecretAsk.Use(rawValue: use) ?? .command, site: site,
+                updatedAt: Date(timeIntervalSince1970: updatedAt))
+        }
+    }
+
+    struct Agent: Decodable {
+        var id: String
+        var kind: String
+        var host: String?
+        var task: String?
+        var folder: String?
+        var branch: String?
+        var state: String
+        var stalled: Bool?
+        var question: Question?
+        var output: String?
+        var outcome: String?
+        var device: String?
+        var startedAt: Double?
+    }
+
+    struct Question: Decodable {
+        var kind: String
+        var text: String?
+        var command: String?
+        var choices: [String]?
+        var reason: String?
+        var rule: String?
     }
 
     struct ReplyTo: Decodable {
@@ -565,6 +747,7 @@ enum Wire {
         var createdAt: Double
         var queued: Bool?
         var output: Output?
+        var notification: String?
     }
 
     struct RosterChanged: Decodable {
@@ -572,7 +755,9 @@ enum Wire {
         var bots: [Bot]
         var chats: [Chat]
         var routines: [Routine]?
+        var playbooks: [PlaybookSummary]?
         var autoReview: AutoReview?
+        var sharedLinks: [SharedLink]?
         var providers: [Provider]?
         /// The catalog's models again, so a newer catalog the CLI installs reaches the pickers.
         var models: [Model]?
@@ -676,6 +861,7 @@ extension Wire.Device {
             lastSeen: Date(timeIntervalSince1970: lastSeen),
             machineKey: machineKey,
             plugins: (plugins ?? []).map { $0.toModel() },
+            channels: (channels ?? []).map { $0.toModel() },
             version: version ?? "",
             update: update.map { Device.CLIUpdate(auto: $0.auto, latest: $0.latest, state: $0.state, error: $0.error) }
         )
@@ -724,7 +910,8 @@ extension Wire.Message {
                             prompt: $0.prompt, output: $0.output,
                             device: $0.device, reason: $0.reason, rule: $0.rule,
                             handedOver: $0.handedOver ?? false, background: $0.background ?? false)
-                    }
+                    },
+                    agent: self.body.agent.map { $0.toModel() }
                 ))
         case "handoff":
             body = .handoff(from: self.body.from ?? "", to: self.body.to ?? "", reason: self.body.reason ?? "")
@@ -736,7 +923,24 @@ extension Wire.Message {
                     pluginID: self.body.pluginId ?? "", pluginName: self.body.pluginName ?? "", tool: self.body.tool ?? "",
                     summary: self.body.summary ?? "", decision: PermissionRequest.Decision(rawValue: self.body.decision ?? "") ?? .pending,
                     link: self.body.link, code: self.body.code, reason: self.body.reason, rule: self.body.rule,
-                    command: self.body.command))
+                    command: self.body.command,
+                    secret: self.body.secret.map { ask in
+                        Lorca.SecretAsk(
+                            use: Lorca.SecretAsk.Use(rawValue: ask.use) ?? .command, site: ask.site,
+                            fields: ask.fields.map { Lorca.SecretAsk.Field(name: $0.name, label: $0.label) })
+                    }))
+        case "draft":
+            let draft = self.body.draft
+            body = .draft(
+                DraftCard(
+                    reviewID: self.body.reviewId ?? "", version: self.body.version ?? 0, state: self.body.state ?? "pending",
+                    pluginID: self.body.pluginId ?? "", account: self.body.account ?? "",
+                    fields: DraftCard.Fields(
+                        kind: draft?.kind ?? "email", to: draft?.to ?? [], cc: draft?.cc ?? [], bcc: draft?.bcc ?? [],
+                        subject: draft?.subject ?? "", body: draft?.body ?? "",
+                        attachments: (draft?.attachments ?? []).map { .init(name: $0.name, size: $0.size ?? 0) },
+                        reply: draft?.reply),
+                    note: self.body.note, direct: self.body.direct ?? false))
         default:
             body = .text(self.body.text ?? "")
         }
@@ -758,7 +962,25 @@ extension Wire.Message {
             replyTo: self.body.replyTo.map { ReplyQuote(messageID: $0.messageId, author: $0.author.toModel(), text: $0.text) },
             output: output)
         message.queued = queued ?? false
+        message.notification = notification
         return message
+    }
+}
+
+extension Wire.Agent {
+    func toModel() -> AgentRun {
+        AgentRun(
+            id: id, kind: kind, host: host, task: task ?? "", folder: folder ?? "", branch: branch,
+            state: AgentRun.State(rawValue: state) ?? .stopped, stalled: stalled ?? false,
+            question: question.flatMap { question in
+                AgentRun.Question.Kind(rawValue: question.kind).map {
+                    AgentRun.Question(
+                        kind: $0, text: question.text ?? "", command: question.command, choices: question.choices ?? [],
+                        reason: question.reason, rule: question.rule)
+                }
+            },
+            output: output, outcome: outcome, device: device,
+            startedAt: startedAt.map { Date(timeIntervalSince1970: $0) })
     }
 }
 
@@ -767,6 +989,7 @@ extension Wire.Author {
         switch kind {
         case "you": .you
         case "bot": .bot(botId ?? "")
+        case "contact": .contact(name ?? "")
         default: .system
         }
     }
@@ -778,7 +1001,7 @@ extension Wire.Chat {
         return Chat(
             id: id,
             kind: modelKind,
-            customTitle: modelKind == .group ? title : nil,
+            customTitle: modelKind == .group || channel != nil ? title : nil,
             botIDs: botIds,
             messages: messages.map { $0.map { $0.toModel() } } ?? existingMessages ?? [],
             unreadCount: unreadCount ?? existingUnread,
@@ -787,8 +1010,23 @@ extension Wire.Chat {
             usage: usage?.toModel(),
             hasMore: hasMore ?? existingHasMore,
             ownerBotID: ownerBotId,
-            groupDescription: modelKind == .group ? description ?? "" : ""
+            groupDescription: modelKind == .group ? description ?? "" : "",
+            channel: channel.map { ChatChannel(channelID: $0.channelId, service: $0.service, accountID: $0.accountId, chatID: $0.chatId, threadID: $0.threadId) }
         )
+    }
+}
+
+extension Wire.CallLimits {
+    func toModel() -> CallLimits {
+        CallLimits(
+            maxCalls: limits.maxCalls, windowSecs: limits.windowSecs, maxConcurrency: limits.maxConcurrency,
+            retryAt: retryAt.map { Date(timeIntervalSince1970: $0) }, sharesService: serviceId != pluginId)
+    }
+}
+
+extension Wire.ChannelStatus.Listen {
+    func toModel() -> ChannelListen {
+        ChannelListen(every: every ?? false, mentions: mentions ?? false, replies: replies ?? false, tags: tags ?? [])
     }
 }
 
@@ -796,6 +1034,8 @@ extension Wire.ChatUsage {
     func toModel() -> ChatUsage {
         ChatUsage(
             contextTokens: contextTokens, contextWindow: contextWindow, inputTokens: inputTokens, outputTokens: outputTokens,
-            cacheReadTokens: cacheReadTokens, costUSD: costUsd, turns: turns, model: model)
+            cacheReadTokens: cacheReadTokens, costUSD: costUsd, turns: turns, model: model,
+            apiCostUSD: apiCostUsd ?? 0, subscriptionEstimateUSD: subscriptionEstimateUsd ?? 0,
+            unknownPriceCalls: unknownPriceCalls ?? 0, pricingKinds: pricingKinds ?? [])
     }
 }

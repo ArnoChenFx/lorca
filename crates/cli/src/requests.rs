@@ -89,26 +89,55 @@ pub fn serve(app: Arc<App>, request: Request, blob_id: String) {
 
 /// What this Runner can be asked. The memory verbs check that the bot runs here: a request
 /// that reached the wrong machine is refused, not forwarded. The plugin verbs act on this
-/// Runner's own installs, and the `mcp.*` verbs on its mcp.json; the permission verb answers a
-/// card a bot here is waiting on; the bash verbs type into, stop, or background a command here;
+/// Runner's own installs, the `mcp.*` verbs on its mcp.json, and the `events.*` verbs on its
+/// event subscriptions; the permission verb answers a card a bot here is waiting on; the bash
+/// verbs type into, stop, or background a command here;
 /// Send now has a turn here read a message it holds. The update verbs install the latest release
 /// of this CLI, or turn its automatic updates on or off. A request names no release and no
 /// download: the Runner installs only what its own signed manifest offers.
 async fn answer(app: &Arc<App>, request: &Request) -> Result<Value, String> {
     let body = &request.body;
     match request.verb.as_str() {
+        "templates.memories" => Ok(json!(crate::templates::local_memories(app, body["bot_id"].as_str().ok_or("missing bot_id")?)?)),
+        "templates.export.preview" => {
+            let selection = serde_json::from_value(body["selection"].clone()).map_err(|e| format!("Invalid export selection: {e}"))?;
+            Ok(json!(crate::templates::export_preview(app, body["bot_id"].as_str().ok_or("missing bot_id")?, &selection).await?))
+        }
+        "templates.import" => crate::templates::import_text(app, body["text"].as_str().ok_or("missing text")?, body).await,
+        verb if verb.starts_with("events.") => crate::event_triggers::serve(app, verb, body).map_err(|e| e.to_string()),
+        verb if verb.starts_with("budgets.") => crate::budgets::serve(app, verb, body),
+        #[cfg(feature = "runner")]
+        verb if verb.starts_with("connector_limits.") => crate::connector_limits::serve(app, verb, body),
+        verb if verb.starts_with("reviews.") => crate::review_queue::serve(app, verb, body, &request.requested_by).await,
         verb if verb.starts_with("tasks.") => crate::tasks::serve(app, verb, body, &request.requested_by),
         "memory.read" => memory_read(app, body["bot_id"].as_str().ok_or("missing bot_id")?),
         "memory.write" => {
             let text = body["text"].as_str().ok_or("missing text")?;
             memory_write(app, body["bot_id"].as_str().ok_or("missing bot_id")?, text, body["expected_hash"].as_str())
         }
+        verb if verb.starts_with("feedback.") => {
+            app.device(&request.requested_by).ok_or("Unknown requesting Device")?;
+            crate::feedback::serve(app, verb, body, &request.requested_by).await
+        }
         #[cfg(feature = "runner")]
         verb if verb.starts_with("plugins.") || verb == "permission.answer" || verb == "permissions.catalog" => crate::plugins::serve_request(app, verb, body, Some(&request.requested_by)).await,
         #[cfg(feature = "runner")]
         verb if verb.starts_with("mcp.") => crate::plugins::mcp_json::serve_request(app, verb, body).await,
         #[cfg(feature = "runner")]
+        verb if verb.starts_with("browser.") => crate::browser::serve(app, verb, body, true).await,
+        #[cfg(feature = "runner")]
+        verb if verb.starts_with("secrets.") => crate::secrets::serve(app, verb, body),
+        #[cfg(feature = "runner")]
         "bash.stdin" | "bash.stop" | "bash.background" => crate::shell::serve(app, &request.verb, body).await,
+        // A coding agent's card on another Device: its transcript, Stop, and an answer to what
+        // its pane asks. Showing its pane happens only at the Runner.
+        #[cfg(feature = "runner")]
+        "coding.transcript" | "coding.stop" | "coding.answer" => crate::coding::serve(app, &request.verb, body).await,
+        #[cfg(feature = "runner")]
+        "playbooks.draft" => {
+            let scope = serde_json::from_value(body["scope"].clone()).map_err(|_| "Explicit playbook scope is required")?;
+            crate::playbook_tools::capture(app, &scope, body).await
+        }
         #[cfg(feature = "runner")]
         "chats.send_now" => {
             let chat_id = body["chat_id"].as_str().ok_or("missing chat_id")?;

@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -15,8 +16,10 @@ import (
 
 var nonAlnum = regexp.MustCompile(`[^a-z0-9]+`)
 
+// minutesAgo is a demo time on the formatters' clock, so a test that sets `Now` sees the same
+// stamps every run.
 func minutesAgo(minutes float64) time.Time {
-	return time.Now().Add(-time.Duration(minutes * float64(time.Minute)))
+	return Now().Add(-time.Duration(minutes * float64(time.Minute)))
 }
 
 func mockMessage(author Author, body Body, at time.Time) *Message {
@@ -29,6 +32,7 @@ func mockPlugins() []InstalledPlugin {
 	plugins := []InstalledPlugin{
 		{ID: "github", Name: "GitHub", Description: "Issues, pull requests, code search, and repositories on GitHub.", Version: "1", Icon: "chevron.left.forwardslash.chevron.right", State: PluginReady, Detail: "Ready"},
 		{ID: "linear", Name: "Linear", Description: "Issues, projects, and cycles in Linear.", Version: "1", Icon: "line.3.horizontal.decrease.circle", State: PluginNeedsAuth, Detail: "Sign in"},
+		{ID: "telegram-5f0c", Name: "Telegram · Community", Description: "Listen in a Telegram bot's groups and chats, and reply there as the bot.", Version: "1", Icon: "paperplane", State: PluginReady, Detail: "Connected", ServiceID: "telegram", AccountName: "Community"},
 	}
 	for _, server := range mockMcpServers() {
 		if server.Status != nil {
@@ -82,11 +86,21 @@ func mockMcpServers() []McpServer {
 
 func mockDevices() []*Device {
 	return []*Device{
-		{ID: "dev-workbench", Name: "Workbench", Model: "ThinkPad X1 Carbon Gen 13", OS: OSLinux, OSVersion: "Ubuntu 26.04", IsThisDevice: true, Status: StatusOnline, LastSeen: time.Now(), MachineKey: "mk_7c41…a09f", Plugins: mockPlugins(), Version: "0.1.11"},
+		{ID: "dev-workbench", Name: "Workbench", Model: "ThinkPad X1 Carbon Gen 13", OS: OSLinux, OSVersion: "Ubuntu 26.04", IsThisDevice: true, Status: StatusOnline, LastSeen: time.Now(), MachineKey: "mk_7c41…a09f", Plugins: mockPlugins(), Channels: mockChannels(), Version: "0.1.11"},
 		{ID: "dev-studio", Name: "Studio", Model: "Mac Studio (M3 Ultra)", OS: OSMacOS, OSVersion: "macOS 27.0", Status: StatusOnline, LastSeen: minutesAgo(1), MachineKey: "mk_1f88…23bd", Version: "0.1.10", Update: &DeviceUpdate{Auto: true, Latest: "0.1.11"}},
 		{ID: "dev-closet", Name: "Closet PC", Model: "Desktop", OS: OSWindows, OSVersion: "Windows 11 25H2", Status: StatusOffline, LastSeen: minutesAgo(184), MachineKey: "mk_c052…77e1", Version: "0.1.11"},
 		{ID: "dev-phone", Name: "iPhone", Model: "iPhone 17 Pro", OS: OSIOS, OSVersion: "iOS 27.0", Status: StatusOnline, LastSeen: minutesAgo(12), MachineKey: "mk_9e3d…51c8"},
 	}
+}
+
+// mockChannels has the Feedback Collector listening in the community's Telegram group.
+func mockChannels() []Channel {
+	return []Channel{{
+		ID: "ev-feedback", BotID: "bot-tally", Name: "Community feedback", Service: "telegram", AccountID: "telegram-5f0c",
+		Listen: ChannelListen{Mentions: true, Replies: true, Tags: []string{"feedback"}},
+		Task:   "Decide whether the new message is product feedback. If it is, find the matching open issue in acme/app and comment on it, or open a new one labeled feedback with the person's words quoted. Then reply to the person in their thread in one line with the issue number.",
+		State:  ChannelListening,
+	}}
 }
 
 func mockProviders() []ProviderCredential {
@@ -221,6 +235,13 @@ func mockMarketplace() Marketplace {
 	return ToMarketplace(index)
 }
 
+// mockSharedLinks is Writer, shared as a link a day ago.
+func mockSharedLinks() []SharedLink {
+	return []SharedLink{{ID: "mock-link", URL: "https://lorca.app/t/mock-link#dGhpcyBpcyBub3QgYSByZWFsIGtleSwganVzdCBhIGRlbW8",
+		BotID: "bot-quill", Name: "Writer", Selection: TemplateSelection{Profile: true, MemoryIDs: []string{"memory-voice"}},
+		UpdatedAt: float64(minutesAgo(60 * 26).Unix())}}
+}
+
 func mockAutoReview() AutoReview {
 	return AutoReview{
 		IsEnabled: true,
@@ -280,6 +301,23 @@ func mockBots() []*Bot {
 		{ID: "bot-scout", Name: "Researcher", Description: "Gathers context, reads the sources before answering, cites them, and says when it is unsure.", SymbolName: "magnifyingglass", Accent: "teal", RunnerID: "dev-studio", Provider: "deepseek", CreatedAt: minutesAgo(60 * 24 * 12)},
 		{ID: "bot-quill", Name: "Writer", Description: "Writes docs, copy, and release notes in plain language: short sentences, no filler, and no exclamation marks.", SymbolName: "pencil.and.scribble", Accent: "pink", RunnerID: "dev-workbench", Provider: "anthropic", Permissions: mockWriterAccess(), CreatedAt: minutesAgo(60 * 24 * 9)},
 		{ID: "bot-ember", Name: "DevOps", Description: "Handles deploys and incident triage, watches the relay, and always states the blast radius first.", SymbolName: "server.rack", Accent: "orange", RunnerID: "dev-closet", Provider: "deepseek", CreatedAt: minutesAgo(60 * 24 * 4)},
+		{ID: "bot-tally", Name: "Feedback Collector", Description: "Collects product feedback from the community chat into GitHub issues, thanks people in their thread, and writes a digest each morning.", SymbolName: "tray.and.arrow.down.fill", Accent: "teal", RunnerID: "dev-workbench", Provider: "deepseek", CreatedAt: minutesAgo(60 * 24 * 2)},
+	}
+}
+
+// mockBudgets are the demo's limits: Project Manager's turns and Researcher's each have some,
+// Researcher's newest turn stopped at its token limit, and Review requests used up its spending.
+func mockBudgets() []BudgetState {
+	now := float64(time.Now().Unix())
+	usd := func(v float64) *float64 { return &v }
+	n := func(v uint64) *uint64 { return &v }
+	return []BudgetState{
+		{Kind: "chat", ID: "chat-nova", RunnerID: "dev-workbench", ChatID: "chat-nova", Limits: BudgetLimits{MaxUSD: usd(2), MaxTokens: n(200_000)}, State: "ready", UpdatedAt: now - 60*60*24},
+		{Kind: "chat", ID: "chat-scout", RunnerID: "dev-studio", ChatID: "chat-scout", Limits: BudgetLimits{MaxTokens: n(100_000), MaxRuntimeSecs: n(900)}, State: "ready", UpdatedAt: now - 60*60*24},
+		{Kind: "job", ID: "job-demo-research", RunnerID: "dev-studio", ChatID: "chat-scout", Limits: BudgetLimits{MaxTokens: n(100_000), MaxRuntimeSecs: n(900)},
+			Usage: BudgetUsage{Tokens: 100_412, APICostUSD: 0.21, RuntimeSecs: 384, Retries: 1, ConnectorCalls: 9}, State: "budget_exhausted", Reached: "tokens", UpdatedAt: now - 60*28},
+		{Kind: "routine", ID: "rt-reviews", RunnerID: "dev-workbench", ChatID: "chat-nova", Limits: BudgetLimits{MaxUSD: usd(5), MaxRuntimeSecs: n(3600)},
+			Usage: BudgetUsage{Tokens: 1_840_000, SubscriptionEstimateUSD: 5.02, RuntimeSecs: 2_760, ConnectorCalls: 64}, State: "budget_exhausted", Reached: "usd", UpdatedAt: now - 60*5},
 	}
 }
 
@@ -297,13 +335,51 @@ func mockChats() []*Chat {
 			c.IsPinned = true
 			c.CreatedAt = minutesAgo(400)
 		}),
-		mockChat("chat-nova", ChatDM, []string{"bot-nova"}, managerThread(), func(c *Chat) { c.CreatedAt = minutesAgo(60 * 30) }),
+		mockChat("chat-nova", ChatDM, []string{"bot-nova"}, managerThread(), func(c *Chat) {
+			c.CreatedAt = minutesAgo(60 * 30)
+			c.Usage = &ChatUsage{ContextTokens: 18_400, ContextWindow: 400_000, InputTokens: 212_000, OutputTokens: 31_000, CacheReadTokens: 160_000,
+				CostUSD: 0.86, Turns: 14, Model: "gpt-5.5", SubscriptionEstimateUSD: 0.86, PricingKinds: []string{"subscription_estimate"}}
+		}),
 		mockChat("chat-patch", ChatDM, []string{"bot-patch"}, developerThread(), func(c *Chat) { c.UnreadCount = 2; c.CreatedAt = minutesAgo(60 * 26) }),
 		mockChat("chat-launch", ChatGroup, []string{"bot-quill", "bot-nova"}, launchThread(), func(c *Chat) { c.CustomTitle = "Launch copy"; c.CreatedAt = minutesAgo(60 * 52) }),
-		mockChat("chat-scout", ChatDM, []string{"bot-scout"}, researcherThread(), func(c *Chat) { c.UnreadCount = 1; c.CreatedAt = minutesAgo(60 * 24 * 12) }),
+		mockChat("chat-scout", ChatDM, []string{"bot-scout"}, researcherThread(), func(c *Chat) {
+			c.UnreadCount = 1
+			c.CreatedAt = minutesAgo(60 * 24 * 12)
+			c.Usage = &ChatUsage{ContextTokens: 61_000, ContextWindow: 128_000, InputTokens: 402_000, OutputTokens: 22_000, CacheReadTokens: 290_000,
+				CostUSD: 0.34, Turns: 9, Model: "deepseek-chat", APICostUSD: 0.34, PricingKinds: []string{"api"}}
+		}),
 		mockChat("chat-quill", ChatDM, []string{"bot-quill"}, writerThread(), func(c *Chat) { c.CreatedAt = minutesAgo(60 * 24 * 9) }),
+		mockChat("chat-community", ChatDM, []string{"bot-tally"}, communityThread(), func(c *Chat) {
+			c.CustomTitle = "Acme Community"
+			c.CreatedAt = minutesAgo(60 * 20)
+			c.Channel = &ChatChannel{ChannelID: "ev-feedback", Service: "telegram", AccountID: "telegram-5f0c", ChatID: "-1001846203311"}
+		}),
+		mockChat("chat-tally", ChatDM, []string{"bot-tally"}, []*Message{
+			mockMessage(You, textBody("Listen in our Telegram group for #feedback and file it in acme/app."), minutesAgo(60*22)),
+			mockMessage(BotAuthor("bot-tally"), textBody("Listening in the groups the Community bot is in, for mentions, replies, and #feedback. I'll file each one in acme/app and thank the person in their thread."), minutesAgo(60*22-1)),
+		}, func(c *Chat) { c.CreatedAt = minutesAgo(60 * 22) }),
 		mockChat("chat-ember", ChatDM, []string{"bot-ember"}, devopsThread(), func(c *Chat) { c.CreatedAt = minutesAgo(60 * 72) }),
 	}
+}
+
+// communityThread is a channel's conversation: people in the group and the bot's replies there.
+func communityThread() []*Message {
+	var thread []*Message
+	for _, exchange := range []struct {
+		name, said, reply string
+		at                float64
+	}{
+		{"Alice Chen", "#feedback exporting a report as CSV crashes the app on the second try", "Thanks Alice, tracked in #142.", 64},
+		{"Ben Ortiz", "same here, happens on Android too", "Added to #142, thanks Ben.", 41},
+		{"Maya", "@acme_feedback_bot could the dashboard remember my last filter? #feedback", "Good idea, tracked in #151.", 12},
+	} {
+		said := mockMessage(Author{Kind: AuthorContact, Name: exchange.name}, textBody(exchange.said), minutesAgo(exchange.at))
+		reply := mockMessage(BotAuthor("bot-tally"), textBody(exchange.reply), minutesAgo(exchange.at-1))
+		reply.ReplyTo = &ReplyQuote{MessageID: said.ID, Author: said.Author, Text: exchange.said}
+		reply.Notification = NotificationQuiet
+		thread = append(thread, said, reply)
+	}
+	return thread
 }
 
 func launchRoomThread() []*Message {
@@ -331,10 +407,45 @@ func managerThread() []*Message {
 		mockMessage(BotAuthor("bot-nova"), textBody("Your **Morning brief** runs weekdays at 9:00 AM on Workbench. I'll read our chats and the launch checklist, then post what changed and what needs you."), minutesAgo(191)),
 		mockMessage(System, Body{Kind: BodyNotice, Text: "Routine · Morning brief"}, minutesAgo(190)),
 		mockMessage(BotAuthor("bot-nova"), textBody("**Today's focus: the launch.**\n\n- Researcher is reviewing the setup guide.\n- Developer is checking the website and download links.\n- Writer has a first draft of the announcement.\n\nI'll bring their updates together in Launch room."), minutesAgo(190)),
+		mockMessage(System, Body{Kind: BodyNotice, Text: "Waiting for your review · $ git tag v1.4.0 && git push origin v1.4.0"}, minutesAgo(189)),
+		mockMessage(System, Body{Kind: BodyNotice, Text: "Waiting for your review · GitHub: add_issue_comment · owner: lorca-app, repo: relay, issue_number: 214"}, minutesAgo(188)),
 		mockMessage(You, textBody("Ask Writer to keep the announcement short and lead with what people can do."), minutesAgo(36)),
-		mockMessage(BotAuthor("bot-nova"), Body{Kind: BodyHandoff, Handoff: Handoff{From: "bot-nova", To: "bot-quill", Reason: "Draft a short launch announcement that leads with what people can do."}}, minutesAgo(35)),
-		mockMessage(BotAuthor("bot-nova"), textBody("Writer has the brief. I'll keep the final draft with the launch checklist for your review."), minutesAgo(34)),
+		mockMessage(BotAuthor("bot-nova"), Body{Kind: BodyTool, Tool: &ToolInvocation{Name: "message_bot", Summary: "Messaged Writer", Detail: "Draft a short launch announcement that leads with what people can do.", TargetBotID: "bot-quill"}}, minutesAgo(35)),
+		mockMessage(BotAuthor("bot-nova"), textBody("Writer has the brief. I'll bring the draft back here when it's ready."), minutesAgo(34)),
+		// Writer's handoff report, which wakes Project Manager in this chat.
+		mockMessage(BotAuthor("bot-quill"), Body{Kind: BodyHandoff, Handoff: Handoff{From: "bot-quill", To: "bot-nova", Reason: "Draft saved to `launch/announcement.md`. It leads with what people can do and stays under 60 words."}}, minutesAgo(24)),
+		mockMessage(BotAuthor("bot-nova"), textBody("Writer's draft is in `launch/announcement.md`: three short sentences that open with building a team of bots. I added it to the launch checklist for your review."), minutesAgo(23)),
+		mockMessage(System, Body{Kind: BodyNotice, Text: "Waiting for your review · Draft: Launch announcement"}, minutesAgo(22)),
 	}
+}
+
+// mockReviews is what the demo's bots left for review, as the CLI sends items: a command and a
+// GitHub call held while Project Manager's routine ran, and a draft it wants edited.
+func mockReviews() []*ReviewItem {
+	item := func(id string, minutes float64, payload, account, resource, rationale string) *ReviewItem {
+		target, _ := json.Marshal(ReviewTarget{Account: account, Resource: resource})
+		raw := `{"id":"` + id + `","runner_id":"dev-workbench","bot_id":"bot-nova","origin":{"chat_id":"chat-nova"},"target":` + string(target) +
+			`,"rationale":` + quoted(rationale) + `,"payload":` + payload + `,"version":1,"revision":1,"preconditions":{"workdir":"~/Projects/relay","files":[]},"state":"pending"}`
+		var review ReviewItem
+		if err := json.Unmarshal([]byte(raw), &review); err != nil {
+			panic(err)
+		}
+		review.CreatedAt = float64(minutesAgo(minutes).Unix())
+		return &review
+	}
+	return []*ReviewItem{
+		item("review-tag", 189, `{"kind":"shell","arguments":{"command":"git tag v1.4.0 && git push origin v1.4.0","description":"Tag the release"}}`,
+			"Workbench", "~/Projects/relay", "Pushes a release tag to the shared repository, which starts the release build."),
+		item("review-comment", 188, `{"kind":"plugin","plugin_id":"github","server_name":"github","tool":"add_issue_comment","arguments":{"owner":"lorca-app","repo":"relay","issue_number":214,"body":"Release notes are ready: the TLS rollout, the new pairing flow, and the relay quotas."}}`,
+			"GitHub", "add_issue_comment · owner: lorca-app, repo: relay, issue_number: 214", "Posts a public comment on a pull request."),
+		item("review-draft", 33, `{"kind":"draft","text":`+quoted("Lorca 1.4 is out. Pair your phone in one step, keep chats in sync across every Device, and run bots on the computers you already own.\n\nUpdate from the app, or download it from lorca.app.")+`}`,
+			"Launch room", "Launch announcement", "Writer's draft, shortened to lead with what people can do. Edit it before it goes to the team."),
+	}
+}
+
+func quoted(text string) string {
+	data, _ := json.Marshal(text)
+	return string(data)
 }
 
 func developerThread() []*Message {
@@ -342,13 +453,38 @@ func developerThread() []*Message {
 		mockMessage(You, textBody("Check the getting-started page and make sure every download link works."), minutesAgo(55)),
 		mockMessage(BotAuthor("bot-patch"), textBody("The Windows and Linux downloads and the CLI install links work. I also checked the docs links in both languages."), minutesAgo(28)),
 		mockMessage(BotAuthor("bot-patch"), textBody("The website build passes. I've left the changes ready for review."), minutesAgo(27)),
+		mockMessage(You, textBody("Have Claude Code fix the broken docs link on the download page, with a test."), minutesAgo(12)),
+		mockMessage(BotAuthor("bot-patch"), Body{Kind: BodyTool, Tool: &ToolInvocation{
+			Name: "coding_agent", Summary: "Started Claude Code",
+			Agent: &AgentRun{
+				ID: "agent-3f9a2c1d", Kind: "claude", Task: "Fix the broken docs link on the download page, with a test",
+				Folder: "~/.lorca/worktrees/site-1a2b3c/fix-docs-link", Branch: "fix-docs-link", State: AgentWorking,
+				Output: "● Read(src/pages/download.astro)\n● Edit(src/pages/download.astro)\n  ⎿ Updated 1 line\n● Bash(bun test links)\n  ⎿ 14 pass\n    0 fail",
+				Device: "Workbench",
+			},
+		}}, minutesAgo(11)),
+		mockMessage(BotAuthor("bot-patch"), textBody("Claude Code is fixing the link in a worktree of its own. I'll check its test when it's done."), minutesAgo(11)),
 	}
 }
+
+// MockAgentTranscript is what `coding.transcript` answers in the demo.
+const MockAgentTranscript = `> Fix the broken docs link on the download page, with a test.
+I'll find the link first.
+● Grep(docs/install)
+  ⎿ src/pages/download.astro:42
+● Read(src/pages/download.astro)
+● Edit(src/pages/download.astro)
+  ⎿ Updated 1 line
+● Bash(bun test links)
+  ⎿ 14 pass
+    0 fail`
 
 func researcherThread() []*Message {
 	return []*Message{
 		mockMessage(You, textBody("Read the setup guide as a new user. What would you want explained sooner?"), minutesAgo(80)),
 		mockMessage(BotAuthor("bot-scout"), textBody("I'd explain the Device roles right after pairing: your computer runs the bots, and your phone lets you chat with them. I added that note to `research/onboarding.md`."), minutesAgo(45)),
+		mockMessage(You, textBody("Read the setup guides of five similar apps and compare what each explains first."), minutesAgo(34)),
+		mockMessage(System, Body{Kind: BodyNotice, Text: "Stopped at the token limit. Raise it in Limits to resume."}, minutesAgo(28)),
 	}
 }
 
@@ -360,7 +496,20 @@ func writerThread() []*Message {
 		// The Writer's Access lets it read GitHub and draft reviews, not open issues.
 		mockMessage(BotAuthor("bot-quill"), Body{Kind: BodyPermission, Request: &PermissionRequest{PluginID: "github", PluginName: "GitHub", Tool: "access", Summary: "GitHub · create_issue", Decision: DecisionPending}}, minutesAgo(11)),
 		mockMessage(BotAuthor("bot-quill"), textBody("I can't open issues on GitHub: my Access only lets me read it and draft reviews. I left a request above if you want to allow it."), minutesAgo(11)),
+		mockMessage(You, textBody("Email Ana the launch note, and copy Bo."), minutesAgo(6)),
+		mockDraft(BotAuthor("bot-quill"), &DraftCard{ReviewID: "review-mock-email", Version: 1, State: "pending", PluginID: "gmail-work", Account: "Gmail · Work",
+			Fields: DraftFields{Kind: "email", To: []string{"ana@example.com"}, Cc: []string{"bo@example.com"}, Subject: "Lorca launches Friday",
+				Body:        "Hi Ana,\n\nLorca goes out on Friday. The launch note is attached: it covers pairing, the phone app, and what runs on your own computers.\n\nThanks,\nQuill",
+				Attachments: []DraftFile{{Name: "launch-note.pdf", Size: 186_000}}}}, minutesAgo(5)),
+		mockMessage(BotAuthor("bot-quill"), textBody("The email to Ana is ready above. Send it when it reads right."), minutesAgo(5)),
 	}
+}
+
+// mockDraft is a draft card, by the id the Runner gives it.
+func mockDraft(author Author, card *DraftCard, at time.Time) *Message {
+	message := mockMessage(author, Body{Kind: BodyDraft, Draft: card}, at)
+	message.ID = "review-status-" + card.ReviewID
+	return message
 }
 
 func launchThread() []*Message {
@@ -368,6 +517,9 @@ func launchThread() []*Message {
 		mockMessage(You, textBody("@Writer write a short welcome for the setup guide. @Project Manager check that it covers the first steps."), minutesAgo(110)),
 		mockMessage(BotAuthor("bot-quill"), textBody("Meet your first bot. Give it a name and a job, connect your model provider, and send a message. Add more bots when you need a team, or pair your phone to take the conversation with you."), minutesAgo(108)),
 		mockMessage(BotAuthor("bot-nova"), textBody("That covers the first session. The pairing guide follows it with a computer-and-phone walkthrough."), minutesAgo(106)),
+		mockMessage(You, textBody("@Project Manager tell #launch the guide is live."), minutesAgo(20)),
+		mockDraft(BotAuthor("bot-nova"), &DraftCard{ReviewID: "review-mock-slack", Version: 1, State: "pending", PluginID: "slack-team", Account: "Slack · Team", Direct: true,
+			Fields: DraftFields{Kind: "slack", To: []string{"#launch"}, Body: "The setup guide is live, with the computer-and-phone pairing walkthrough. Shout if anything reads wrong."}}, minutesAgo(19)),
 	}
 }
 
@@ -380,3 +532,64 @@ func devopsThread() []*Message {
 
 // MockBackupPhrase is the demo's backup phrase, for onboarding without a CLI.
 var MockBackupPhrase = []string{"k4mq", "7rth", "2bnz", "wq5f", "j3xd", "pv82", "ct6m", "9hsa", "e7lw", "4knr", "zb3u", "m5yq"}
+
+// mockPlaybooks are the demo's skills: two of the Developer's and a draft it proposed, and one for
+// the Launch room.
+func mockPlaybooks() []PlaybookRecord {
+	record := func(id string, scope PlaybookScope, status string, content PlaybookContent, hoursAgo ...float64) PlaybookRecord {
+		r := PlaybookRecord{ID: id, Scope: scope, Status: status, Revision: uint64(len(hoursAgo)), Hash: id + "-hash", Content: &content}
+		for i, hours := range hoursAgo {
+			step := PlaybookRevision{ID: fmt.Sprintf("%s-%d", id, i+1), Revision: uint64(i + 1), Status: "saved", Content: &content, DeviceID: "dev-studio",
+				CreatedAt: float64(minutesAgo(hours * 60).Unix())}
+			if i == len(hoursAgo)-1 {
+				step.Status = status
+			}
+			if i%2 == 1 {
+				step.DeviceID = "dev-workbench"
+			}
+			step.Provenance.Kind = "edit"
+			if i == 0 {
+				step.Provenance.Kind = "manual"
+				if status == "draft" {
+					step.Provenance.Kind = "workflow"
+				}
+			}
+			r.Revisions = append(r.Revisions, step)
+		}
+		return r
+	}
+	return []PlaybookRecord{
+		record("playbook-release-notes", BotScope("bot-patch"), "saved", PlaybookContent{
+			Name: "release-notes", Description: "Turn the merged pull requests since the last tag into release notes.",
+			Instructions: "1. List the pull requests merged since the last release tag.\n2. Group them under Added, Changed, and Fixed.\n3. Write one plain line per change, in the user's words where the PR has them.\n4. Leave out internal refactors and dependency bumps.\n5. Show the draft before posting it anywhere.",
+			Examples:     "Fixed: The composer keeps your draft when you switch chats.",
+			References:   []PlaybookFile{{Path: "references/style.md", Text: "Short lines. No ticket numbers. Present tense."}},
+			Scripts:      []PlaybookFile{{Path: "scripts/merged-since-tag.sh", Text: "git log --merges --oneline \"$(git describe --tags --abbrev=0)\"..HEAD"}},
+		}, 80, 26, 3),
+		record("playbook-flaky-tests", BotScope("bot-patch"), "draft", PlaybookContent{
+			Name: "flaky-tests", Description: "Rerun a failing test in isolation before calling it a real failure.",
+			Instructions: "When a test fails in CI, rerun it alone three times. If it passes every time, report it as flaky with the failing seed; otherwise look for the bug.",
+		}, 1),
+		record("playbook-ship-checklist", BotScope("bot-patch"), "saved", PlaybookContent{
+			Name: "ship-checklist", Description: "Check the build, the changelog, and the version before a release.",
+			Instructions: "Run the full test suite, confirm the changelog has a section for the new version, and bump the version in one commit.",
+		}, 200),
+		record("playbook-launch-post", GroupScope("chat-relay"), "saved", PlaybookContent{
+			Name: "launch-post", Description: "Write the launch announcement from the checklist and the release notes.",
+			Instructions: "Open with what the user can do now. Keep it under 150 words. Link the release notes last.",
+		}, 50, 5),
+	}
+}
+
+// mockDraftedSkill is what the demo's drafting model writes for a capture.
+func mockDraftedSkill(kind string) PlaybookContent {
+	if kind == "corrections" {
+		return PlaybookContent{Name: "plain-replies", Description: "How the user wants replies written.",
+			Instructions: "Answer in two or three sentences. Use metric units. Don't add a summary at the end.",
+			References:   []PlaybookFile{}, Scripts: []PlaybookFile{}}
+	}
+	return PlaybookContent{Name: "relay-deploy", Description: "Deploy the relay to Railway and check it came up.",
+		Instructions: "1. Build the relay image from the Dockerfile.\n2. Deploy it to the staging service.\n3. Check /health answers within a minute.\n4. Tell the user the version that is live.",
+		Examples:     "\"Relay 0.4.2 is live on staging; /health answered in 3 s.\"",
+		References:   []PlaybookFile{}, Scripts: []PlaybookFile{}}
+}

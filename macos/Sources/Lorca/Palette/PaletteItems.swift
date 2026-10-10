@@ -34,10 +34,13 @@ enum PaletteIndex {
     private static let commands: [(action: Selector, symbol: String, keywords: String)] = [
         (#selector(AppDelegate.newBot(_:)), "plus.message", "create add"),
         (#selector(AppDelegate.newGroupChat(_:)), "person.2", "create room"),
+        (#selector(AppDelegate.importBotTemplate(_:)), "square.and.arrow.down", "open file template"),
+        (#selector(RootSplitViewController.shareBotTemplate(_:)), "square.and.arrow.up", "export link file template"),
         (#selector(AppDelegate.pairDevice(_:)), "qrcode", "phone link runner"),
         (#selector(RootSplitViewController.addBotToChat(_:)), "person.badge.plus", "invite member group"),
         (#selector(RootSplitViewController.renameChat(_:)), "pencil", "title name"),
         (#selector(RootSplitViewController.togglePinChat(_:)), "pin", "unpin favorite"),
+        (#selector(RootSplitViewController.newSkill(_:)), "book.closed", "playbook instructions workflow"),
         (#selector(ChatViewController.stopResponding(_:)), "stop.circle", "cancel interrupt"),
         (#selector(ChatViewController.runCommandsInBackground(_:)), "terminal", "detach server task"),
         (#selector(ChatViewController.scrollToLatest(_:)), "arrow.down.to.line", "bottom newest jump"),

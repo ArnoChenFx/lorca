@@ -300,6 +300,16 @@ func (st *taskSheet) statusCard(c *ui.Context, s *sheet, task *model.DurableTask
 		if len(task.Evidence) > limit {
 			noteRow(c.Key("more"), k, L("%d more", len(task.Evidence)-(limit-1)), nil)
 		}
+		// What the task's runs may use, last in its card.
+		limits, tint := Lc("None", "limits"), p.Label2
+		if budget := store.Budget("task", task.ID, task.RunnerID); budget != nil && budget.IsStopped() {
+			limits, tint = budget.StoppedLabel(), p.Orange
+		} else if budget != nil {
+			limits = budget.Limits.Summary()
+		}
+		if disclosureRow(c.Key("limits"), k, L("Limits"), limits, &tint) {
+			st.w.presentTaskLimits(store.Bot(task.OwnerBotID), task)
+		}
 	})
 }
 
@@ -347,6 +357,8 @@ func (st *taskSheet) evidenceRow(c *ui.Context, k *card, item model.TaskEvidence
 							name = bot.Name
 						}
 						o.Title = L("Message from %@", name)
+					case model.AuthorContact:
+						o.Title = L("Message from %@", message.Author.Name)
 					}
 					o.Subtitle = model.DaySeparator(message.CreatedAt)
 				}
@@ -421,6 +433,11 @@ func (st *taskSheet) update(params map[string]any, done func(model.DurableTask))
 }
 
 func (st *taskSheet) statusAction(s *sheet, task *model.DurableTask) {
+	// A task its limits stopped resumes in Limits: a run would only be refused again.
+	if budget := store.Budget("task", task.ID, task.RunnerID); task.State == model.TaskBlocked && budget != nil && budget.IsStopped() {
+		st.w.presentTaskLimits(store.Bot(task.OwnerBotID), task)
+		return
+	}
 	switch task.State {
 	case model.TaskQueued, model.TaskBlocked, model.TaskWorking:
 		st.start(s)

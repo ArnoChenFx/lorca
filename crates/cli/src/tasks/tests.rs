@@ -701,3 +701,39 @@ fn outputs_published_for_the_task_are_its_evidence() {
     let foreign = other.output.as_ref().unwrap().task_evidence(&other.id);
     assert!(update(app, &done, json!({"evidence":[foreign]}), "foreign").unwrap_err().contains("output"));
 }
+
+#[tokio::test]
+async fn a_task_stopped_at_its_limits_is_blocked_with_the_limit_and_its_runs_share_them() {
+    let scratch = scratch_app();
+    let app = &scratch.0;
+    let task = make(app, "limits");
+    crate::budgets::serve(app, "budgets.set", &json!({"kind":"task","id":task.id,"limits":{"max_tokens":0}})).unwrap();
+    let (_, job) = launch(app, &task);
+    let refused = crate::budgets::for_job(app, &job).err().unwrap();
+    assert!(refused.contains("token limit"), "{refused}");
+    finished(app, &job, TurnOutcome::Skipped).await;
+    let blocked = get(app, &task.id).unwrap();
+    assert_eq!(blocked.state, TaskState::Blocked);
+    assert_eq!(blocked.reason.as_deref(), Some(refused.as_str()));
+    let kinds: Vec<_> = app.budgets.snapshots(app).into_iter().map(|s| s.kind).collect();
+    assert_eq!(kinds, ["task"], "a task's run counts toward the task alone");
+}
+
+#[test]
+fn a_blocked_task_shows_in_attention_until_it_moves_on() {
+    let scratch = scratch_app();
+    let app = &scratch.0;
+    let task = make(app, "create");
+    assert!(crate::attention::view(app).unwrap().items.is_empty());
+    let blocked = update(app, &task, json!({"state":"blocked","reason":"Waiting for the API key"}), "blocked").unwrap();
+    let items = crate::attention::view(app).unwrap().items;
+    assert_eq!(items.len(), 1);
+    assert_eq!((items[0].category, items[0].title.as_str(), items[0].summary.as_str()), (crate::attention::Category::Blocker, "Deliver the fix", "Waiting for the API key"));
+    assert_eq!(items[0].sources[0].task_id.as_deref(), Some(task.id.as_str()));
+    // Another change while blocked keeps the one item, in fresh words.
+    let blocked = update(app, &blocked, json!({"reason":"Waiting for the signed contract"}), "reason").unwrap();
+    let items = crate::attention::view(app).unwrap().items;
+    assert_eq!((items.len(), items[0].summary.as_str()), (1, "Waiting for the signed contract"));
+    update(app, &blocked, json!({"state":"cancelled","reason":"Dropped"}), "cancel").unwrap();
+    assert!(crate::attention::view(app).unwrap().items.is_empty(), "a task that moved on leaves the list");
+}

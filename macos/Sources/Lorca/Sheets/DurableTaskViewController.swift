@@ -18,6 +18,8 @@ final class DurableTaskViewController: SheetViewController, NSTextFieldDelegate 
 
     private let status = SectionView(title: "")
     private let statusRow = StatusRow()
+    /// What the task's runs may use, last in its card; opens the task's Limits.
+    private let limitsRow = DisclosureRow(key: L("Limits"))
     private let goal = NSTextField()
     private let owner = NSPopUpButton()
     private var ownerRow: NSView!
@@ -49,6 +51,7 @@ final class DurableTaskViewController: SheetViewController, NSTextFieldDelegate 
     override func loadView() {
         super.loadView()
         statusRow.onAction = { [weak self] in self?.statusAction() }
+        limitsRow.onClick = { [weak self] in self?.openLimits() }
 
         goal.placeholderString = L("What should get done")
         nextStep.placeholderString = L("What the bot does first")
@@ -97,7 +100,7 @@ final class DurableTaskViewController: SheetViewController, NSTextFieldDelegate 
         super.viewDidLoad()
         store.observe(self) { [weak self] event in
             switch event {
-            case .durableTasksChanged, .rosterChanged, .chatsChanged, .snapshotReplaced: self?.refresh()
+            case .durableTasksChanged, .rosterChanged, .chatsChanged, .snapshotReplaced, .budgetsChanged: self?.refresh()
             default: break
             }
         }
@@ -201,8 +204,15 @@ final class DurableTaskViewController: SheetViewController, NSTextFieldDelegate 
         ownerRow.isHidden = owners.count < 2
         let task = latest
         status.isHidden = task == nil
-        if let task { status.setRows([statusRow] + resultRows(of: task)) }
+        if let task { status.setRows([statusRow] + resultRows(of: task) + [limitsRow]) }
         if let task { showStatus(of: task) }
+        if let task {
+            let budget = store.budget("task", task.id, runnerID: task.runnerId)
+            let stopped = budget?.isStopped == true
+            limitsRow.setValue(
+                stopped ? budget?.stoppedLabel ?? "" : budget?.limits.summary ?? L("None", context: "limits"),
+                tint: stopped ? .systemOrange : .secondaryLabelColor)
+        }
         showDependencies(of: task)
         showLinks(of: task)
         message.isHidden = message.stringValue.isEmpty
@@ -278,6 +288,7 @@ final class DurableTaskViewController: SheetViewController, NSTextFieldDelegate 
             case .you: title = L("Your message")
             case let .bot(id): title = L("Message from %@", store.bot(id)?.name ?? L("a bot"))
             case .system: title = L("Message")
+            case let .contact(name): title = L("Message from %@", name)
             }
             subtitle = Format.daySeparator(message.createdAt)
         } else if item.kind == "message" {
@@ -364,6 +375,9 @@ final class DurableTaskViewController: SheetViewController, NSTextFieldDelegate 
     private func statusAction() {
         guard let task = latest else { return }
         switch task.state {
+        // A task its limits stopped resumes in Limits: a run would only be refused again.
+        case .blocked where store.budget("task", task.id, runnerID: task.runnerId)?.isStopped == true:
+            openLimits()
         case .queued, .blocked, .working:
             start()
         case .awaitingReview:
@@ -384,6 +398,11 @@ final class DurableTaskViewController: SheetViewController, NSTextFieldDelegate 
         }
         guard let base else { return }
         if changes(from: base).isEmpty { run(base) } else { update([:], then: run) }
+    }
+
+    private func openLimits() {
+        guard let task = latest, let owner = store.bot(task.ownerBotId) else { return }
+        presentAsSheet(BudgetViewController(bot: owner, task: task))
     }
 
     @objc private func confirmCancelTask() {
@@ -466,7 +485,7 @@ private final class TextRow: NSView {
 }
 
 /// A click anywhere on a row, for rows that open a link.
-private final class ClickHandler: NSClickGestureRecognizer {
+final class ClickHandler: NSClickGestureRecognizer {
     private let handler: () -> Void
 
     init(handler: @escaping () -> Void) {

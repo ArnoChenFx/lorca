@@ -169,6 +169,24 @@ async fn machines_challenges_envelopes_and_revocation() {
 }
 
 #[tokio::test]
+async fn event_envelopes_wait_for_their_recipient_and_use_sealed_retention() {
+    assert!(KINDS.contains(&"event") && SEALED_KINDS.contains(&"event"));
+    for (store, _) in backends().await {
+        let (who, runner, gateway) = (name("identity"), name("runner"), name("gateway"));
+        ok!(store.register_identity(&who, "content", &runner, "box", "attestation"));
+        ok!(store.register_identity(&who, "content", &gateway, "box", "attestation"));
+        ok!(store.insert_blob(NewBlob { kind: "event".into(), recipient_machine_pubkey: Some(runner.clone()), ..blob(&who, "event", b"opaque sealed event") }, 0));
+        assert!(ids(&store, &who, &gateway, 0, i64::MAX).await.is_empty());
+        assert_eq!(ids(&store, &who, &runner, 0, i64::MAX).await, ["event"]);
+        assert_eq!(ok!(store.blob(&who, &runner, "event")).unwrap().ciphertext, b"opaque sealed event");
+        ok!(store.sweep(now() - 7 * 86_400, now() - 180 * 86_400));
+        assert_eq!(ids(&store, &who, &runner, 0, i64::MAX).await, ["event"], "fresh offline work stays");
+        ok!(store.delete_blob(&who, "event"));
+        assert!(ids(&store, &who, &runner, 0, i64::MAX).await.is_empty());
+    }
+}
+
+#[tokio::test]
 async fn a_paired_machine_attests_another() {
     for (store, _) in backends().await {
         let (who, mac, laptop, phone) = (name("identity"), name("mac"), name("laptop"), name("phone"));
@@ -405,5 +423,25 @@ async fn a_group_pages_backwards_by_where_each_message_began() {
         assert_eq!((page(&tight), more), (vec!["b1".to_string()], true), "{}", store.describe());
         let (none, more) = ok!(store.group_page(&who, "nowhere", i64::MAX, 2, i64::MAX));
         assert!(none.is_empty() && !more);
+    }
+}
+
+#[tokio::test]
+async fn a_shared_link_belongs_to_the_identity_that_put_it() {
+    for (store, _) in backends().await {
+        let (owner, other, id) = (name("owner"), name("other"), name("link"));
+        ok!(store.register_identity(&owner, "content", &name("machine"), "box", "attestation"));
+        ok!(store.register_identity(&other, "content", &name("machine"), "box", "attestation"));
+        ok!(store.put_share(&owner, &id, b"first", 2));
+        ok!(store.put_share(&owner, &id, b"second", 2));
+        assert_eq!(ok!(store.share(&id)).as_deref(), Some(&b"second"[..]));
+        assert_eq!(store.put_share(&other, &id, b"taken", 2).await.err().map(|e| axum::response::IntoResponse::into_response(e).status().as_u16()), Some(403));
+        assert!(!ok!(store.delete_share(&other, &id)));
+        ok!(store.put_share(&owner, &name("link"), b"two", 2));
+        assert_eq!(store.put_share(&owner, &name("link"), b"three", 2).await.err().map(|e| axum::response::IntoResponse::into_response(e).status().as_u16()), Some(409));
+        assert!(ok!(store.delete_share(&owner, &id)));
+        assert!(ok!(store.share(&id)).is_none());
+        ok!(store.delete_identity(&owner, false));
+        ok!(store.put_share(&other, &name("link"), b"room", 2));
     }
 }

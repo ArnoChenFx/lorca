@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 )
 
 // MARK: - Providers
@@ -705,6 +706,8 @@ type Device struct {
 	MachineKey   string
 	// Plugins installed on this Runner, as it advertises them. Secrets stay on the Runner.
 	Plugins []InstalledPlugin
+	// Channels are the channels its bots listen on, as it advertises them.
+	Channels []Channel
 	// Version is the `lorca` this Device runs; empty when its CLI has not said.
 	Version string
 	// Update is how a CLI that replaces itself keeps current; nil where an app updates the CLI it
@@ -832,12 +835,13 @@ type AutoReview struct {
 type PluginState string
 
 const (
-	PluginReady      PluginState = "ready"
-	PluginNeedsSetup PluginState = "needs_setup"
-	PluginNeedsAuth  PluginState = "needs_auth"
-	PluginConnecting PluginState = "connecting"
-	PluginError      PluginState = "error"
-	PluginUnknown    PluginState = "unknown"
+	PluginReady              PluginState = "ready"
+	PluginNeedsSetup         PluginState = "needs_setup"
+	PluginNeedsAuth          PluginState = "needs_auth"
+	PluginInsufficientAccess PluginState = "insufficient_access"
+	PluginConnecting         PluginState = "connecting"
+	PluginError              PluginState = "error"
+	PluginUnknown            PluginState = "unknown"
 )
 
 // InstalledPlugin is a plugin as its Runner advertises it: installed, and in what state.
@@ -851,6 +855,17 @@ type InstalledPlugin struct {
 	Detail      string
 	// Source is `mcp.json` for one of the Runner's own MCP servers, which the server sheet edits.
 	Source string
+	// ServiceID and AccountName are a named account's marketplace service (gmail) and the user's
+	// name for it (Work). Its ID is the account's own.
+	ServiceID   string
+	AccountName string
+}
+
+func (p InstalledPlugin) MarketplaceID() string {
+	if p.ServiceID != "" {
+		return p.ServiceID
+	}
+	return p.ID
 }
 
 func (p InstalledPlugin) Symbol() string {
@@ -874,6 +889,26 @@ const (
 	ToneRed
 	ToneOrange
 )
+
+// ShortStatus is the state in a word or two, for a row in a list; what it needs, in full, is in its
+// sheet. It is colored only when the user has something to do.
+func (p InstalledPlugin) ShortStatus() (string, Tone) {
+	switch p.State {
+	case PluginReady:
+		return L("Connected"), ToneSecondary
+	case PluginConnecting:
+		return L("Connecting…"), ToneSecondary
+	case PluginNeedsAuth:
+		return L("Needs a sign-in"), ToneOrange
+	case PluginInsufficientAccess:
+		return L("Needs more access"), ToneOrange
+	case PluginNeedsSetup:
+		return L("Needs setup"), ToneOrange
+	case PluginError:
+		return L("Can’t connect"), ToneRed
+	}
+	return p.Detail, ToneSecondary
+}
 
 func (s PluginState) Tone() Tone {
 	switch s {
@@ -909,19 +944,20 @@ type PluginVariable struct {
 
 // MarketplacePlugin is a marketplace plugin, with the Runners that already have it.
 type MarketplacePlugin struct {
-	ID          string
-	Name        string
-	Description string
-	Icon        string
-	Homepage    string
-	Author      string
-	Category    string
-	IsFeatured  bool
-	Tags        []string
-	Servers     []MarketplaceServer
-	Skills      []NamedText
-	Variables   []PluginVariable
-	InstalledOn []string
+	ID            string
+	Name          string
+	Description   string
+	Icon          string
+	Homepage      string
+	Author        string
+	Category      string
+	IsFeatured    bool
+	Tags          []string
+	Servers       []MarketplaceServer
+	Skills        []NamedText
+	Variables     []PluginVariable
+	InstalledOn   []string
+	NamedAccounts bool
 }
 
 // SignsIn is whether at least one server signs in with OAuth on the Runner.
@@ -955,6 +991,7 @@ type BotTemplate struct {
 
 // Marketplace is what the marketplace offers, in the index's order.
 type Marketplace struct {
+	Packs   []WorkflowPack
 	Plugins []MarketplacePlugin
 	Bots    []BotTemplate
 }
@@ -1021,7 +1058,52 @@ type PermissionRequest struct {
 	HasRule bool
 	// Command is a shell card's whole command, where Summary is its first line.
 	Command string
+	// Secret is a secret request: what the bot asks for and where its Runner uses it. The card
+	// takes the values; they go sealed to the Runner and never come back.
+	Secret *SecretAsk
 }
+
+// SecretUse is where a secret goes.
+type SecretUse string
+
+const (
+	// SecretBrowser is typed into a sign-in page of the request's site in the bot's Browser.
+	SecretBrowser SecretUse = "browser"
+	// SecretCommand is an environment variable of the bot's commands.
+	SecretCommand SecretUse = "command"
+	// SecretPlugin is a setting of the card's plugin.
+	SecretPlugin SecretUse = "plugin"
+)
+
+// SecretAsk is what a secret request asks for: the values the bot names, and where its Runner uses
+// them.
+type SecretAsk struct {
+	Use    SecretUse
+	Site   string
+	Fields []SecretField
+}
+
+// SecretField is one value a secret request asks for: the name the bot uses it by, and what the
+// card calls it ("GitHub password").
+type SecretField struct {
+	Name  string
+	Label string
+}
+
+// SavedSecret is a secret kept on a Runner for one of its bots, as the Secrets pane lists it:
+// never its value.
+type SavedSecret struct {
+	ID        string
+	BotID     string
+	Name      string
+	Label     string
+	Use       SecretUse
+	Site      string
+	UpdatedAt float64
+}
+
+// IsSecret is a secret request: the card holds a field for each value.
+func (r *PermissionRequest) IsSecret() bool { return r.Tool == "secret" && r.Secret != nil }
 
 // FullCommand is the command as the card and its sheet show it, without the summary's `$ ` prompt.
 func (r *PermissionRequest) FullCommand() string {
@@ -1075,6 +1157,14 @@ func (r *PermissionRequest) VerbPhrase() string {
 	switch {
 	case r.IsAccess():
 		return L("needs more access")
+	case r.IsSecret():
+		switch r.Secret.Use {
+		case SecretBrowser:
+			return L("needs a secret for %@", firstNonEmpty(r.Secret.Site, r.PluginName))
+		case SecretPlugin:
+			return L("needs a secret for %@", r.PluginName)
+		}
+		return L("needs a secret for its commands")
 	case r.IsConnect():
 		return L("needs a sign-in to %@", r.PluginName)
 	case r.IsShell():
@@ -1090,6 +1180,9 @@ func (r *PermissionRequest) DecisionText() string {
 	case DecisionPending:
 		return L("Waiting for you")
 	case DecisionAllowed:
+		if r.IsSecret() {
+			return L("Saved")
+		}
 		if r.IsConnect() {
 			return L("Signing in")
 		}
@@ -1097,7 +1190,7 @@ func (r *PermissionRequest) DecisionText() string {
 	case DecisionAlways:
 		return L("Always allowed")
 	case DecisionDenied:
-		if r.IsConnect() {
+		if r.IsConnect() || r.IsSecret() {
 			return L("Not now")
 		}
 		return L("Denied")
@@ -1225,6 +1318,54 @@ type Routine struct {
 	Check     string
 	HasCheck  bool
 	CreatedAt time.Time
+	// OnceAt is when a one-time routine runs; its Runner removes it after that run.
+	OnceAt time.Time
+	// PullRequest is the pull request a watch reads at each due time, until it merges or closes.
+	PullRequest *RoutineWatch
+	// Calendar is the calendar events a routine around events runs before or after.
+	Calendar *RoutineCalendar
+}
+
+// RoutineWatch is the pull request a watch follows.
+type RoutineWatch struct {
+	Repo   string
+	Number int
+	Title  string
+	URL    string
+}
+
+// Label is "acme/project#42".
+func (w RoutineWatch) Label() string { return fmt.Sprintf("%s#%d", w.Repo, w.Number) }
+
+// RoutineCalendar is the calendar events a routine runs around: so many minutes before they
+// start, or after they end, of the events that match its words, on one Calendar account.
+type RoutineCalendar struct {
+	Account        string
+	Matching       string
+	Minutes        int
+	After          bool
+	NextEventTitle string
+}
+
+// LooksFirst is whether its Runner looks before it runs: a check, or a watch's read of its pull
+// request.
+func (r Routine) LooksFirst() bool { return r.HasCheck || r.PullRequest != nil }
+
+// Symbol is the symbol of its row: what places its runs, while it is on.
+func (r Routine) Symbol() string {
+	switch {
+	case r.IsRunning:
+		return "arrow.triangle.2.circlepath"
+	case !r.IsEnabled:
+		return "pause.circle"
+	case r.PullRequest != nil:
+		return "arrow.triangle.pull"
+	case r.Calendar != nil:
+		return "calendar"
+	case !r.OnceAt.IsZero():
+		return "alarm"
+	}
+	return "clock"
 }
 
 // Detail is the line under the name in the inspector: the schedule, then what is going on.
@@ -1243,7 +1384,7 @@ func (r Routine) Detail() string {
 	}
 	if !r.NextRunAt.IsZero() {
 		next := Upcoming(r.NextRunAt)
-		if !r.HasCheck {
+		if !r.LooksFirst() {
 			return L("%@ · Next %@", r.ScheduleText, next)
 		}
 		return L("%@ · Next check %@", r.ScheduleText, next)
@@ -1363,6 +1504,9 @@ type ToolInvocation struct {
 	// Run is a shell command's card, which the transcript shows only while the command needs the
 	// user (IsShown). Every `bash` row has one.
 	Run *CommandRun
+	// Agent is the card of the coding agent a `coding_agent` call started, which the transcript
+	// shows from the start.
+	Agent *AgentRun
 }
 
 // IsSentMessage is a finished message_bot call: the one tool the transcript shows, as
@@ -1374,11 +1518,163 @@ func (t *ToolInvocation) IsSentMessage() bool {
 // IsShown is whether the transcript shows the row: a sent message's marker, or a command's card
 // while the command needs the user.
 func (t *ToolInvocation) IsShown() bool {
+	if t.Agent != nil {
+		return true
+	}
 	run := t.Run
 	if run == nil {
 		return t.IsSentMessage()
 	}
 	return run.State == CommandAsking || (run.IsLive() && run.HandedOver)
+}
+
+type AgentState string
+
+const (
+	AgentChecking  AgentState = "checking"
+	AgentAsking    AgentState = "asking"
+	AgentStarting  AgentState = "starting"
+	AgentWorking   AgentState = "working"
+	AgentIdle      AgentState = "idle"
+	AgentExited    AgentState = "exited"
+	AgentFailed    AgentState = "failed"
+	AgentStopped   AgentState = "stopped"
+	AgentDenied    AgentState = "denied"
+	AgentExpired   AgentState = "expired"
+	AgentDismissed AgentState = "dismissed"
+)
+
+// AgentQuestion is what a coding agent's card asks: whether it may start (`start`) or run a
+// command (`command`), answered like a command's; or what its pane asks, with a menu of choices
+// (`choices`) or for text (`text`), answered with `coding.answer`.
+type AgentQuestion struct {
+	Kind    string
+	Text    string
+	Command string
+	Choices []string
+	Reason  string
+	Rule    string
+	HasRule bool
+}
+
+// IsPermission is a question answered with Allow once and Deny, and Always allow with a rule.
+func (q *AgentQuestion) IsPermission() bool { return q.Kind == "start" || q.Kind == "command" }
+
+// Decisions are the buttons a permission offers.
+func (q *AgentQuestion) Decisions() []Answer {
+	if !q.HasRule {
+		return []Answer{{L("Allow once"), "allow"}, {L("Deny"), "deny"}}
+	}
+	return []Answer{{L("Allow once"), "allow"}, {L("Always allow"), "always"}, {L("Deny"), "deny"}}
+}
+
+// AgentRun is a coding agent a bot runs on its Runner, Claude Code or Codex, as the card of the
+// call that started it shows it: Auto-review's question before it starts, what it works on and
+// where, how it stands, its last lines, and what it asks.
+type AgentRun struct {
+	ID string
+	// Kind is `claude` or `codex`.
+	Kind string
+	// Host is `herdr` or `luvus` when it runs in a pane of that terminal host on its Runner.
+	Host     string
+	Task     string
+	Folder   string
+	Branch   string
+	State    AgentState
+	Stalled  bool
+	Question *AgentQuestion
+	Output   string
+	Outcome  string
+	Device   string
+}
+
+// Name is its product's name, which is not translated.
+func (a *AgentRun) Name() string {
+	if a.Kind == "codex" {
+		return "Codex"
+	}
+	return "Claude Code"
+}
+
+func (a *AgentRun) HostName() string {
+	switch a.Host {
+	case "herdr":
+		return "Herdr"
+	case "luvus":
+		return "Luvus"
+	}
+	return ""
+}
+
+// IsOpen is an agent that has not ended.
+func (a *AgentRun) IsOpen() bool {
+	switch a.State {
+	case AgentChecking, AgentAsking, AgentStarting, AgentWorking, AgentIdle:
+		return true
+	}
+	return false
+}
+
+// IsRunning is an agent Stop ends: not while Auto-review decides whether it may start, and not
+// once it is done, waiting for a follow-up.
+func (a *AgentRun) IsRunning() bool {
+	return a.IsOpen() && a.State != AgentChecking && a.State != AgentIdle && (a.Question == nil || a.Question.Kind != "start")
+}
+
+// Started is an agent with a transcript to read.
+func (a *AgentRun) Started() bool {
+	switch a.State {
+	case AgentChecking, AgentDenied, AgentExpired, AgentDismissed:
+		return false
+	}
+	return a.Question == nil || a.Question.Kind != "start"
+}
+
+// Place is where it works, in a word: its branch, else its folder's name.
+func (a *AgentRun) Place() string {
+	if a.Branch != "" {
+		return a.Branch
+	}
+	if i := strings.LastIndex(a.Folder, "/"); i >= 0 {
+		return a.Folder[i+1:]
+	}
+	return a.Folder
+}
+
+// Status is how it stands, in a word or two.
+func (a *AgentRun) Status() string {
+	switch a.State {
+	case AgentChecking, AgentStarting:
+		return Lc("Starting", "coding agent")
+	case AgentAsking:
+		return Lc("Needs you", "coding agent")
+	case AgentWorking:
+		if a.Stalled {
+			return Lc("Quiet", "coding agent")
+		}
+		return Lc("Working", "coding agent")
+	case AgentIdle:
+		return Lc("Done", "coding agent")
+	case AgentExited:
+		return Lc("Ended", "coding agent")
+	case AgentFailed:
+		return Lc("Failed", "coding agent")
+	case AgentDenied:
+		return Lc("Not allowed", "coding agent")
+	case AgentExpired:
+		return Lc("No answer", "coding agent")
+	case AgentDismissed:
+		return Lc("Dismissed", "coding agent")
+	}
+	return Lc("Stopped", "coding agent")
+}
+
+// AgentOf is the coding agent card `m` shows, if it is one.
+func AgentOf(m *Message) *AgentRun {
+	if m == nil || m.Body.Kind != BodyTool || m.Body.Tool == nil {
+		return nil
+	}
+	return m.Body.Tool.Agent
 }
 
 // Attachment is a file sent with a message. The bytes live under `~/.lorca/files/<id>` once this
@@ -1430,11 +1726,15 @@ const (
 	AuthorYou AuthorKind = iota
 	AuthorBot
 	AuthorSystem
+	// AuthorContact is someone outside Lorca, in a channel's conversation.
+	AuthorContact
 )
 
 type Author struct {
 	Kind  AuthorKind
 	BotID string
+	// Name is a contact's name.
+	Name string
 }
 
 var (
@@ -1446,7 +1746,7 @@ func BotAuthor(id string) Author { return Author{Kind: AuthorBot, BotID: id} }
 
 // Same is whether two authors are one: the user, the system, or the same bot.
 func (a Author) Same(b Author) bool {
-	return a.Kind == b.Kind && (a.Kind != AuthorBot || a.BotID == b.BotID)
+	return a.Kind == b.Kind && (a.Kind != AuthorBot || a.BotID == b.BotID) && (a.Kind != AuthorContact || a.Name == b.Name)
 }
 
 type BodyKind int
@@ -1457,6 +1757,7 @@ const (
 	BodyHandoff
 	BodyNotice
 	BodyPermission
+	BodyDraft
 )
 
 type Handoff struct {
@@ -1473,6 +1774,88 @@ type Body struct {
 	Tool    *ToolInvocation
 	Handoff Handoff
 	Request *PermissionRequest
+	Draft   *DraftCard
+}
+
+// DraftFields are the parts of a message a bot wrote, as its draft card shows and edits them.
+type DraftFields struct {
+	// Kind is `email` or `slack`.
+	Kind        string      `json:"kind"`
+	To          []string    `json:"to,omitempty"`
+	Cc          []string    `json:"cc,omitempty"`
+	Bcc         []string    `json:"bcc,omitempty"`
+	Subject     string      `json:"subject"`
+	Body        string      `json:"body"`
+	Attachments []DraftFile `json:"attachments,omitempty"`
+	// Reply is what it answers: an email's id or a Slack thread.
+	Reply string `json:"reply,omitempty"`
+}
+
+type DraftFile struct {
+	Name string `json:"name"`
+	Size int64  `json:"size"`
+}
+
+func (f DraftFields) IsEmail() bool { return f.Kind == "email" }
+
+func (f DraftFields) Clone() DraftFields {
+	f.To, f.Cc, f.Bcc, f.Attachments = slices.Clone(f.To), slices.Clone(f.Cc), slices.Clone(f.Bcc), slices.Clone(f.Attachments)
+	return f
+}
+
+func (f DraftFields) Equal(g DraftFields) bool {
+	return f.Kind == g.Kind && slices.Equal(f.To, g.To) && slices.Equal(f.Cc, g.Cc) && slices.Equal(f.Bcc, g.Bcc) &&
+		f.Subject == g.Subject && f.Body == g.Body && slices.Equal(f.Attachments, g.Attachments) && f.Reply == g.Reply
+}
+
+// DraftCard is an email or Slack message a bot wrote in a chat, waiting for the user to send it:
+// the chat's view of the review item that holds the exact call. Send names the version the card
+// showed.
+type DraftCard struct {
+	ReviewID string
+	Version  uint64
+	// State is the review item's: pending, approved, executing, succeeded, failed, rejected,
+	// cancelled, or uncertain.
+	State    string
+	PluginID string
+	// Account is where it goes out from: "Gmail · Work".
+	Account string
+	Fields  DraftFields
+	// Note is why it was not sent, or why it needs another look.
+	Note string
+	// Direct is whether, with drafts off, the bot sends these itself (Slack); Gmail only keeps
+	// drafts.
+	Direct bool
+}
+
+func (d *DraftCard) IsPending() bool { return d.State == "pending" }
+
+// StateText is how it ended or where it stands, in a word or two; empty while it waits.
+func (d *DraftCard) StateText() string {
+	switch d.State {
+	case "approved", "executing":
+		return L("Sending…")
+	case "succeeded":
+		return L("Sent")
+	case "failed":
+		return L("Not sent")
+	case "rejected", "cancelled":
+		return L("Discarded")
+	case "uncertain":
+		return L("Not confirmed")
+	}
+	return ""
+}
+
+// Title is "Chef drafted an email", "a reply", or "a Slack message".
+func (d *DraftCard) Title(botName string) string {
+	switch {
+	case !d.Fields.IsEmail():
+		return L("%@ drafted a Slack message", botName)
+	case d.Fields.Reply != "":
+		return L("%@ drafted a reply", botName)
+	}
+	return L("%@ drafted an email", botName)
 }
 
 type StateKind int
@@ -1504,6 +1887,8 @@ type Message struct {
 	Queued bool
 	// Output identifies an immutable published deliverable/evidence version.
 	Output *Output
+	// Notification is how a coordinator's brief, an urgent report, or a quiet check alerts.
+	Notification NotificationTag
 }
 
 // ReplyQuote is a message quoted by the user's reply: who wrote it and how it opens, as the CLI
@@ -1591,6 +1976,8 @@ func MessageText(m *Message) string {
 		return m.Body.Handoff.Reason
 	case BodyPermission:
 		return m.Body.Request.Summary
+	case BodyDraft:
+		return m.Body.Draft.Fields.Body
 	}
 	return ""
 }
@@ -1626,10 +2013,104 @@ type Chat struct {
 	OwnerBotID string
 	// GroupDescription is what a group is for, which every member reads in its system prompt.
 	GroupDescription string
+	// Channel is set on a conversation a channel keeps: one Telegram chat or topic, or one Slack
+	// thread, named by CustomTitle.
+	Channel *ChatChannel
 }
 
 func (c *Chat) IsGroup() bool { return c.Kind == ChatGroup }
 func (c *Chat) IsDM() bool    { return c.Kind == ChatDM }
+
+// IsBotDM is the one DM a bot has with the user: a direct chat that is not a channel's
+// conversation.
+func (c *Chat) IsBotDM() bool { return c.Kind == ChatDM && c.Channel == nil }
+
+// ShowsSpeakers is a transcript with more than one speaker on the bots' side: a group, or a
+// channel's conversation with the people there.
+func (c *Chat) ShowsSpeakers() bool { return c.IsGroup() || c.Channel != nil }
+
+// ChatChannel is where a channel's conversation happens.
+type ChatChannel struct {
+	ChannelID string
+	Service   string
+	AccountID string
+	ChatID    string
+	ThreadID  string
+}
+
+// ChannelListen is what a channel takes.
+type ChannelListen struct {
+	Every    bool     `json:"every,omitempty"`
+	Mentions bool     `json:"mentions,omitempty"`
+	Replies  bool     `json:"replies,omitempty"`
+	Tags     []string `json:"tags,omitempty"`
+}
+
+// Summary is "Mentions, replies, #feedback", or "Every message".
+func (l ChannelListen) Summary() string {
+	if l.Every {
+		return L("Every message")
+	}
+	var parts []string
+	if l.Mentions {
+		parts = append(parts, L("mentions"))
+	}
+	if l.Replies {
+		parts = append(parts, L("replies"))
+	}
+	for _, tag := range l.Tags {
+		parts = append(parts, "#"+tag)
+	}
+	joined := strings.Join(parts, Lc(", ", "list"))
+	if joined == "" {
+		return ""
+	}
+	first, size := utf8.DecodeRuneInString(joined)
+	return string(unicode.ToUpper(first)) + joined[size:]
+}
+
+// ChannelState is how a channel stands.
+type ChannelState string
+
+const (
+	ChannelListening ChannelState = "listening"
+	ChannelPaused    ChannelState = "paused"
+	// ChannelHeld is a message's turn that didn't finish, so later ones wait.
+	ChannelHeld ChannelState = "held"
+	// ChannelOffline is an account its Runner can't read now.
+	ChannelOffline ChannelState = "offline"
+)
+
+// ChannelChat is one chat a channel listens in.
+type ChannelChat struct {
+	ID    string
+	Title string
+}
+
+// Channel is a bot listening on a Telegram or Slack account, as its Runner advertises it.
+type Channel struct {
+	ID           string
+	BotID        string
+	Name         string
+	Service      string
+	AccountID    string
+	Chats        []ChannelChat
+	Listen       ChannelListen
+	Task         string
+	State        ChannelState
+	Detail       string
+	HeldDelivery string
+}
+
+// ServiceName is the service as people call it.
+func (c *Channel) ServiceName() string {
+	if c.Service == "slack" {
+		return "Slack"
+	}
+	return "Telegram"
+}
+
+func (c *Channel) IsPaused() bool { return c.State == ChannelPaused }
 
 // CanAddBot is whether another bot may join. Only groups grow, and never past the cap.
 func (c *Chat) CanAddBot() bool { return c.IsGroup() && len(c.BotIDs) < MaxGroupBots }
@@ -1673,14 +2154,18 @@ func (c *Chat) Message(id string) *Message {
 // ChatUsage is the tokens and money the turns in a chat used. ContextTokens and ContextWindow are
 // the last turn's; the rest accumulate.
 type ChatUsage struct {
-	ContextTokens   int
-	ContextWindow   int
-	InputTokens     int
-	OutputTokens    int
-	CacheReadTokens int
-	CostUSD         float64
-	Turns           int
-	Model           string
+	ContextTokens           int
+	ContextWindow           int
+	InputTokens             int
+	OutputTokens            int
+	CacheReadTokens         int
+	CostUSD                 float64
+	Turns                   int
+	Model                   string
+	APICostUSD              float64
+	SubscriptionEstimateUSD float64
+	UnknownPriceCalls       uint64
+	PricingKinds            []string
 }
 
 // ContextSummary is "128k of 1M · 13%", or "128k" when the window is unknown.
@@ -1692,16 +2177,39 @@ func (u ChatUsage) ContextSummary() string {
 	return L("%@ of %@ · %d%%", Tokens(u.ContextTokens), Tokens(u.ContextWindow), percent)
 }
 
-// SpendSummary is "$0.42 · 18 turns".
+// SpendSummary is "$0.42 · 18 turns". A subscription's turns cost what the plan costs, so their
+// price at API rates reads as an estimate ("$0.42 est."); a model without a known price reads
+// Price unknown, never $0.00.
 func (u ChatUsage) SpendSummary() string {
-	dollars := fmt.Sprintf("$%.2f", u.CostUSD)
-	if u.CostUSD < 0.01 && u.CostUSD > 0 {
-		dollars = "<$0.01"
-	}
+	count := L("%d turns", u.Turns)
 	if u.Turns == 1 {
-		return L("%@ · %d turn", dollars, u.Turns)
+		count = L("1 turn")
 	}
-	return L("%@ · %d turns", dollars, u.Turns)
+	var parts []string
+	if slices.Contains(u.PricingKinds, "api") {
+		parts = append(parts, Dollars(u.APICostUSD))
+	}
+	if slices.Contains(u.PricingKinds, "subscription_estimate") {
+		parts = append(parts, L("%@ est.", Dollars(u.SubscriptionEstimateUSD)))
+	}
+	switch {
+	case len(parts) == 0:
+		parts = append(parts, L("Price unknown"))
+	case u.UnknownPriceCalls > 0:
+		parts = append(parts, Lc("unknown", "price"))
+	}
+	return strings.Join(parts, " + ") + " · " + count
+}
+
+// SpendNote is what the Spent row's estimate or unknown price means, for its tooltip.
+func (u ChatUsage) SpendNote() string {
+	if slices.Contains(u.PricingKinds, "subscription_estimate") {
+		return L("An estimate of what these turns would cost at API prices. Your subscription covers them.")
+	}
+	if u.UnknownPriceCalls > 0 || len(u.PricingKinds) == 0 {
+		return L("This model has no known price.")
+	}
+	return ""
 }
 
 // MARK: - Settings
@@ -1709,21 +2217,23 @@ func (u ChatUsage) SpendSummary() string {
 type SettingsPane string
 
 const (
-	PaneGeneral    SettingsPane = "general"
-	PaneProviders  SettingsPane = "providers"
-	PaneAutoReview SettingsPane = "auto-review"
-	PanePlugins    SettingsPane = "plugins"
-	PaneBots       SettingsPane = "bots"
-	PaneDevice     SettingsPane = "device"
-	PaneAdvanced   SettingsPane = "advanced"
+	PaneGeneral     SettingsPane = "general"
+	PaneProviders   SettingsPane = "providers"
+	PaneAutoReview  SettingsPane = "auto-review"
+	PaneSharedLinks SettingsPane = "shared-links"
+	PanePlugins     SettingsPane = "plugins"
+	PaneSecrets     SettingsPane = "secrets"
+	PaneBots        SettingsPane = "bots"
+	PaneDevice      SettingsPane = "device"
+	PaneAdvanced    SettingsPane = "advanced"
 )
 
-var SettingsPanes = []SettingsPane{PaneGeneral, PaneProviders, PaneAutoReview, PanePlugins, PaneBots, PaneDevice, PaneAdvanced}
+var SettingsPanes = []SettingsPane{PaneGeneral, PaneProviders, PaneAutoReview, PaneSharedLinks, PanePlugins, PaneSecrets, PaneBots, PaneDevice, PaneAdvanced}
 
 // IsDeviceScoped is a pane that shows one Device, picked at the top of the page: bots and plugins
 // live on a Runner. The others hold this computer's settings and the account's.
 func (p SettingsPane) IsDeviceScoped() bool {
-	return p == PaneBots || p == PanePlugins || p == PaneDevice
+	return p == PaneBots || p == PanePlugins || p == PaneSecrets || p == PaneDevice
 }
 
 func (p SettingsPane) Title() string {
@@ -1732,6 +2242,8 @@ func (p SettingsPane) Title() string {
 		return L("General")
 	case PaneAutoReview:
 		return L("Auto-review")
+	case PaneSharedLinks:
+		return L("Shared Links")
 	case PaneAdvanced:
 		return L("Advanced")
 	case PaneBots:
@@ -1740,6 +2252,8 @@ func (p SettingsPane) Title() string {
 		return L("Providers")
 	case PanePlugins:
 		return L("Plugins")
+	case PaneSecrets:
+		return L("Secrets")
 	case PaneDevice:
 		return L("Devices")
 	}
@@ -1752,6 +2266,8 @@ func (p SettingsPane) Symbol() string {
 		return "gearshape"
 	case PaneAutoReview:
 		return "checkmark.shield"
+	case PaneSharedLinks:
+		return "link"
 	case PaneAdvanced:
 		return "slider.horizontal.3"
 	case PaneBots:
@@ -1760,6 +2276,8 @@ func (p SettingsPane) Symbol() string {
 		return "key"
 	case PanePlugins:
 		return "puzzlepiece.extension"
+	case PaneSecrets:
+		return "lock"
 	case PaneDevice:
 		return "desktopcomputer"
 	}

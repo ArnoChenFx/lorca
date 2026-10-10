@@ -78,7 +78,13 @@ const (
 	EventOutputsChanged
 	EventConnectionChanged
 	EventIdentityChanged
+	// EventFeedbackChanged is a bot's workflow feedback changing on its Runner (BotID).
+	EventFeedbackChanged
+	EventBudgetsChanged
+	EventReviewsChanged
 	EventDurableTasksChanged
+	EventAttentionChanged
+	EventProjectContextChanged
 )
 
 // Event says what in the store changed.
@@ -135,12 +141,25 @@ type Store struct {
 	// Routines are every bot's routines, from the roster.
 	Routines     []*Routine
 	DurableTasks []*DurableTask
+	// Reviews are read-only CLI projections; the owning Runner decides and executes.
+	Reviews []*ReviewItem
+	// Budgets mirror Runner-owned usage and recovery state; edits go through the local CLI.
+	Budgets []BudgetState
 	// AutoReview is shared through the roster.
 	AutoReview AutoReview
+	// Attention is what waits on the user across chats, kept by the bots (attention.changed).
+	Attention AttentionView
+	// SharedLinks are the bots the account shares as links, shared through the roster.
+	SharedLinks []SharedLink
 	// Providers are the account's provider credentials, the same on every Device.
 	Providers []ProviderCredential
 	// Models are what the CLI's catalog offers, for the Model and Thinking pickers.
 	Models []ProviderModel
+	// Playbooks are every bot's and group's skills and drafts, from the roster; a body is fetched
+	// when one opens.
+	Playbooks []PlaybookSummary
+	// mockPlaybooks are the demo's skills, bodies and all.
+	mockPlaybooks []PlaybookRecord
 
 	// IsConnected is the CLI answering on localhost (mock: toggled from the Debug menu).
 	IsConnected bool
@@ -195,8 +214,14 @@ type Store struct {
 	outputRequests map[string]bool
 	staleOutputs   map[string]bool
 
-	mockMarketplace *Marketplace
-	mockMcp         map[string][]McpServer
+	mockWorkflows        map[string]*demoSetup
+	mockWorkflowAccounts map[string][]WorkflowAccount
+	mockMarketplace      *Marketplace
+	mockMcp              map[string][]McpServer
+	// mockFeedback is the demo's workflow feedback, changed in place by the same calls.
+	mockFeedback map[string]BotFeedback
+	mockBrowser  map[string][]BrowserProfile
+	mockSecrets  []mockSecret
 }
 
 type pendingEvent struct {
@@ -212,6 +237,7 @@ func NewStore(transport Transport, post func(func()), mock bool) *Store {
 		post:               post,
 		IsStarting:         true,
 		AutoReview:         AutoReview{IsEnabled: true},
+		Attention:          DefaultAttention(),
 		CLI:                CLIState{Connection: "disconnected", Launcher: LauncherStatus{Kind: "idle"}, Starting: true},
 		jobStarts:          map[string]time.Time{},
 		commandStarts:      map[string]time.Time{},
@@ -225,6 +251,7 @@ func NewStore(transport Transport, post func(func()), mock bool) *Store {
 		outputRequests:     map[string]bool{},
 		staleOutputs:       map[string]bool{},
 		mockMcp:            map[string][]McpServer{},
+		mockFeedback:       map[string]BotFeedback{},
 		isBootstrapping:    true,
 	}
 }
@@ -456,8 +483,20 @@ func (s *Store) apply(snapshot WireSnapshot) {
 		s.Routines = append(s.Routines, ToRoutine(routine))
 	}
 	s.AutoReview = ToAutoReview(snapshot.AutoReview)
+	s.Attention = DefaultAttention()
+	if snapshot.Attention != nil {
+		s.Attention = *snapshot.Attention
+	}
+	s.Budgets = slices.Clone(snapshot.Budgets)
+	s.Reviews = nil
+	for _, item := range snapshot.Reviews {
+		copy := item.Clone()
+		s.Reviews = append(s.Reviews, &copy)
+	}
+	s.SharedLinks = snapshot.SharedLinks
 	s.Providers = ToProviders(snapshot.Providers)
 	s.Models = ToModels(snapshot.Models)
+	s.Playbooks = snapshot.Playbooks
 	s.runningJobs = nil
 	for _, turn := range snapshot.RunningTurns {
 		s.runningJobs = append(s.runningJobs, runningJob{id: turn.JobID, chatID: turn.ChatID, botID: turn.BotID, routineID: str(turn.RoutineID)})
@@ -501,6 +540,22 @@ func decode[T any](data json.RawMessage) (T, bool) {
 
 func (s *Store) handle(name string, data json.RawMessage) {
 	switch name {
+	case "projects.changed":
+		if payload, ok := decode[struct {
+			ChatID string `json:"chat_id"`
+		}](data); ok {
+			s.emit(Event{Kind: EventProjectContextChanged, ChatID: payload.ChatID})
+		}
+	case "attention.changed":
+		if view, ok := decode[AttentionView](data); ok {
+			s.applyAttention(view)
+		}
+	case "reviews.changed":
+		if event, ok := decode[struct {
+			Item ReviewItem `json:"item"`
+		}](data); ok && event.Item.ID != "" && event.Item.Version > 0 {
+			s.upsertReview(event.Item)
+		}
 	case "tasks.changed":
 		if event, ok := decode[struct {
 			Task DurableTask `json:"task"`
@@ -510,6 +565,13 @@ func (s *Store) handle(name string, data json.RawMessage) {
 	case "snapshot":
 		if snapshot, ok := decode[WireSnapshot](data); ok {
 			s.apply(snapshot)
+		}
+
+	case "feedback.changed":
+		if payload, ok := decode[struct {
+			BotID string `json:"bot_id"`
+		}](data); ok {
+			s.emit(Event{Kind: EventFeedbackChanged, BotID: payload.BotID})
 		}
 
 	case "roster.changed":
@@ -531,6 +593,9 @@ func (s *Store) handle(name string, data json.RawMessage) {
 				s.Routines = append(s.Routines, ToRoutine(routine))
 			}
 		}
+		if roster.SharedLinks != nil {
+			s.SharedLinks = roster.SharedLinks
+		}
 		if roster.AutoReview != nil {
 			s.AutoReview = ToAutoReview(roster.AutoReview)
 		}
@@ -539,6 +604,9 @@ func (s *Store) handle(name string, data json.RawMessage) {
 		}
 		if roster.Models != nil {
 			s.Models = ToModels(roster.Models)
+		}
+		if roster.Playbooks != nil {
+			s.Playbooks = *roster.Playbooks
 		}
 		var changed []string
 		chats := make([]*Chat, 0, len(roster.Chats))
@@ -671,6 +739,13 @@ func (s *Store) handle(name string, data json.RawMessage) {
 		}
 		chat.Usage = ToUsage(payload.Usage)
 		s.emit(Event{Kind: EventChatChanged, ChatID: payload.ChatID})
+	case "budgets.changed":
+		if payload, ok := decode[struct {
+			Budgets []BudgetState `json:"budgets"`
+		}](data); ok {
+			s.Budgets = slices.Clone(payload.Budgets)
+			s.emit(Event{Kind: EventBudgetsChanged})
+		}
 
 	case "relay.status":
 		status, ok := decode[WireRelayStatus](data)
@@ -696,6 +771,9 @@ func (s *Store) handle(name string, data json.RawMessage) {
 			return
 		}
 		s.HasIdentity = &payload.HasIdentity
+		if !payload.HasIdentity {
+			s.applyAttention(DefaultAttention())
+		}
 		s.emit(Event{Kind: EventIdentityChanged})
 	}
 }
@@ -837,7 +915,7 @@ func (s *Store) ThisDevice() *Device {
 }
 
 func (s *Store) Title(chat *Chat) string {
-	if chat.IsGroup() && chat.CustomTitle != "" {
+	if (chat.IsGroup() || chat.Channel != nil) && chat.CustomTitle != "" {
 		return chat.CustomTitle
 	}
 	var names []string
@@ -854,6 +932,13 @@ func (s *Store) Title(chat *Chat) string {
 
 func (s *Store) Subtitle(chat *Chat) string {
 	members := s.BotsIn(chat)
+	if chat.Channel != nil && len(members) > 0 {
+		service := "Telegram"
+		if chat.Channel.Service == "slack" {
+			service = "Slack"
+		}
+		return L("%@ on %@", members[0].Name, service)
+	}
 	if chat.IsDM() && len(members) > 0 {
 		only := members[0]
 		host := L("unassigned")
@@ -919,7 +1004,7 @@ func (s *Store) Preview(chat *Chat) string {
 		}
 		body = L("Messaged %@: %@", target, content.Tool.Detail)
 	case BodyHandoff:
-		if !chat.IsGroup() && slices.Contains(chat.BotIDs, content.Handoff.To) {
+		if slices.Contains(chat.BotIDs, content.Handoff.To) && !slices.Contains(chat.BotIDs, content.Handoff.From) {
 			body = L("Message from %@: %@", s.botName(content.Handoff.From, L("a teammate")), content.Handoff.Reason)
 		} else {
 			body = L("Handed off to %@", s.botName(content.Handoff.To, L("a teammate")))
@@ -929,6 +1014,8 @@ func (s *Store) Preview(chat *Chat) string {
 	case BodyPermission:
 		who := s.botName(last.Author.BotID, L("A bot"))
 		body = who + " " + content.Request.VerbPhrase()
+	case BodyDraft:
+		body = content.Draft.Title(s.botName(last.Author.BotID, L("A bot")))
 	}
 	flattened := strings.TrimSpace(strings.NewReplacer("\n", " ", "**", "", "`", "").Replace(body))
 	if chat.IsGroup() && last.Author.Kind == AuthorBot && content.Kind == BodyText {
@@ -992,7 +1079,7 @@ func (s *Store) sortChats() {
 // twice lands in the same thread.
 func (s *Store) DM(botID string) string {
 	for _, chat := range s.Chats {
-		if chat.IsDM() && len(chat.BotIDs) == 1 && chat.BotIDs[0] == botID {
+		if chat.IsBotDM() && len(chat.BotIDs) == 1 && chat.BotIDs[0] == botID {
 			return chat.ID
 		}
 	}
@@ -1223,6 +1310,7 @@ func (s *Store) Marketplace(done func(Marketplace, error)) {
 	if s.IsMock {
 		if s.mockMarketplace == nil {
 			market := mockMarketplace()
+			market.Packs = demoWorkflowPacks()
 			s.mockMarketplace = &market
 		}
 		market := *s.mockMarketplace
@@ -1252,11 +1340,26 @@ func (s *Store) InstallPlugin(pluginID, runnerID string, done func(InstalledPlug
 	Async(s, func() (InstalledPlugin, error) {
 		reply, err := call[pluginReply](s, "plugins.install", map[string]any{"runner_id": runnerID, "plugin_id": pluginID})
 		return ToPlugin(reply.Status), err
-	}, done)
+	}, func(plugin InstalledPlugin, err error) {
+		if err == nil {
+			s.rememberPlugin(runnerID, plugin)
+		}
+		done(plugin, err)
+	})
 }
 
 func (s *Store) UninstallPlugin(pluginID, runnerID string, done func(error)) {
-	s.simple(done, "plugins.uninstall", map[string]any{"runner_id": runnerID, "plugin_id": pluginID})
+	s.simple(func(err error) {
+		if err == nil {
+			if runner := s.Device(runnerID); runner != nil {
+				runner.Plugins = slices.DeleteFunc(runner.Plugins, func(p InstalledPlugin) bool { return p.ID == pluginID })
+				s.emit(Event{Kind: EventRosterChanged})
+			}
+		}
+		if done != nil {
+			done(err)
+		}
+	}, "plugins.uninstall", map[string]any{"runner_id": runnerID, "plugin_id": pluginID})
 }
 
 // simple is a request whose answer is only whether it went through.
@@ -1291,6 +1394,29 @@ func (s *Store) PluginDetail(pluginID, runnerID string, done func(PluginDetail, 
 			Variables: []PluginDetailVariable{{Name: "GITHUB_TOKEN", Description: "A personal access token, instead of signing in.", Secret: true}},
 			Servers:   []PluginDetailServer{{Name: "github", Kind: "http", URL: "https://api.githubcopilot.com/mcp/", OAuth: true, SignedIn: status.State == PluginReady}},
 		}
+		if status.ServiceID != "" {
+			detail.Variables, detail.Servers = nil, nil
+			for _, manifest := range mockMarketplace().Plugins {
+				if manifest.ID != status.ServiceID {
+					continue
+				}
+				detail.Homepage, detail.Skills = manifest.Homepage, manifest.Skills
+				for _, variable := range manifest.Variables {
+					field := PluginDetailVariable{Name: variable.Name, Description: variable.Description, Secret: variable.Secret, Required: variable.Required}
+					if !variable.Secret && status.State != PluginNeedsSetup {
+						field.IsSet, field.Value = true, "demo-client-id"
+					}
+					detail.Variables = append(detail.Variables, field)
+				}
+				for _, server := range manifest.Servers {
+					detail.Servers = append(detail.Servers, PluginDetailServer{Name: server.Name, Kind: "http", URL: server.Address, OAuth: server.SignsIn, SignedIn: status.State == PluginReady})
+				}
+			}
+		}
+		if pluginID == BrowserPluginID {
+			// Browser runs on the Runner and signs in to nothing itself.
+			detail = PluginDetail{Status: status, Homepage: "https://github.com/microsoft/playwright-mcp", Skills: []NamedText{{Name: "Reading a page", Description: "How to read a page without filling the context."}}}
+		}
 		s.post(func() { done(detail, nil) })
 		return
 	}
@@ -1304,6 +1430,14 @@ func (s *Store) PluginDetail(pluginID, runnerID string, done func(PluginDetail, 
 // read back.
 func (s *Store) SetPluginVariables(pluginID, runnerID string, variables map[string]string, done func(InstalledPlugin, error)) {
 	if s.IsMock {
+		if runner := s.Device(runnerID); runner != nil {
+			for _, plugin := range runner.Plugins {
+				if plugin.ID == pluginID && plugin.ServiceID != "" {
+					s.post(func() { done(plugin, nil) })
+					return
+				}
+			}
+		}
 		s.post(func() { done(readyPlugin(pluginID), nil) })
 		return
 	}
@@ -1315,12 +1449,18 @@ func (s *Store) SetPluginVariables(pluginID, runnerID string, variables map[stri
 
 // ConnectPlugin starts a plugin's sign-in for the Runner; the browser opens on this computer.
 func (s *Store) ConnectPlugin(pluginID, runnerID string, done func(error)) {
+	if s.mockIntegrationState(pluginID, runnerID, PluginReady, "Connected", done) {
+		return
+	}
 	s.simple(done, "plugins.connect", map[string]any{"runner_id": runnerID, "plugin_id": pluginID})
 }
 
 // SignOutPlugin forgets a plugin server's sign-in on its Runner. Nothing is revoked at the server;
 // the plugin's next use asks for a sign-in again.
 func (s *Store) SignOutPlugin(pluginID, runnerID, server string, done func(error)) {
+	if s.mockIntegrationState(pluginID, runnerID, PluginNeedsAuth, "Sign in", done) {
+		return
+	}
 	s.simple(done, "plugins.sign_out", map[string]any{"runner_id": runnerID, "plugin_id": pluginID, "server": server})
 }
 
@@ -1648,6 +1788,21 @@ func (s *Store) AnswerPermission(chatID, messageID, decision string) {
 				request.Summary = L("Starting the sign-in…")
 			}
 			message.Body.Request = &request
+		case body.Kind == BodyTool && body.Tool.Agent != nil && body.Tool.Agent.Question != nil && body.Tool.Agent.Question.IsPermission():
+			tool := *body.Tool
+			agent := *tool.Agent
+			start := agent.Question.Kind == "start"
+			agent.Question = nil
+			switch {
+			case decision == "deny" && start:
+				agent.State = AgentDenied
+			case start:
+				agent.State = AgentStarting
+			default:
+				agent.State = AgentWorking
+			}
+			tool.Agent = &agent
+			message.Body.Tool = &tool
 		case body.Kind == BodyTool && body.Tool.Run != nil && body.Tool.Run.State == CommandAsking:
 			tool := *body.Tool
 			run := *tool.Run
@@ -1660,6 +1815,83 @@ func (s *Store) AnswerPermission(chatID, messageID, decision string) {
 		}
 	})
 	s.perform("chats.permission", map[string]any{"chat_id": chatID, "message_id": messageID, "decision": decision})
+}
+
+// MARK: - Coding agents
+
+// StopAgent stops a coding agent, here or on its bot's Runner; its card says so once the Runner has.
+func (s *Store) StopAgent(chatID, messageID string, done func(error)) {
+	if s.IsMock {
+		s.finishMockAgent(chatID, messageID, AgentStopped)
+		s.post(func() { done(nil) })
+		return
+	}
+	s.simple(done, "coding.stop", map[string]any{"chat_id": chatID, "message_id": messageID})
+}
+
+// AnswerAgentChoice answers what a coding agent's pane asks with one of the choices it offers.
+func (s *Store) AnswerAgentChoice(chatID, messageID string, choice int, done func(error)) {
+	if s.IsMock {
+		s.finishMockAgent(chatID, messageID, AgentWorking)
+		s.post(func() { done(nil) })
+		return
+	}
+	s.simple(done, "coding.answer", map[string]any{"chat_id": chatID, "message_id": messageID, "choice": choice})
+}
+
+// AnswerAgentText types an answer into what a coding agent's pane asks, then Return.
+func (s *Store) AnswerAgentText(chatID, messageID, text string, done func(error)) {
+	if s.IsMock {
+		s.finishMockAgent(chatID, messageID, AgentWorking)
+		s.post(func() { done(nil) })
+		return
+	}
+	s.simple(done, "coding.answer", map[string]any{"chat_id": chatID, "message_id": messageID, "text": text})
+}
+
+// AgentTranscript is a coding agent's transcript, from its Runner: what it was sent, said, and
+// did, or what its pane shows.
+func (s *Store) AgentTranscript(chatID, messageID string, done func(string, error)) {
+	if s.IsMock {
+		s.post(func() { done(MockAgentTranscript, nil) })
+		return
+	}
+	Async(s, func() (string, error) {
+		var answer struct {
+			Text string `json:"text"`
+		}
+		err := s.request("coding.transcript", map[string]any{"chat_id": chatID, "message_id": messageID}, &answer)
+		return answer.Text, err
+	}, done)
+}
+
+// ShowAgent brings a coding agent's pane forward on this Runner, in its terminal host.
+func (s *Store) ShowAgent(chatID, messageID string, done func(error)) {
+	s.simple(done, "coding.show", map[string]any{"chat_id": chatID, "message_id": messageID})
+}
+
+// RunsHere is whether this Device runs the bot behind `message`: only there does its pane show.
+func (s *Store) RunsHere(message *Message) bool {
+	if message == nil || message.Author.BotID == "" {
+		return false
+	}
+	bot := s.Bot(message.Author.BotID)
+	here := s.ThisDevice()
+	return bot != nil && here != nil && bot.RunnerID == here.ID
+}
+
+// finishMockAgent settles a demo agent's card at once: the demo has no Runner.
+func (s *Store) finishMockAgent(chatID, messageID string, state AgentState) {
+	s.Update(messageID, chatID, func(message *Message) {
+		if message.Body.Kind != BodyTool || message.Body.Tool.Agent == nil {
+			return
+		}
+		tool := *message.Body.Tool
+		agent := *tool.Agent
+		agent.State, agent.Question = state, nil
+		tool.Agent = &agent
+		message.Body.Tool = &tool
+	})
 }
 
 // MARK: - Commands
@@ -1738,6 +1970,121 @@ func (s *Store) finishMockCommand(chatID, messageID string, state CommandState) 
 		tool.Run = &run
 		message.Body.Tool = &tool
 	})
+}
+
+// MARK: - Channels
+
+// Channels are the bot's channels, as its Runner advertises them.
+func (s *Store) Channels(botID string) []Channel {
+	bot := s.Bot(botID)
+	if bot == nil {
+		return nil
+	}
+	device := s.Device(bot.RunnerID)
+	if device == nil {
+		return nil
+	}
+	var mine []Channel
+	for _, channel := range device.Channels {
+		if channel.BotID == botID {
+			mine = append(mine, channel)
+		}
+	}
+	return mine
+}
+
+// Channel finds a channel on any Runner.
+func (s *Store) Channel(id string) *Channel {
+	for _, device := range s.Devices {
+		for i := range device.Channels {
+			if device.Channels[i].ID == id {
+				return &device.Channels[i]
+			}
+		}
+	}
+	return nil
+}
+
+// Conversations are the conversations a channel keeps, the latest first.
+func (s *Store) Conversations(channelID string) []*Chat {
+	var kept []*Chat
+	for _, chat := range s.Chats {
+		if chat.Channel != nil && chat.Channel.ChannelID == channelID {
+			kept = append(kept, chat)
+		}
+	}
+	slices.SortStableFunc(kept, func(a, b *Chat) int { return b.LastActivity().Compare(a.LastActivity()) })
+	return kept
+}
+
+// AccountName is the account a channel speaks through, by its name on the Runner.
+func (s *Store) AccountName(channel *Channel) string {
+	if bot := s.Bot(channel.BotID); bot != nil {
+		if device := s.Device(bot.RunnerID); device != nil {
+			for _, plugin := range device.Plugins {
+				if plugin.ID == channel.AccountID {
+					return plugin.Name
+				}
+			}
+		}
+	}
+	return channel.ServiceName()
+}
+
+func (s *Store) channelRunner(id string) string {
+	for _, device := range s.Devices {
+		for _, channel := range device.Channels {
+			if channel.ID == id {
+				return device.ID
+			}
+		}
+	}
+	return ""
+}
+
+// SetChannelPaused pauses or resumes a channel on its Runner. Paused, it takes no new messages.
+func (s *Store) SetChannelPaused(id string, paused bool) {
+	channel, runner := s.Channel(id), s.channelRunner(id)
+	if channel == nil {
+		return
+	}
+	channel.State = ChannelListening
+	if paused {
+		channel.State = ChannelPaused
+	}
+	s.emit(Event{Kind: EventRosterChanged})
+	method := "events.resume"
+	if paused {
+		method = "events.pause"
+	}
+	s.perform(method, map[string]any{"runner_id": runner, "id": id})
+}
+
+// SettleHeldMessage tries the message that holds a channel again, or skips it, which lets the
+// next ones run.
+func (s *Store) SettleHeldMessage(id string, retry bool) {
+	channel, runner := s.Channel(id), s.channelRunner(id)
+	if channel == nil || channel.HeldDelivery == "" {
+		return
+	}
+	held := channel.HeldDelivery
+	channel.State, channel.HeldDelivery, channel.Detail = ChannelListening, "", ""
+	s.emit(Event{Kind: EventRosterChanged})
+	method := "events.discard"
+	if retry {
+		method = "events.retry"
+	}
+	s.perform(method, map[string]any{"runner_id": runner, "id": held})
+}
+
+// RemoveChannel removes a channel from its Runner; its conversations stay.
+func (s *Store) RemoveChannel(id string) {
+	runner := s.channelRunner(id)
+	for _, device := range s.Devices {
+		device.Channels = slices.DeleteFunc(device.Channels, func(channel Channel) bool { return channel.ID == id })
+	}
+	s.emit(Event{Kind: EventRosterChanged})
+	s.perform("events.delete", map[string]any{"runner_id": runner, "id": id})
 }
 
 // MARK: - Routines
@@ -1822,8 +2169,9 @@ func (s *Store) DeleteChat(id string) {
 		return
 	}
 	// A bot owns its DM, so deleting that row deletes the bot as one roster operation. Groups keep
-	// their other members; a group with nobody left is removed too.
-	if chat.IsDM() && len(chat.BotIDs) > 0 && s.Bot(chat.BotIDs[0]) != nil {
+	// their other members; a group with nobody left is removed too. A channel's conversation is
+	// only its transcript.
+	if chat.IsBotDM() && len(chat.BotIDs) > 0 && s.Bot(chat.BotIDs[0]) != nil {
 		botID := chat.BotIDs[0]
 		removed := map[string]bool{}
 		var changed []string
@@ -2594,16 +2942,27 @@ func (s *Store) ResetMockData() {
 	if !s.IsMock {
 		return
 	}
+	s.Reviews = mockReviews()
 	if s.replies != nil {
 		for _, chat := range s.Chats {
 			s.replies.cancel(chat.ID)
 		}
 	}
+	s.mockFeedback = map[string]BotFeedback{}
 	s.Devices = mockDevices()
+	s.mockBrowser = nil
 	s.Bots = mockBots()
 	s.Chats = mockChats()
 	s.Routines = mockRoutines()
+	s.mockPlaybooks = mockPlaybooks()
+	s.Playbooks = nil
+	for _, record := range s.mockPlaybooks {
+		s.Playbooks = append(s.Playbooks, record.summary())
+	}
+	s.Budgets = mockBudgets()
 	s.AutoReview = mockAutoReview()
+	s.Attention = DefaultAttention()
+	s.SharedLinks = mockSharedLinks()
 	s.Providers = mockProviders()
 	s.Models = mockModels()
 	s.sortChats()

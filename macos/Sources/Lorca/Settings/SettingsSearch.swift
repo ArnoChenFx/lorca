@@ -104,10 +104,12 @@ enum SettingsSearch {
             [.sendOnReturn, .timestamps, .appearance, .appLanguage, .dictationLanguage]
                 + (Updater.isEnabled ? [.version, .automaticChecks, .automaticDownloads] : [])
         case .autoReview: [.autoReviewSwitch, .autoReviewModel, .autoReviewRules]
+        case .sharedLinks: []
         case .advanced: [.relayURL, .cliPort, .onboarding] + (store.hasIdentity == true ? [.deleteAccount] : [])
         case .bots: (device.map { store.bots(on: $0.id) } ?? []).map { .bot($0) }
         case .providers: store.providers.map { .provider($0.kind) } + (store.reviewProviderKinds.isEmpty ? [] : [.reviewModels])
         case .plugins: pluginEntries(on: device)
+        case .secrets: []
         case .device: device == nil ? [.machineKey] : [.machineKey, .pairing]
         }
     }

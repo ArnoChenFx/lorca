@@ -11,6 +11,8 @@ final class BotAccessViewController: SheetViewController {
 
     private let pluginsSection = SectionView(title: L("Plugins"))
     private let pluginsNote = Build.label("", font: Theme.Font.caption, color: .secondaryLabelColor, lines: 0)
+    private let messagesSection = SectionView(title: L("Messages"))
+    private let drafts = NSSwitch()
     private let runnerSection: SectionView
     private let files = SettingsPopUpButton()
     private let shell = NSSwitch()
@@ -50,13 +52,22 @@ final class BotAccessViewController: SheetViewController {
         let boundary = Build.label(
             L("Shell commands run as you on %@ and can reach anything you can there.", runner?.name ?? L("its Runner")),
             font: Theme.Font.caption, color: .secondaryLabelColor, lines: 0)
+        drafts.controlSize = .small
+        drafts.state = saved.drafts ? .on : .off
+        drafts.setAccessibilityLabel(L("Draft first"))
+        messagesSection.setRows([AccessoryRow(key: L("Draft first"), accessory: drafts)])
+        let draftsNote = Build.label(
+            L("Emails and Slack messages wait in the chat for you to send. Off, %@ sends them itself where the service can.", store.bot(botID)?.name ?? L("the bot")),
+            font: Theme.Font.caption, color: .secondaryLabelColor, lines: 0)
 
-        for view in [pluginsSection, pluginsNote, runnerSection, boundary] {
+        for view in [pluginsSection, pluginsNote, messagesSection, draftsNote, runnerSection, boundary] {
             contentStack.addArrangedSubview(view)
             view.widthAnchor.constraint(equalTo: contentStack.widthAnchor).isActive = true
         }
         contentStack.setCustomSpacing(16, after: pluginsSection)
         contentStack.setCustomSpacing(16, after: pluginsNote)
+        contentStack.setCustomSpacing(6, after: messagesSection)
+        contentStack.setCustomSpacing(16, after: draftsNote)
         contentStack.setCustomSpacing(6, after: runnerSection)
         pluginsNote.isHidden = true
         setButtons(confirm: L("Save"))
@@ -121,8 +132,10 @@ final class BotAccessViewController: SheetViewController {
 
     private func makeRow(for plugin: BotAccessCatalog.Plugin) -> PluginAccessRow {
         let row = PluginAccessRow()
-        row.icon = PluginLogo.tile(for: plugin.id, size: 18)
-            ?? NSImage(systemSymbolName: runner?.plugins.first { $0.id == plugin.id }?.symbolName ?? "puzzlepiece.extension", accessibilityDescription: nil)
+        // A named account (Gmail · Work) has its service's mark.
+        let installed = runner?.plugins.first { $0.id == plugin.id }
+        row.icon = PluginLogo.tile(for: installed?.marketplaceID ?? plugin.id, size: 18)
+            ?? NSImage(systemSymbolName: installed?.symbolName ?? "puzzlepiece.extension", accessibilityDescription: nil)
         row.onLevel = { [weak self] level in
             self?.levels[plugin.id] = level
             self?.render()
@@ -156,6 +169,7 @@ final class BotAccessViewController: SheetViewController {
         }
         policy.filesystem = (files.selectedItem?.representedObject as? String).flatMap(AccessLevel.init(rawValue:)) ?? .none
         policy.shell = shell.state == .on
+        policy.drafts = drafts.state == .on
         if policy != saved { store.setBotPermissions(botID, policy) }
         dismiss(nil)
     }

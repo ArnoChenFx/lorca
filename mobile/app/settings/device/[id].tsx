@@ -1,37 +1,27 @@
 // One Device, slid in from its row in Settings inside the same sheet: the bots assigned to it,
-// its plugins when it is a Runner, and the machine itself.
+// its plugins when it is a Runner, and the machine itself, with whether `lorca service` keeps an
+// online Runner's CLI running.
 
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
 import { engine } from "../../../src/core/engine";
-import { deviceName, isRunner, providerLabel, type Device, type PluginStatus, type UpdateStatus } from "../../../src/core/model";
+import { deviceName, isBotDM, isRunner, providerLabel, type Device, type SavedSecret, type UpdateStatus } from "../../../src/core/model";
 import { deviceIsOnline, useStore } from "../../../src/core/store";
 import { t, useLanguage } from "../../../src/i18n";
 import { BotAvatar } from "../../../src/ui/Avatar";
 import { deviceSymbol } from "../../../src/ui/devices";
 import { Row, Section } from "../../../src/ui/forms";
+import { RowMenu } from "../../../src/ui/RowMenu";
+import { SecretSheet } from "../../../src/ui/SecretSheet";
+import { secretPlace } from "../../../src/ui/secrets";
+import { pluginStateWord } from "../../../src/ui/plugins";
 import { lastSeen } from "../../../src/ui/format";
 import { Symbol } from "../../../src/ui/Symbol";
 import { Font, usePalette } from "../../../src/ui/theme";
 import { alert } from "../../../src/ui/alert";
 
 const OS_NAMES: Record<string, string> = { macos: "macOS", linux: "Linux", windows: "Windows", ios: "iOS", ipados: "iPadOS", android: "Android" };
-
-function pluginState(state: PluginStatus["state"]): string {
-  switch (state) {
-    case "ready":
-      return t("Ready");
-    case "needs_setup":
-      return t("Needs setup");
-    case "needs_auth":
-      return t("Needs sign-in");
-    case "connecting":
-      return t("Connecting…");
-    case "error":
-      return t("Error");
-  }
-}
 
 /// A self-updating Runner's CLI: its version, then where its updates stand.
 function cliStatus(version: string, update: UpdateStatus): string {
@@ -63,18 +53,31 @@ export default function DeviceScreen() {
   const relayUpdateRequired = useStore((s) => s.relayUpdateRequired);
   const relayUrl = useStore((s) => s.relayUrl);
   const [updating, setUpdating] = useState(false);
+  // What an online Runner said of its service, asked each time the screen shows it.
+  const [service, setService] = useState<{ id: string; installed: boolean; running: boolean }>();
+  const isThis = device?.id === engine.deviceId;
+  const runner = !!device && isRunner(device);
+  const online = !!device && (isThis || deviceIsOnline(device.id));
+  useEffect(() => {
+    if (!runner || !online || isThis) return;
+    let current = true;
+    engine
+      .serviceStatus(id)
+      .then((status) => current && setService({ id, ...status }))
+      .catch(() => {});
+    return () => {
+      current = false;
+    };
+  }, [id, runner, online, isThis]);
 
   if (!device) return null;
-
-  const isThis = device.id === engine.deviceId;
-  const runner = isRunner(device);
-  const online = isThis || deviceIsOnline(device.id);
+  const shown = service?.id === device.id && online ? service : undefined;
   const bots = allBots.filter((b) => b.runner_id === device.id);
   const osName = OS_NAMES[device.os] ?? device.os;
   const relay = relayUrl?.replace(/^https?:\/\//, "");
 
   function openChat(botId: string) {
-    const dm = chats.find((c) => c.kind === "dm" && c.bot_ids[0] === botId);
+    const dm = chats.find((c) => isBotDM(c) && c.bot_ids[0] === botId);
     if (!dm) return;
     router.dismissAll();
     router.push(`/chat/${dm.id}`);
@@ -135,10 +138,19 @@ export default function DeviceScreen() {
             {(device.plugins ?? []).length === 0 ? (
               <Row title={t("No plugins installed")} />
             ) : (
-              (device.plugins ?? []).map((plugin) => <Row key={plugin.id} title={plugin.name} subtitle={plugin.state === "error" ? plugin.detail || plugin.description : plugin.description} detail={pluginState(plugin.state)} icon={plugin.icon ?? "puzzlepiece.extension"} />)
+              (device.plugins ?? []).map((plugin) =>
+                // A named account (Gmail · Work) opens its own screen; its name already says which.
+                plugin.account_name ? (
+                  <Row key={plugin.id} title={plugin.name} detail={pluginStateWord(plugin)} icon={plugin.icon ?? "puzzlepiece.extension"} chevron onPress={() => router.push({ pathname: "/settings/account/[id]", params: { id: plugin.id, runner: device.id } })} />
+                ) : (
+                  <Row key={plugin.id} title={plugin.name} subtitle={plugin.state === "error" ? plugin.detail || plugin.description : plugin.description} detail={pluginStateWord(plugin)} icon={plugin.icon ?? "puzzlepiece.extension"} chevron onPress={() => router.push({ pathname: "/settings/account/[id]", params: { id: plugin.id, runner: device.id } })} />
+                ),
+              )
             )}
           </Section>
         )}
+
+        {runner && <SecretsSection device={device} />}
 
         <Section
           title={t("Machine")}
@@ -146,7 +158,9 @@ export default function DeviceScreen() {
             device.unknown
               ? t("This machine is paired to your account but has not sent its name or system. If you don't recognize it, unpair it.")
               : runner
-                ? undefined
+                ? shown && !shown.installed
+                  ? t("Run lorca service install in Terminal on {name} to keep its bots running while Lorca is closed.", { name: deviceName(device) })
+                  : undefined
                 : t("{os} Devices hold your keys and chats but never run a bot. Assign bots to a Runner: a Device running macOS, Linux, or Windows.", { os: osName })
           }
         >
@@ -168,6 +182,7 @@ export default function DeviceScreen() {
             />
           )}
           <Row title={t("Role")} detail={runner ? t("Runner") : t("Device")} />
+          {shown && <Row title={t("Background service")} detail={shown.running ? t("Running") : shown.installed ? t("Installed, not running") : t("Not installed")} />}
           <Row title={t("Last seen")} detail={online ? t("Active now") : lastSeen(seen)} />
           <Row title={t("Relay")} detail={relay ? (relayUpdateRequired ? t("{relay} · update Lorca to sync", { relay }) : relayConnected ? relay : t("{relay} · offline", { relay })) : t("Not configured")} />
         </Section>
@@ -178,6 +193,77 @@ export default function DeviceScreen() {
           </Section>
         )}
       </ScrollView>
+    </>
+  );
+}
+
+/// The secrets the Runner keeps for its bots, as the Mac's Secrets pane lists them: what each is,
+/// whose it is, and where it goes, never its value. A tap opens its menu: Replace…, which opens a
+/// field for the new value, or Delete…. Asked of the Runner through the relay when the screen
+/// opens; nothing shows while it has none.
+function SecretsSection({ device }: { device: Device }) {
+  useLanguage();
+  const bots = useStore((s) => s.bots);
+  const [secrets, setSecrets] = useState<SavedSecret[]>();
+  const [error, setError] = useState<string>();
+  const [replacing, setReplacing] = useState<SavedSecret>();
+  const loads = useRef(0);
+  const load = useCallback(() => {
+    const ask = ++loads.current;
+    engine
+      .secrets(device.id)
+      .then((list) => ask === loads.current && (setSecrets(list), setError(undefined)))
+      .catch((e: unknown) => ask === loads.current && setError(e instanceof Error ? e.message : String(e)));
+  }, [device.id]);
+  useEffect(load, [load]);
+
+  function confirmDelete(secret: SavedSecret, owner: string) {
+    alert(t("Delete “{name}”?", { name: secret.label }), t("{who} asks for it again the next time it needs it.", { who: owner }), [
+      { text: t("Cancel"), style: "cancel" },
+      {
+        text: t("Delete"),
+        style: "destructive",
+        onPress: () => {
+          engine
+            .deleteSecret(device.id, secret.id)
+            .then(load)
+            .catch((e: unknown) => alert(t("Couldn't delete “{name}”", { name: secret.label }), e instanceof Error ? e.message : String(e)));
+        },
+      },
+    ]);
+  }
+
+  if (!error && !secrets?.length) return null;
+  return (
+    <>
+      <Section title={t("Secrets")} footer={t("A bot asks in the chat when it needs a password or a key. What you save stays encrypted on its Runner, and the bot uses it by name without ever seeing it.")}>
+        {error && !secrets ? <Row title={error} /> : null}
+        {(secrets ?? []).map((secret) => {
+          const bot = bots.find((b) => b.id === secret.bot_id);
+          const owner = bot?.name ?? t("A deleted bot");
+          const place = secretPlace(secret);
+          return (
+            <RowMenu
+              key={secret.id}
+              actions={[
+                { id: "replace", title: t("Replace…"), symbol: "pencil" },
+                { id: "delete", title: t("Delete…"), symbol: "trash", destructive: true },
+              ]}
+              onChoose={(action) => (action === "replace" ? setReplacing(secret) : confirmDelete(secret, owner))}
+              label={`${secret.label}, ${owner} · ${place}`}
+            >
+              <Row title={secret.label} subtitle={`${owner} · ${place}`} leading={bot ? <BotAvatar bot={bot} size={32} /> : undefined} icon={bot ? undefined : "lock"} />
+            </RowMenu>
+          );
+        })}
+      </Section>
+      {replacing ? (
+        <SecretSheet
+          fields={[{ name: "value", label: t("New value") }]}
+          onDismiss={() => setReplacing(undefined)}
+          onSave={(values) => engine.replaceSecret(device.id, replacing.id, values.value).then(load)}
+        />
+      ) : null}
     </>
   );
 }

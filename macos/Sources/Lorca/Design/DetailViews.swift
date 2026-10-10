@@ -120,6 +120,8 @@ final class SectionView: NSView {
     private var shownRows: [NSView] = []
 
     func setRows(_ views: [NSView]) {
+        // With no rows, the title (and its accessory) stands alone.
+        card.isHidden = views.isEmpty
         // The rows it shows already, updated in place, keep their places and dividers.
         guard !views.elementsEqual(shownRows, by: ===) else { return }
         shownRows = views
@@ -308,6 +310,12 @@ final class DisclosureRow: NSView {
         setAccessibilityValue(text)
     }
 
+    /// A value in a color of its own, such as orange for something to act on.
+    func setValue(_ text: String, tint: NSColor) {
+        value.textColor = tint
+        setValue(text)
+    }
+
     override func mouseDown(with event: NSEvent) {
         onClick?()
     }
@@ -386,12 +394,13 @@ final class BotRow: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
+    /// `title` names the row when it is about something of the bot's, beside its avatar.
     @discardableResult
-    func configure(bot: Bot, detailText: String, accessorySymbol: String? = nil, tooltip: String = "")
+    func configure(bot: Bot, title: String? = nil, detailText: String, accessorySymbol: String? = nil, tooltip: String = "")
         -> BotRow
     {
         avatar.content = AvatarView.content(for: bot)
-        name.stringValue = bot.name
+        name.stringValue = title ?? bot.name
         detail.stringValue = detailText
         if let accessorySymbol {
             accessory.image = NSImage(systemSymbolName: accessorySymbol, accessibilityDescription: tooltip)
@@ -526,13 +535,17 @@ final class StatusRow: NSView, NSGestureRecognizerDelegate {
         stateDetail: String? = nil,
         actionTitle: String? = nil,
         destructive: Bool = false,
-        symbolTint: NSColor = .secondaryLabelColor
+        symbolTint: NSColor = .secondaryLabelColor,
+        subtitleLines: Int = 0
     ) {
         icon.image = image ?? NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
         icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
         icon.contentTintColor = symbolTint
         title.stringValue = titleText
         subtitle.stringValue = subtitleText
+        subtitle.maximumNumberOfLines = subtitleLines
+        subtitle.cell?.truncatesLastVisibleLine = subtitleLines > 0
+        // An empty subtitle would still hold a line and lift the title off center.
         subtitle.isHidden = subtitleText.isEmpty
         // With a symbol, the state's words are its tooltip and what VoiceOver reads.
         let showsSymbol = stateText != nil && stateSymbol != nil
@@ -574,21 +587,29 @@ final class StatusRow: NSView, NSGestureRecognizerDelegate {
     func configure(plugin: InstalledPlugin, hasAccess: Bool = true) {
         guard hasAccess else {
             configure(
-                symbol: plugin.symbolName, image: PluginLogo.tile(for: plugin.id, size: 18), title: plugin.name,
-                subtitle: plugin.description, state: L("No access"))
+                symbol: plugin.symbolName, image: PluginLogo.tile(for: plugin.marketplaceID, size: 18), title: plugin.name,
+                subtitle: plugin.accountName == nil ? plugin.description : "", state: L("No access"))
             return
         }
         let ready = plugin.state == .ready
         configure(
             symbol: plugin.symbolName,
-            image: PluginLogo.tile(for: plugin.id, size: 18),
+            image: PluginLogo.tile(for: plugin.marketplaceID, size: 18),
             title: plugin.name,
-            subtitle: plugin.description,
+            // A service's accounts would each repeat its description; their names tell them apart.
+            subtitle: plugin.accountName == nil ? plugin.description : "",
             state: ready ? L("Ready") : plugin.detail,
             stateSymbol: ready ? "checkmark" : "exclamationmark.circle.fill",
             stateColor: ready ? .systemGreen : .systemOrange,
             stateDetail: ready ? nil : plugin.detail
         )
+    }
+
+    /// A skill: its name, when to use it in two lines at most, and Draft while it waits for a save.
+    func configure(skill: PlaybookSummary) {
+        configure(symbol: "book.closed", title: skill.name, subtitle: skill.description, state: skill.isDraft ? L("Draft") : nil)
+        subtitle.maximumNumberOfLines = 2
+        subtitle.cell?.truncatesLastVisibleLine = true
     }
 
     @objc private func actionTapped() {
@@ -609,13 +630,14 @@ final class StatusRow: NSView, NSGestureRecognizerDelegate {
 }
 
 
-/// Label on the left, a pop-up on the right. Used for settings inside a section card.
+/// Label on the left, a pop-up on the right. Used for settings inside a section card. The
+/// pop-up is 150 wide, or as wide as its titles with `fitsTitles`.
 final class PopUpRow: NSView {
     private let key: NSTextField
     let popUp = NSPopUpButton()
     var onChange: ((Int) -> Void)?
 
-    init(key keyText: String, items: [String], selected: Int) {
+    init(key keyText: String, items: [String], selected: Int, fitsTitles: Bool = false) {
         key = Build.label(keyText, font: .systemFont(ofSize: 12), color: .secondaryLabelColor)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
@@ -640,8 +662,8 @@ final class PopUpRow: NSView {
             popUp.leadingAnchor.constraint(greaterThanOrEqualTo: key.trailingAnchor, constant: 10),
             popUp.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             popUp.centerYAnchor.constraint(equalTo: centerYAnchor),
-            popUp.widthAnchor.constraint(equalToConstant: 150),
         ])
+        if !fitsTitles { popUp.widthAnchor.constraint(equalToConstant: 150).isActive = true }
     }
 
     @available(*, unavailable)
@@ -963,16 +985,17 @@ final class SwitchRow: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    func configure(routine: Routine) {
-        let symbol = routine.isRunning ? "arrow.triangle.2.circlepath" : (routine.isEnabled ? "clock" : "pause.circle")
+    /// A routine stopped at its limits says so before anything else, as a problem the user has
+    /// to act on: it runs again only once the user resumes it.
+    func configure(routine: Routine, stopped: String? = nil) {
         configure(
-            symbol: symbol,
+            symbol: routine.symbol,
             tint: routine.isRunning ? .controlAccentColor : (routine.isEnabled ? .secondaryLabelColor : .tertiaryLabelColor),
             title: routine.name, detail: routine.detail, isOn: routine.isEnabled,
             toggleTooltip: routine.isEnabled ? L("Pause %@", routine.name) : L("Resume %@", routine.name), tooltip: routine.prompt)
         // What went wrong leads, in orange while the user has to do something about it.
-        if let problem = routine.problem, problem.needsUser {
-            let line = NSMutableAttributedString(string: problem.text, attributes: [.foregroundColor: NSColor.systemOrange, .font: Theme.Font.caption])
+        if let problem = stopped ?? routine.problem.flatMap({ $0.needsUser ? $0.text : nil }) {
+            let line = NSMutableAttributedString(string: problem, attributes: [.foregroundColor: NSColor.systemOrange, .font: Theme.Font.caption])
             line.append(NSAttributedString(
                 string: " · \(routine.scheduleText)", attributes: [.foregroundColor: NSColor.secondaryLabelColor, .font: Theme.Font.caption]))
             detail.attributedStringValue = line
@@ -980,10 +1003,44 @@ final class SwitchRow: NSView {
         }
     }
 
+    /// A channel: where it listens and what it takes, after its state in orange when the user has
+    /// something to do about it.
+    func configure(channel: ChannelStatus) {
+        let paused = channel.state == .paused
+        configure(
+            symbol: channel.service == "slack" ? "number" : "paperplane", tint: paused ? .tertiaryLabelColor : .secondaryLabelColor,
+            title: channel.name, detail: channel.listen.summary, isOn: !paused,
+            toggleTooltip: paused ? L("Resume %@", channel.name) : L("Pause %@", channel.name), tooltip: channel.task)
+        let problem: String? = switch channel.state {
+        case .held: L("On hold")
+        case .offline: L("Can’t connect")
+        default: nil
+        }
+        if let problem {
+            let line = NSMutableAttributedString(string: problem, attributes: [.foregroundColor: NSColor.systemOrange, .font: Theme.Font.caption])
+            line.append(NSAttributedString(
+                string: " · \(channel.listen.summary)", attributes: [.foregroundColor: NSColor.secondaryLabelColor, .font: Theme.Font.caption]))
+            detail.attributedStringValue = line
+        }
+        // What it takes wraps rather than lose its last tag.
+        detail.maximumNumberOfLines = 2
+        detail.lineBreakMode = .byWordWrapping
+        detail.cell?.truncatesLastVisibleLine = true
+        // The service's mark, as the plugin rows show its account.
+        if let tile = PluginLogo.tile(for: channel.service, size: 18) {
+            icon.image = tile
+            icon.symbolConfiguration = nil
+            icon.contentTintColor = nil
+            icon.alphaValue = paused ? 0.5 : 1
+        }
+        toggle.setAccessibilityLabel(channel.name)
+    }
+
     func configure(symbol: String, tint: NSColor, title: String, detail detailText: String, isOn: Bool, toggleTooltip: String, tooltip: String) {
         icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
         icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
         icon.contentTintColor = tint
+        icon.alphaValue = 1
         name.stringValue = title
         detail.stringValue = detailText
         toggle.state = isOn ? .on : .off
