@@ -287,12 +287,34 @@ type WireChat struct {
 	OwnerBotID  *string          `json:"owner_bot_id"`
 	Description *string          `json:"description"`
 	IsPinned    bool             `json:"is_pinned"`
+	SectionID   *string          `json:"section_id"`
+	IsHidden    bool             `json:"is_hidden"`
+	Mute        *WireMute        `json:"mute"`
 	CreatedAt   float64          `json:"created_at"`
 	Messages    []WireMessage    `json:"messages"`
 	UnreadCount *int             `json:"unread_count"`
 	Usage       *WireChatUsage   `json:"usage"`
 	HasMore     *bool            `json:"has_more"`
 	Channel     *WireChatChannel `json:"channel"`
+}
+
+type WireMute struct {
+	Until *float64 `json:"until"`
+}
+
+type WireSection struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Collapsed bool   `json:"collapsed"`
+}
+
+// ToSections are the sidebar's sections as the roster lists them.
+func ToSections(wire []WireSection) []*Section {
+	sections := make([]*Section, 0, len(wire))
+	for _, section := range wire {
+		sections = append(sections, &Section{ID: section.ID, Name: section.Name, Collapsed: section.Collapsed})
+	}
+	return sections
 }
 
 type WireRoutine struct {
@@ -409,6 +431,7 @@ type WireSnapshot struct {
 	Devices             []WireDevice      `json:"devices"`
 	Bots                []WireBot         `json:"bots"`
 	Chats               []WireChat        `json:"chats"`
+	Sections            []WireSection     `json:"sections"`
 	Routines            []WireRoutine     `json:"routines"`
 	Reviews             []ReviewItem      `json:"reviews"`
 	Tasks               []DurableTask     `json:"tasks"`
@@ -425,6 +448,7 @@ type WireRosterChanged struct {
 	Devices     []WireDevice    `json:"devices"`
 	Bots        []WireBot       `json:"bots"`
 	Chats       []WireChat      `json:"chats"`
+	Sections    []WireSection   `json:"sections"`
 	Routines    []WireRoutine   `json:"routines"`
 	AutoReview  *WireAutoReview `json:"auto_review"`
 	SharedLinks []SharedLink    `json:"shared_links"`
@@ -974,6 +998,14 @@ func ToChat(wire WireChat, existing *Chat) *Chat {
 		}
 	}
 	chat.OwnerBotID = str(wire.OwnerBotID)
+	chat.SectionID = str(wire.SectionID)
+	chat.IsHidden = wire.IsHidden
+	if wire.Mute != nil {
+		chat.Mute = &ChatMute{}
+		if wire.Mute.Until != nil {
+			chat.Mute.Until = seconds(*wire.Mute.Until)
+		}
+	}
 	if wire.Messages != nil {
 		for _, message := range wire.Messages {
 			chat.Messages = append(chat.Messages, ToMessage(message))

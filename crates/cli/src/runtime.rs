@@ -785,6 +785,9 @@ mod tests {
                 owner_bot_id: None,
                 description: None,
                 is_pinned: false,
+                section_id: None,
+                is_hidden: false,
+                mute: None,
                 created_at: 1.0, channel: None,
             },
             unread_count: 0,
@@ -1084,7 +1087,7 @@ mod tests {
             kind: "machine".into(),
             recipient_machine_pubkey: None,
             seq,
-            ciphertext: crate::keys::b64(&crate::crypto::encrypt_json(&dek, "machine", &MachineBlob { device, turns, budgets: Vec::new() }).unwrap()),
+            ciphertext: crate::keys::b64(&crate::crypto::encrypt_json(&dek, "machine", &MachineBlob { device, turns, budgets: Vec::new(), watching: None }).unwrap()),
             created_at: 0,
         };
         let mut events = app.events.subscribe();
