@@ -1,6 +1,8 @@
 package main
 
 import (
+	"strings"
+
 	"github.com/egoist/lorca/desktop/model"
 	"github.com/egoist/mygo/ui"
 )
@@ -145,8 +147,7 @@ func settingsRelayText() string {
 }
 
 // settingsDeviceHeader is the Device's symbol beside its name, its model and system, and a dot and
-// words for whether it is online. The name is a field: clicking it renames the Device on every
-// paired Device, and clearing it takes back the name the machine goes by.
+// words for whether it is online. Rename… beside the name asks for a new one.
 func settingsDeviceHeader(c *ui.Context, device *model.Device, w *appWindow) {
 	p := colors(c)
 	status, tint := "", p.Label2
@@ -179,12 +180,13 @@ func settingsDeviceHeader(c *ui.Context, device *model.Device, w *appWindow) {
 			symbol(c, device.Symbol(), 40, 1.4)
 		})
 		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(3).Children(func() {
-			// A machine that never said what it is has no name of its own to change.
-			if device.OS == model.OSUnknown {
-				ui.Text(c, device.Name).FontSize(22).FontWeight(600)
-			} else {
-				deviceNameField(c, device, w)
-			}
+			ui.Row(c).Gap(10).MinWidth(0).Children(func() {
+				ui.Text(c, device.Name).FontSize(22).FontWeight(600).MaxLines(1).Shrink(1).MinWidth(0)
+				// A machine that never said what it is has no name of its own to change.
+				if device.OS != model.OSUnknown && pushButton(c, L("Rename…"), pushOptions{Small: true}).Clicked() {
+					renameDevice(w, device)
+				}
+			})
 			if device.OS != model.OSUnknown {
 				ui.Text(c, device.Model+" · "+device.OSVersion).FontSize(12.5).TextColor(p.Label2)
 			}
@@ -196,41 +198,30 @@ func settingsDeviceHeader(c *ui.Context, device *model.Device, w *appWindow) {
 	})
 }
 
-// deviceNameField is the header's name as a field that reads as the name until it is clicked.
-// Return or clicking away renames the Device; Escape puts the name back.
-func deviceNameField(c *ui.Context, device *model.Device, w *appWindow) {
-	p := colors(c)
-	holder := ui.Row(c.Key(device.ID)).MinWidth(0)
-	st := ui.Local(holder, "name", func() *editableRowState { return &editableRowState{} })
-	holder.Children(func() {
-		s := *st
-		if !s.editing {
-			s.draft = device.Name
+// renameDevice asks for the Device's name, which every paired Device shows. A blank name takes back
+// the name the machine goes by.
+func renameDevice(w *appWindow, device *model.Device) {
+	id, value := device.ID, device.Name
+	placeholder := device.MachineName
+	if placeholder == "" {
+		placeholder = device.Name
+	}
+	w.showAlert(alertOptions{
+		Message:     L("Rename Device"),
+		Informative: L("Every paired Device shows this name. Leave it blank to use the name the machine goes by."),
+		Buttons:     []alertButton{{Title: L("Rename")}, {Title: L("Cancel")}},
+		Accessory: func(c *ui.Context) {
+			textField(c, &value, fieldOptions{Placeholder: placeholder, AutoFocus: true, Label: L("Name")})
+		},
+	}, func(answer int) {
+		if answer != 0 || strings.TrimSpace(value) == device.Name {
+			return
 		}
-		placeholder := device.MachineName
-		if placeholder == "" {
-			placeholder = device.Name
-		}
-		field := ui.TextInputBase(c, &s.draft).Grow(1).Shrink(1).MinWidth(0).FontSize(22).FontWeight(600).TextColor(p.Label).
-			FocusRing(false).Placeholder(placeholder).Label(L("Name")).Tooltip(L("Click to rename"))
-		focused := field.Focused()
-		commit := false
-		switch {
-		case focused && field.Shortcut(0, ui.KeyEscape):
-			s.draft = device.Name
-		case field.Submitted():
-			commit = true
-		case s.editing && !focused:
-			commit = true
-		}
-		s.editing = focused
-		if commit {
-			store.SetDeviceName(device.ID, s.draft, func(err error) {
-				if err != nil {
-					w.showAlert(alertOptions{Message: L("Couldn't rename it"), Informative: model.ErrorText(err)}, nil)
-				}
-			})
-		}
+		store.SetDeviceName(id, value, func(err error) {
+			if err != nil {
+				w.showAlert(alertOptions{Message: L("Couldn't rename it"), Informative: model.ErrorText(err)}, nil)
+			}
+		})
 	})
 }
 
