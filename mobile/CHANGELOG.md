@@ -4,6 +4,33 @@ The phone app's release notes, by the version in `app.config.ts`. A release (a `
 tag) takes a version's section as the notes of its GitHub release, and the Android app shows them
 when it offers the update.
 
+## [1.0.1]
+
+- Update Lorca on every Device: the phone app, the Mac app, the Windows and Linux app, and each
+  computer that runs the command line. Devices now sign what they send each other through the relay,
+  so a relay can no longer send work to your Runners in another Device's name, and unpairing a
+  Device gives your account a new key, so the Device you unpaired cannot read what your account
+  writes after that. An older Lorca cannot read what an updated Device sends, and once your Devices
+  have updated, Lorca's relay asks older versions to update before they sync.
+- A bot's Access changes from the phone: the Access row in a DM's Details, or Edit Access… on a
+  bot's request for more access. Each change saves at once.
+- A bot writes an email or a Slack message as a draft card in the chat, editable in place, and
+  nothing goes out until you tap Send. What a routine leaves for your review waits in the chat the
+  same way.
+- What bots publish shows as a card in the chat, and Details lists a chat's outputs and tasks. New
+  Task in Details adds a task.
+- A secret a bot asks for goes on a card you fill in from the phone, sealed to the bot's Runner; it
+  never enters the chat. The Runner's screen in Settings lists its secrets, without their values.
+- Tapping a routine opens its own screen: how it stands and how to fix it, Run Now, Pause or Resume,
+  Limits, its schedule and timezone, and missed runs. A routine that needs you says so in Details.
+- Sidebar sections, and Hide and Mute in a chat's menu. A muted chat sends no push, and neither does
+  the chat you have in front on a computer.
+- Paste an image into the message box.
+- Give Feedback in a DM's Details, project context in a group's Details, a bot's channels, browser
+  profiles, and coding agents' cards with their transcripts, as on a computer.
+- Share a bot as a template link, and open one to make a bot from it.
+- Any Device renames any Device: Rename… on its screen in Settings.
+
 ## [1.0.0]
 
 - Lorca for Android is on GitHub, and keeps itself up to date: once a day it looks for a new
