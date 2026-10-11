@@ -4,6 +4,17 @@ The phone app's release notes, by the version in `app.config.ts`. A release (a `
 tag) takes a version's section as the notes of its GitHub release, and the Android app shows them
 when it offers the update.
 
+## [1.0.2]
+
+- A Telegram channel that listens for mentions or hashtags tells you when it can't hear them. While
+  the Telegram bot's privacy mode is on, Telegram sends it only replies and commands in groups. The
+  channel's row in a DM's Details now says Privacy mode on, and its screen says what it misses and
+  how to turn privacy mode off.
+- On Android, a message you send rests below the chat bar while the reply comes in, instead of
+  scrolling up under the status bar.
+- On Android, Install Update shows the download's progress in a dialog until the app restarts, and
+  says so when the download or install fails.
+
 ## [1.0.1]
 
 - Update Lorca on every Device: the phone app, the Mac app, the Windows and Linux app, and each

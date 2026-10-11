@@ -6,6 +6,10 @@ Sparkle shows it in the update window. The Windows and Linux app's are in
 
 ## [Unreleased]
 
+## [1.0.13]
+
+- A Telegram channel that listens for mentions or hashtags tells you when it can't hear them. While the Telegram bot's privacy mode is on, Telegram sends it only replies and commands in groups. The channel's row in the bot's Details now says Privacy mode on, its sheet says what it misses and how to turn privacy mode off, and the bot tells you when it sets up or changes such a channel.
+
 ## [1.0.12]
 
 - Update Lorca on every Device: the Mac app, the phone app, the Windows and Linux app, and each computer that runs the command line. Devices now sign what they send each other through the relay, so a relay can no longer send work to your Runners in another Device's name, and unpairing a Device gives your account a new key, so the Device you unpaired cannot read what your account writes after that. An older Lorca cannot read what an updated Device sends, and once your Devices have updated, Lorca's relay asks older versions to update before they sync.

@@ -6,6 +6,13 @@ and the update window shows it.
 
 ## [Unreleased]
 
+## [0.1.8]
+
+- A Telegram channel that listens for mentions or hashtags tells you when it can't hear them. While
+  the Telegram bot's privacy mode is on, Telegram sends it only replies and commands in groups. The
+  channel's row in the bot's Details now says Privacy mode on, its sheet says what it misses and how
+  to turn privacy mode off, and the bot tells you when it sets up or changes such a channel.
+
 ## [0.1.7]
 
 - Update Lorca on every Device: the Windows and Linux app, the Mac app, the phone app, and each
