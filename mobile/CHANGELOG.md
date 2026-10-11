@@ -4,6 +4,16 @@ The phone app's release notes, by the version in `app.config.ts`. A release (a `
 tag) takes a version's section as the notes of its GitHub release, and the Android app shows them
 when it offers the update.
 
+## [1.0.3]
+
+- A channel answers only in the chats you allow. Anyone can message a Telegram bot or add it to
+  their group, so a chat you haven't allowed now asks first: the channel's row says A chat is
+  waiting, and its screen lists it with Allow and Ignore. Until you allow it, the bot does nothing
+  there. A channel that listened in every chat its bot was in now listens nowhere until you allow
+  its chats, and each chat asks once someone writes there.
+- Tapping an item in the Attention list that waits on a review opens its chat with the review on
+  top, so you can approve or reject it right away.
+
 ## [1.0.2]
 
 - A Telegram channel that listens for mentions or hashtags tells you when it can't hear them. While
