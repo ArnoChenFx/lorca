@@ -648,7 +648,9 @@ final class ChatViewController: NSViewController {
         }
         scrollIntoView(row: row)
         isPinnedToBottom = false
-        (tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? MessageCellView)?.flash()
+        let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false)
+        (cell as? MessageCellView)?.flash()
+        (cell as? OutputCellView)?.flash()
     }
 
     @objc func stopResponding(_ sender: Any?) {
@@ -734,6 +736,9 @@ extension ChatViewController: NSTableViewDataSource, NSTableViewDelegate {
             let identifier: NSUserInterfaceItemIdentifier
             let cell: NSView
             switch message.body {
+            case .text where message.isOutputCard:
+                identifier = OutputCellView.identifier
+                cell = dequeue(identifier) { OutputCellView() }
             case .text:
                 identifier = MessageCellView.identifier
                 cell = dequeue(identifier) { MessageCellView() }
@@ -856,6 +861,8 @@ extension ChatViewController: NSTableViewDataSource, NSTableViewDelegate {
         case let .message(id, _):
             guard let message = message(for: id) else { return "" }
             switch message.body {
+            case .text where message.isOutputCard:
+                return "\(authorName(of: message.author)): \(OutputCellView.spokenText(output: message.output!))"
             case .text:
                 let words = layout.rendered(for: message).plainText
                 let said = "\(authorName(of: message.author)): \(words.isEmpty ? Attachment.summary(message.attachments) : words)"
@@ -900,6 +907,27 @@ extension ChatViewController: NSTableViewDataSource, NSTableViewDelegate {
             }
 
             switch message.body {
+            case .text where message.isOutputCard:
+                guard let outputCell = cell as? OutputCellView, let output = message.output else { return }
+                let attachment = message.attachments.first
+                outputCell.configure(
+                    output: output, attachment: attachment,
+                    url: attachment.flatMap { store.localURL(for: $0, in: chatID, messageID: message.id) },
+                    error: attachment.flatMap { store.attachmentError(for: $0) },
+                    avatar: cardAvatar(for: message), groupStart: groupStart)
+                outputCell.onOpen = { [weak self] in
+                    guard let self, let series = store.outputs(in: chatID).first(where: { $0.id == output.id }) else { return }
+                    presentAsSheet(OutputViewController(chatID: chatID, series: series))
+                }
+                outputCell.onRetry = attachment.map { attachment in { [weak self] in
+                    self?.store.retryAttachment(attachment, in: chatID, messageID: message.id)
+                } }
+                outputCell.fileMenu = { [weak self] in OutputActions.menu(for: message) { self?.view.window } }
+                outputCell.onReply = message.canBeQuoted ? { [weak self] in self?.startReply(to: message) } : nil
+                outputCell.onFeedback = message.author.botID.map { botID in { [weak self] in
+                    self?.presentAsSheet(FeedbackViewController(botID: botID, chatID: chat.id, message: message))
+                } }
+
             case .text:
                 guard let messageCell = cell as? MessageCellView else { return }
                 let metrics = layout.metrics(

@@ -348,6 +348,17 @@ final class ChatLayout {
         return height
     }
 
+    /// A published output's card, for a bot's message that carries one.
+    private func outputHeight(for message: Message, tableWidth: CGFloat, indent: CGFloat) -> CGFloat {
+        let width = min(OutputCellView.width, tableWidth - indent - ChatMetrics.horizontalInset)
+        var entry = entry(for: message)
+        if let card = entry.card, card.width == width { return card.height }
+        let height = OutputCellView.height(for: message, rowWidth: tableWidth, indent: indent)
+        entry.card = (width, height)
+        cache[message.id] = entry
+        return height
+    }
+
     /// A coding agent's card, for the `coding_agent` row that started it.
     private func agentHeight(for message: Message, agent: AgentRun, tableWidth: CGFloat, indent: CGFloat) -> CGFloat {
         let width = min(AgentCellView.width, tableWidth - indent - ChatMetrics.horizontalInset)
@@ -406,6 +417,9 @@ final class ChatLayout {
             let indent = ChatMetrics.indent(showsAvatar: showsAvatar)
 
             switch message.body {
+            case .text where message.isOutputCard:
+                return top + outputHeight(for: message, tableWidth: tableWidth, indent: indent)
+
             case .text:
                 let metrics = metrics(for: message, showsAvatar: showsAvatar, groupStart: groupStart, tableWidth: tableWidth)
                 return top + metrics.rowHeight

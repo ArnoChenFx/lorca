@@ -95,6 +95,10 @@ func templateItemRow(c *ui.Context, k *card, item templateItem, selectable, sele
 	p := colors(c)
 	label := strings.TrimSpace(item.title + "\n" + item.detail)
 	r := k.row(rowBox(c.Key(item.id)).MinHeight(36).Padding(9, 12).AlignItems(ui.Start).Label(label).Tooltip(label))
+	// Beside an image, the text centers on it; a wrapping memory starts at the top.
+	if item.look != nil || item.plugin != "" {
+		r.AlignItems(ui.Center)
+	}
 	clicked := false
 	if selectable {
 		r.Role(ui.RoleCheckBox).Checked(selected).Cursor(ui.CursorPointer)

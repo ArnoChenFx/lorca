@@ -12,10 +12,13 @@ Creating an identity makes a 32-byte secret on your first Device. Everything els
 
 - The secret stays on the device that created or restored it.
 - Whoever holds the phrase holds the account. Lorca cannot recover it for you.
+- The account key the relay keeps for a restore is signed by your identity, so the phrase restores only the key you made.
 
 ## What is encrypted
 
-Everything with meaning: bot names and descriptions, chat titles, messages, attachments, device names, provider credentials, skills, tasks, group projects, items waiting for review, the Attention list, and the contents of push notifications. Each is encrypted on your device with your account key (XChaCha20-Poly1305) before upload. Work sent to a bot on another computer, an answer to a secret's card, and an [event](/docs/events) from your gateway are sealed to that computer's public key, so only it can open them.
+Everything with meaning: bot names and descriptions, chat titles, messages, attachments, device names, provider credentials, skills, tasks, group projects, items waiting for review, the Attention list, and the contents of push notifications. Each is encrypted on your device with your account key (XChaCha20-Poly1305) before upload. Work sent to a bot on another computer, an answer to a secret's card, and an event that starts a bot's work are sealed to that computer's public key, so only it can open them.
+
+What one of your devices sends another (a bot's turn, a change to a computer's plugins, MCP servers, or secrets, and the answer) is also signed with the sending device's key. A device acts on it only when a device in your list signed it for that device, and only once, so the relay can't make up work for your computers or send the same work again.
 
 ## What the relay sees
 
@@ -27,11 +30,13 @@ Everything with meaning: bot names and descriptions, chat titles, messages, atta
 | Which device keys are online, and when they last connected | Which devices are Runners |
 | A phone's push token | What a notification says |
 
+A pull request watch and a routine's webhook are the exception: see [Webhooks](#webhooks).
+
 Devices prove who they are by signing a challenge with their key. There is nothing to phish.
 
 ## Pairing
 
-A pairing code carries a one-time public key. The new device sends its keys sealed to that one-time key; the existing device answers with the account key sealed to the new device. The relay passes both messages without being able to open either. A code expires after ten minutes or when you cancel it.
+A pairing code carries a one-time public key. The new device sends its keys, and a one-time reply key, sealed to that one-time key; the existing device answers with the account key encrypted under the reply key. The relay passes both messages without being able to open either, and can't write a reply the new device would accept. A code expires after ten minutes or when you cancel it.
 
 Any paired computer can pair a new device. Every paired device shows in your device list, one that never says what it is as **Unknown Device**, so you can unpair a device you don't recognize.
 
@@ -41,13 +46,13 @@ A bot you [share as a link](/docs/templates) is encrypted with a key of its own,
 
 ## Unpairing
 
-Unpairing a device makes the relay refuse its key for good. The device deletes its keys, credentials, and chats the next time it connects.
+Unpairing a device makes the relay refuse its key for good, and your other devices remember the key as unpaired, so no relay can bring the device back. The device deletes its keys, credentials, and chats the next time it connects.
 
 ## Deleting your account
 
 **Settings › Advanced › Delete Account** in the desktop app removes everything the relay holds for the account (chats, attachments, bots, provider credentials) and unpairs every device, which then deletes its own copy.
 
-A relay also lets go of an account nothing has touched for a year: no device connected, nothing synced. Your devices keep what they have, and the first one that comes back registers the account again.
+Lorca's relay also lets go of an account nothing has touched for a year: no device connected, nothing synced. Your devices keep what they have, and the first one that comes back registers the account again.
 
 ## On your computer
 
@@ -66,7 +71,7 @@ A bot's turn sends the conversation, its description, and its tool results to th
 
 ## Webhooks
 
-Lorca's relay takes no webhooks from other services, since they arrive unencrypted. Events reach a bot through a [gateway](/docs/events) you run on one of your own computers, which checks the service's signature and hands the event to Lorca to encrypt.
+Services send webhooks unencrypted. For a [pull request watch](/docs/routines#pull-request-watches) and a [routine's webhook](/docs/routines#webhooks), Lorca's relay receives them: it checks GitHub's signature or the routine's key, encrypts the event for the routine's Runner, and keeps only the encrypted copy, so it reads each request while it does that. For each such routine it keeps the pull request it watches, which of your computers runs it, a hash of the webhook's key, and the secret it signs the routine's events with, all deleted with the routine. To keep a service's requests off Lorca's relay, you can [receive them yourself](/docs/relay#pull-request-watches-and-webhooks).
 
 ## Updates
 

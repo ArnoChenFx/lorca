@@ -1,6 +1,8 @@
 package main
 
 import (
+	"strings"
+
 	"github.com/egoist/lorca/desktop/model"
 	"github.com/egoist/mygo/ui"
 )
@@ -79,7 +81,7 @@ func (s settingsPane) device(c *ui.Context, m *mainWindow) {
 			return
 		}
 		service := m.settings.service.statusOf(device)
-		settingsDeviceHeader(c, device)
+		settingsDeviceHeader(c, device, s.w)
 		s.section(c, L("Machine"), nil, func(k *card) {
 			unknown := device.OS == model.OSUnknown
 			if unknown {
@@ -145,8 +147,8 @@ func settingsRelayText() string {
 }
 
 // settingsDeviceHeader is the Device's symbol beside its name, its model and system, and a dot and
-// words for whether it is online.
-func settingsDeviceHeader(c *ui.Context, device *model.Device) {
+// words for whether it is online. Rename… beside the name asks for a new one.
+func settingsDeviceHeader(c *ui.Context, device *model.Device, w *appWindow) {
 	p := colors(c)
 	status, tint := "", p.Label2
 	switch device.Status {
@@ -177,8 +179,14 @@ func settingsDeviceHeader(c *ui.Context, device *model.Device) {
 		ui.Row(c).Size(44, 44).Margin(4, 0, 0, 0).Center().TextColor(p.Label2).Children(func() {
 			symbol(c, device.Symbol(), 40, 1.4)
 		})
-		ui.Column(c).Shrink(1).MinWidth(0).Gap(3).Children(func() {
-			ui.Text(c, device.Name).FontSize(22).FontWeight(600)
+		ui.Column(c).Grow(1).Shrink(1).MinWidth(0).Gap(3).Children(func() {
+			ui.Row(c).Gap(10).MinWidth(0).Children(func() {
+				ui.Text(c, device.Name).FontSize(22).FontWeight(600).MaxLines(1).Shrink(1).MinWidth(0)
+				// A machine that never said what it is has no name of its own to change.
+				if device.OS != model.OSUnknown && pushButton(c, L("Rename…"), pushOptions{Small: true}).Clicked() {
+					renameDevice(w, device)
+				}
+			})
 			if device.OS != model.OSUnknown {
 				ui.Text(c, device.Model+" · "+device.OSVersion).FontSize(12.5).TextColor(p.Label2)
 			}
@@ -186,6 +194,33 @@ func settingsDeviceHeader(c *ui.Context, device *model.Device) {
 				ui.Box(c).Size(8, 8).Radius(4).Background(dot)
 				ui.Text(c, status).FontSize(11.5).FontWeight(500).TextColor(tint)
 			})
+		})
+	})
+}
+
+// renameDevice asks for the Device's name, which every paired Device shows. A blank name takes back
+// the name the machine goes by.
+func renameDevice(w *appWindow, device *model.Device) {
+	id, value := device.ID, device.Name
+	placeholder := device.MachineName
+	if placeholder == "" {
+		placeholder = device.Name
+	}
+	w.showAlert(alertOptions{
+		Message:     L("Rename Device"),
+		Informative: L("Every paired Device shows this name. Leave it blank to use the name the machine goes by."),
+		Buttons:     []alertButton{{Title: L("Rename")}, {Title: L("Cancel")}},
+		Accessory: func(c *ui.Context) {
+			textField(c, &value, fieldOptions{Placeholder: placeholder, AutoFocus: true, Label: L("Name")})
+		},
+	}, func(answer int) {
+		if answer != 0 || strings.TrimSpace(value) == device.Name {
+			return
+		}
+		store.SetDeviceName(id, value, func(err error) {
+			if err != nil {
+				w.showAlert(alertOptions{Message: L("Couldn't rename it"), Informative: model.ErrorText(err)}, nil)
+			}
 		})
 	})
 }

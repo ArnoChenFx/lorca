@@ -11,6 +11,13 @@ use serde::de::DeserializeOwned;
 use crate::app::{OutboxItem, SentJob, Slot, State};
 use crate::model::{Author, Body, LiveTurn, Message};
 
+/// The most envelopes held for a sender to land; what a relay delivers beyond it pushes the
+/// oldest out.
+const MAX_HELD_ENVELOPES: i64 = 256;
+/// How many opened envelopes and cancelled jobs are remembered past their expiry, newest first:
+/// the record of what a Device did does not hang on its clock alone.
+const KEPT_RECORDS: i64 = 20_000;
+
 pub struct LocalStore {
     pub(crate) connection: Mutex<Connection>,
 }
@@ -114,9 +121,32 @@ impl LocalStore {
                  id       TEXT PRIMARY KEY NOT NULL,
                  position INTEGER NOT NULL
              );
+             CREATE TABLE IF NOT EXISTS device_names (
+                 id   TEXT PRIMARY KEY NOT NULL,
+                 name TEXT NOT NULL
+             );
              CREATE TABLE IF NOT EXISTS device_seen (
                  id      TEXT PRIMARY KEY NOT NULL,
                  seen_at INTEGER NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS unpaired_machines (
+                 id TEXT PRIMARY KEY NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS held_envelopes (
+                 id         TEXT PRIMARY KEY NOT NULL,
+                 kind       TEXT NOT NULL,
+                 ciphertext BLOB NOT NULL,
+                 held_at    INTEGER NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS cancelled_jobs (
+                 id         TEXT PRIMARY KEY NOT NULL,
+                 expires_at INTEGER NOT NULL
+             );
+             CREATE TABLE IF NOT EXISTS opened_envelopes (
+                 sender     TEXT NOT NULL,
+                 id         TEXT NOT NULL,
+                 expires_at INTEGER NOT NULL,
+                 PRIMARY KEY (sender, id)
              );
              CREATE TABLE IF NOT EXISTS applied_blobs (
                  id       TEXT PRIMARY KEY NOT NULL,
@@ -232,6 +262,8 @@ impl LocalStore {
             workflows: load_json_table(&connection, "workflow_setups")?,
             auto_review,
             shared_links: load_json_table(&connection, "shared_links")?,
+            device_names: load_device_names(&connection)?,
+            unpaired: load_id_set(&connection, "unpaired_machines")?,
             last_seq,
             group_deletes: load_ordered_ids(&connection, "group_deletes")?,
             blob_deletes: load_ordered_ids(&connection, "blob_deletes")?,
@@ -1191,6 +1223,72 @@ impl LocalStore {
         rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
     }
 
+    /// Records an envelope another Device sealed to this one as opened, until it is too old to
+    /// open anyway. The newest `KEPT_RECORDS` stay past that, so a clock that jumps ahead and
+    /// back does not make one new again. False when it was opened before, under whatever blob id.
+    pub fn remember_envelope(&self, sender: &str, id: &str, expires_at: i64) -> anyhow::Result<bool> {
+        let connection = self.connection.lock().unwrap();
+        connection.execute(
+            "DELETE FROM opened_envelopes WHERE expires_at < ?1 AND rowid NOT IN (SELECT rowid FROM opened_envelopes ORDER BY rowid DESC LIMIT ?2)",
+            params![crate::config::now_unix(), KEPT_RECORDS],
+        )?;
+        let added = connection.execute(
+            "INSERT OR IGNORE INTO opened_envelopes (sender, id, expires_at) VALUES (?1, ?2, ?3)",
+            params![sender, id, expires_at],
+        )?;
+        Ok(added == 1)
+    }
+
+    /// Keeps an envelope from a Device this one has no record of yet, by its blob id, to open
+    /// again when one lands. The oldest go past `MAX_HELD_ENVELOPES`.
+    pub fn hold_envelope(&self, id: &str, kind: &str, ciphertext: &[u8]) -> anyhow::Result<()> {
+        let connection = self.connection.lock().unwrap();
+        connection.execute(
+            "INSERT OR IGNORE INTO held_envelopes (id, kind, ciphertext, held_at) VALUES (?1, ?2, ?3, ?4)",
+            params![id, kind, ciphertext, crate::config::now_unix()],
+        )?;
+        connection.execute(
+            "DELETE FROM held_envelopes WHERE id NOT IN (SELECT id FROM held_envelopes ORDER BY held_at DESC, rowid DESC LIMIT ?1)",
+            [MAX_HELD_ENVELOPES],
+        )?;
+        Ok(())
+    }
+
+    /// The envelopes held for a sender to land, oldest first, without those held longer than any
+    /// envelope stays good.
+    pub fn held_envelopes(&self, max_age: i64) -> anyhow::Result<Vec<(String, String, Vec<u8>)>> {
+        let connection = self.connection.lock().unwrap();
+        connection.execute("DELETE FROM held_envelopes WHERE held_at < ?1", [crate::config::now_unix() - max_age])?;
+        let mut statement = connection.prepare("SELECT id, kind, ciphertext FROM held_envelopes ORDER BY held_at, rowid")?;
+        let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
+        rows.collect::<rusqlite::Result<_>>().map_err(Into::into)
+    }
+
+    pub fn release_envelope(&self, id: &str) -> anyhow::Result<()> {
+        self.connection.lock().unwrap().execute("DELETE FROM held_envelopes WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
+    /// Records that another Device stopped `job_id`, so the job does not start when the relay
+    /// delivers it after its cancellation.
+    pub fn cancel_job(&self, job_id: &str, expires_at: i64) -> anyhow::Result<()> {
+        let connection = self.connection.lock().unwrap();
+        connection.execute(
+            "DELETE FROM cancelled_jobs WHERE expires_at < ?1 AND rowid NOT IN (SELECT rowid FROM cancelled_jobs ORDER BY rowid DESC LIMIT ?2)",
+            params![crate::config::now_unix(), KEPT_RECORDS],
+        )?;
+        connection.execute(
+            "INSERT INTO cancelled_jobs (id, expires_at) VALUES (?1, ?2) ON CONFLICT(id) DO UPDATE SET expires_at = excluded.expires_at",
+            params![job_id, expires_at],
+        )?;
+        Ok(())
+    }
+
+    pub fn job_cancelled(&self, job_id: &str) -> anyhow::Result<bool> {
+        let connection = self.connection.lock().unwrap();
+        Ok(connection.query_row("SELECT 1 FROM cancelled_jobs WHERE id = ?1", [job_id], |_| Ok(())).optional()?.is_some())
+    }
+
     pub fn clear(&self) -> anyhow::Result<()> {
         let mut connection = self.connection.lock().unwrap();
         let tx = connection.transaction()?;
@@ -1211,6 +1309,11 @@ impl LocalStore {
             "group_deletes",
             "blob_deletes",
             "device_seen",
+            "device_names",
+            "unpaired_machines",
+            "opened_envelopes",
+            "held_envelopes",
+            "cancelled_jobs",
             "applied_blobs",
             "messages",
             "chat_history",
@@ -1373,6 +1476,10 @@ fn save_state_tx(tx: &Transaction<'_>, state: &State) -> anyhow::Result<()> {
     sync_ordered_ids(tx, "blob_deletes", &state.blob_deletes)?;
     sync_ordered_ids(tx, "applied_blobs", &state.applied_blob_ids)?;
     sync_device_seen(tx, &state.device_seen)?;
+    sync_device_names(tx, &state.device_names)?;
+    for id in &state.unpaired {
+        tx.execute("INSERT OR IGNORE INTO unpaired_machines (id) VALUES (?1)", [id])?;
+    }
     Ok(())
 }
 
@@ -1560,6 +1667,24 @@ fn sync_device_seen(
     delete_missing_from(tx, "device_seen", existing.keys(), &retained)
 }
 
+fn sync_device_names(tx: &Transaction<'_>, names: &std::collections::BTreeMap<String, String>) -> anyhow::Result<()> {
+    let existing: std::collections::HashMap<String, String> = {
+        let mut statement = tx.prepare("SELECT id, name FROM device_names")?;
+        let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        rows.collect::<rusqlite::Result<_>>()?
+    };
+    for (id, name) in names {
+        if existing.get(id) != Some(name) {
+            tx.execute(
+                "INSERT INTO device_names (id, name) VALUES (?1, ?2)
+                 ON CONFLICT(id) DO UPDATE SET name = excluded.name",
+                params![id, name],
+            )?;
+        }
+    }
+    delete_missing_from(tx, "device_names", existing.keys(), &names.keys().cloned().collect())
+}
+
 fn delete_missing_from<'a>(
     tx: &Transaction<'_>,
     table: &str,
@@ -1611,6 +1736,18 @@ fn load_device_turns(
 
 fn load_device_watching(connection: &Connection) -> anyhow::Result<std::collections::HashMap<String, String>> {
     let mut statement = connection.prepare("SELECT id, chat_id FROM device_watching")?;
+    let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
+    rows.collect::<rusqlite::Result<_>>().map_err(Into::into)
+}
+
+fn load_id_set(connection: &Connection, table: &str) -> anyhow::Result<std::collections::BTreeSet<String>> {
+    let mut statement = connection.prepare(&format!("SELECT id FROM {table}"))?;
+    let rows = statement.query_map([], |row| row.get(0))?;
+    rows.collect::<rusqlite::Result<_>>().map_err(Into::into)
+}
+
+fn load_device_names(connection: &Connection) -> anyhow::Result<std::collections::BTreeMap<String, String>> {
+    let mut statement = connection.prepare("SELECT id, name FROM device_names")?;
     let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
     rows.collect::<rusqlite::Result<_>>().map_err(Into::into)
 }

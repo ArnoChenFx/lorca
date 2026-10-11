@@ -961,10 +961,10 @@ pub struct Routine {
     /// skips it. `last_run_at` and `last_outcome` count the runs, not the checks.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub check: Option<String>,
-    /// The pull request the routine watches, when it is a watch: the Runner reads it at each due
-    /// time, runs the bot when it changed, and ends the routine once it merges or closes.
+    /// What the routine listens to when it runs on events: each event about its subject starts
+    /// a run, and the routine ends after one that says it ends.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pull_request: Option<crate::routine_triggers::PullRequestWatch>,
+    pub events: Option<crate::routine_events::RoutineEvents>,
     /// The Calendar account whose events place the runs of a schedule around events.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub calendar: Option<crate::routine_triggers::CalendarTrigger>,
@@ -998,6 +998,8 @@ impl Routine {
             // A one-time routine is due at its time until a run at or after it, by schedule or by hand.
             crate::schedule::Schedule::Once(_) => return schedule.once_instant(&self.timezone).filter(|at| !crate::routine_triggers::once_taken(self, *at)),
             crate::schedule::Schedule::Events(offset) => return crate::routine_triggers::next_event_run(self, *offset).map(|(due, _)| due),
+            // A routine on events runs when they come, never on a clock.
+            crate::schedule::Schedule::OnEvents => return None,
             _ => {}
         }
         let next = schedule.next_after(since.max(self.anchor()), &self.timezone)?;
@@ -1020,7 +1022,8 @@ pub struct CheckReport {
 
 // MARK: - Blob payloads
 
-/// `kind = roster`: bots, chat metadata, and routines. Latest wins.
+/// `kind = roster`: bots, chat metadata, routines, and the names the account gives its Devices.
+/// Latest wins.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct RosterBlob {
     /// Workflow setups, merged one by one (`workflows::merge`); a build that does not know
@@ -1039,6 +1042,14 @@ pub struct RosterBlob {
     /// The bots the account shares as links, with their keys.
     #[serde(default)]
     pub shared_links: Vec<crate::templates::links::SharedLink>,
+    /// The names Devices show as, by machine pubkey, given on any Device for any Device. A Device
+    /// without one shows the name its own `machine` blob carries.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub device_names: std::collections::BTreeMap<String, String>,
+    /// The machine pubkeys of the Devices unpaired from the account. A Device keeps every key it
+    /// reads here, and puts the ones a roster left out back in its own.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeSet::is_empty")]
+    pub unpaired: std::collections::BTreeSet<String>,
     pub updated_at: f64,
 }
 
@@ -1244,21 +1255,19 @@ pub struct JobCancel {
     pub job_id: String,
 }
 
-/// `kind = request`: a question for one Runner from another Device, sealed to the Runner's box
-/// key. The verbs read and write a bot's memory, which lives on its Runner.
+/// `kind = request`: a question for one Runner from another Device, in an envelope the asking
+/// Device signs (`envelope.rs`); the answer goes back to the signer.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Request {
     pub id: String,
-    /// `memory.read` or `memory.write`.
+    /// `memory.read`, `mcp.save`, and the rest that `requests::answer` takes.
     pub verb: String,
-    /// The Device asking; the answer is sealed to it.
-    pub requested_by: String,
     #[serde(default)]
     pub body: serde_json::Value,
-    pub created_at: f64,
 }
 
-/// `kind = response`: the Runner's answer to a `Request`, sealed to the Device that asked.
+/// `kind = response`: the Runner's answer to a `Request`, signed by it and sealed to the Device
+/// that asked.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Response {
     pub request_id: String,
@@ -1268,12 +1277,16 @@ pub struct Response {
     pub error: Option<String>,
 }
 
-/// Pairing handshake payloads (sealed boxes).
+/// Pairing handshake payloads. The request is sealed to the pairing string's `ek`, which the
+/// relay never sees; the reply is encrypted with the request's `reply_key`, so only the Device
+/// that holds the pairing string could have written it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PairRequest {
     pub machine_pubkey: String,
     pub box_pubkey: String,
     pub device: Device,
+    /// A random key, base64url, that the reply is encrypted with.
+    pub reply_key: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

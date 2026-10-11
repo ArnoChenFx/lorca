@@ -2165,8 +2165,8 @@ pub async fn review_call(
     let tool = catalog.plugin_tool(&ctx.tool_call.name)?;
     // Nothing to ask about while the user has the bot's browser.
     if tool.plugin_id == crate::browser::PLUGIN_ID {
-        if let Err(error) = app.browser_sessions.wait_if_taken_over(&bot.id, ctx.cancel).await {
-            return Some(crate::local_review::blocked(error));
+        if let Err(parked) = app.browser_sessions.wait_if_taken_over(app, &bot.id, chat_id, ctx.cancel).await {
+            return Some(parked.blocked());
         }
     }
     let name = tool.tool.name.to_string();
@@ -2409,8 +2409,8 @@ impl Tool for PluginTool {
         // A bot's Browser calls go to its open profile, and wait while the user has it.
         let mut browser_input = None;
         if self.plugin_id == crate::browser::PLUGIN_ID {
-            if let Some((bot, _)) = &self.policy_context {
-                browser_input = self.app.browser_sessions.input(&self.app, &bot.id, &cancel).await.map_err(ToolError)?;
+            if let Some((bot, chat_id)) = &self.policy_context {
+                browser_input = self.app.browser_sessions.input(&self.app, &bot.id, chat_id, &cancel).await.map_err(ToolError)?;
             }
         }
         if browser_input.is_some() && tool == "browser_take_screenshot" {

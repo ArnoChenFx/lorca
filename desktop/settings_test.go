@@ -402,3 +402,42 @@ func TestRenderSettingsChinese(t *testing.T) {
 		renderTo(t, tt, "settings-zh-"+string(pane))
 	}
 }
+
+// Rename… in the Device pane asks for a name; Rename renames the Device, and a blank name takes back
+// the name the machine goes by.
+func TestRenameDeviceInSettings(t *testing.T) {
+	m, tt := settingsWindowTester(t, 900)
+	m.showSettingsDevice("dev-studio")
+	m.showSettings(model.PaneDevice)
+	settle(tt)
+	machine := store.Device("dev-studio").Name
+	rename := func(name string, render string) {
+		t.Helper()
+		if err := tt.Click(L("Rename…")); err != nil {
+			t.Fatal(err)
+		}
+		settle(tt)
+		if !tt.HasText(L("Rename Device")) {
+			t.Fatalf("no prompt: %q", tt.Texts())
+		}
+		tt.Key(ui.Cmd, ui.KeyA)
+		tt.Type(name)
+		if render != "" {
+			renderTo(t, tt, render)
+		}
+		if err := tt.Click(L("Rename")); err != nil {
+			t.Fatal(err)
+		}
+		tt.Frame()
+		settle(tt)
+	}
+	rename("Build box", "settings-device-rename-prompt")
+	renderTo(t, tt, "settings-device-renamed")
+	if device := store.Device("dev-studio"); device.Name != "Build box" || device.MachineName != machine {
+		t.Fatalf("renamed device %+v", device)
+	}
+	rename("", "")
+	if device := store.Device("dev-studio"); device.Name != machine {
+		t.Fatalf("name not taken back: %+v", device)
+	}
+}

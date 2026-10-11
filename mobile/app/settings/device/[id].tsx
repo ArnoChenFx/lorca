@@ -4,7 +4,7 @@
 
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { engine } from "../../../src/core/engine";
 import { deviceName, isBotDM, isRunner, providerLabel, type Device, type SavedSecret, type UpdateStatus } from "../../../src/core/model";
 import { deviceIsOnline, useStore } from "../../../src/core/store";
@@ -19,7 +19,7 @@ import { pluginStateWord } from "../../../src/ui/plugins";
 import { lastSeen } from "../../../src/ui/format";
 import { Symbol } from "../../../src/ui/Symbol";
 import { Font, usePalette } from "../../../src/ui/theme";
-import { alert } from "../../../src/ui/alert";
+import { alert, prompt } from "../../../src/ui/alert";
 
 const OS_NAMES: Record<string, string> = { macos: "macOS", linux: "Linux", windows: "Windows", ios: "iOS", ipados: "iPadOS", android: "Android" };
 
@@ -102,6 +102,22 @@ export default function DeviceScreen() {
     ]);
   }
 
+  // Rename… asks for the name every paired Device shows; a blank one takes back the name the
+  // machine goes by.
+  function rename(target: Device) {
+    prompt(t("Rename Device"), {
+      message: t("Every paired Device shows this name. Leave it blank to use the name the machine goes by."),
+      value: target.name,
+      placeholder: target.machine_name ?? target.name,
+      confirm: t("Rename"),
+      done: (text) => {
+        const name = text.trim();
+        if (name === target.name) return;
+        engine.setDeviceName(target.id, name).catch((error: unknown) => alert(t("Couldn't rename it"), error instanceof Error ? error.message : String(error)));
+      },
+    });
+  }
+
   // A newer release than the CLI runs, not yet on its way: the Lorca CLI row installs it.
   const update = device.update;
   const offersUpdate = !!update?.latest && !update.state;
@@ -125,6 +141,12 @@ export default function DeviceScreen() {
             <View style={[styles.dot, { backgroundColor: online ? p.green : p.tertiaryLabel }]} />
             <Text style={[styles.statusText, { color: online ? p.green : p.secondaryLabel }]}>{online ? t("Online") : lastSeen(seen)}</Text>
           </View>
+          {/* A machine that never said what it is has no name of its own to change. */}
+          {device.unknown ? null : (
+            <Pressable onPress={() => rename(device)} hitSlop={8} accessibilityRole="button" style={styles.rename}>
+              <Text style={[styles.action, { color: p.tint }]}>{t("Rename…")}</Text>
+            </Pressable>
+          )}
         </View>
 
         {runner && (
@@ -274,6 +296,7 @@ const styles = StyleSheet.create({
   model: { fontSize: 13, textAlign: "center" },
   status: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
   dot: { width: 8, height: 8, borderRadius: 4 },
+  rename: { marginTop: 8 },
   statusText: { fontSize: 13, fontWeight: "500" },
   action: { fontSize: Font.body },
 });

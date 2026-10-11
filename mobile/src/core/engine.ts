@@ -10,7 +10,7 @@ import { t } from "../i18n";
 import { exactAnswer, ExactNumber, ExactObject, stringifyExact } from "./exactJson";
 import { reviewEditParams } from "./reviewEdit";
 import { hostFacts } from "./host";
-import { orderProjectEntries, providerConnectMethod, sectionName, withReviewModel, sameDraft, type Section, type PlaybookContent, type PlaybookRecord, type PlaybookScope, type ProjectContext, type ProjectEntry, type ProjectKind, type ProjectSource, type Attachment, type AutoReview, type Bot, type BrowserProfile, type BudgetLimits, type BudgetState, type CallLimits, type Chat, type ChatMeta, type ChatSearchResults, type ChatUsage, type CustomAPI, type CustomModel, type DurableTask, type Message, type MessageDraft, type ReviewItem, type PluginDetail, type PluginStatus, type ProviderKind, type ProviderStatus, type SavedSecret } from "./model";
+import { orderProjectEntries, providerConnectMethod, sectionName, withReviewModel, sameDraft, type Section, type PlaybookContent, type PlaybookRecord, type PlaybookScope, type ProjectContext, type ProjectEntry, type ProjectKind, type ProjectSource, type Attachment, type AutoReview, type Bot, type BrowserProfile, type BudgetLimits, type BudgetState, type CallLimits, type Chat, type ChatMeta, type ChatSearchResults, type ChatUsage, type CustomAPI, type CustomModel, type DurableTask, type Message, type MessageDraft, type ReviewItem, type PluginDetail, type PluginStatus, type ProviderKind, type ProviderStatus, type SavedSecret, routinesAwaitingSetup } from "./model";
 import { coreHome, loadPrefs, pathOf, wipePrefs } from "./prefs";
 import type { SharedLink, TemplateContents, TemplateImportPreview, TemplateSelection } from "./templates";
 import { clearPushes, installPushHandlers, registerForPushes } from "./push";
@@ -133,6 +133,8 @@ class Engine {
     useStore.setState({ appActive: true, activeSince: Date.now() });
     // Back in the foreground: the sync socket may have died with the suspension.
     core.wake();
+    // Perhaps from a routine's setup in the browser: what waits on it subscribes again now.
+    for (const id of routinesAwaitingSetup(useStore.getState().routines)) void core.request("routines.subscribe", { id });
     // The token can change, and permission may have been given in Settings meanwhile.
     if (useStore.getState().paired) void registerForPushes();
   }
@@ -1073,6 +1075,18 @@ class Engine {
     void core.request("routines.run", { id });
   }
 
+  /// The page that sets a receiver up for this account and what a routine listens to: where the
+  /// Lorca GitHub App installs, or where the user authorizes it when it is installed already.
+  async receiverSetupURL(receiver: string, subject?: string): Promise<string> {
+    const { url } = await core.request<{ url: string }>("receivers.setup", { receiver, subject });
+    return url;
+  }
+
+  /// A new key for a routine's webhook, made on its bot's Runner; the old one stops working.
+  async regenerateRoutineKey(id: string) {
+    await core.request("routines.regenerate_key", { id });
+  }
+
   deleteRoutine(id: string) {
     removeRoutine(id);
     void core.request("routines.delete", { id });
@@ -1112,10 +1126,6 @@ class Engine {
 
   // MARK: - This phone
 
-  async renameDevice(name: string) {
-    await core.request("device.rename", { name });
-  }
-
   /// Joins the identity the pairing string names. The core posts the request (`pair.posted`
   /// marks that) and waits for the other Device to accept; `signal` aborts the wait in the core too,
   /// which answers "Pairing cancelled".
@@ -1136,6 +1146,12 @@ class Engine {
     onProgress?.({ phase: "done" });
     core.wake();
     void registerForPushes();
+  }
+
+  /// Names a Device, this phone or another, on every paired Device; blank takes back the name its
+  /// machine goes by.
+  async setDeviceName(id: string, name: string) {
+    await core.request("device.set_name", { id, name });
   }
 
   /// Unpairs another Device. The core has the relay drop its key; the Device wipes its copy

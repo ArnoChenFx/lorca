@@ -63,7 +63,7 @@ async fn records_are_encrypted_owned_and_closed_after_a_restart() {
     assert_eq!((restored[0].id.as_str(), restored[0].name.as_str()), (session.id.as_str(), "Work"));
     assert_eq!(restored[0].state, Control::Stopped);
     // Closed, the profile hands the bot nothing: its calls go to the shared headless browser.
-    assert!(app.browser_sessions.input(app, &owner.id, &CancellationToken::new()).await.unwrap().is_none());
+    assert!(app.browser_sessions.input(app, &owner.id, "chat", &CancellationToken::new()).await.unwrap().is_none());
     app.state.lock().unwrap().bots[0].runner_id = "another-runner".into();
     assert!(app.browser_sessions.list(app, &owner.id).unwrap_err().contains("Runner"));
 }
@@ -74,11 +74,11 @@ async fn a_bot_without_an_open_profile_uses_the_shared_browser() {
     let app = &scratch.0;
     let owner = bot(app);
     let cancel = CancellationToken::new();
-    assert!(app.browser_sessions.input(app, &owner.id, &cancel).await.unwrap().is_none());
+    assert!(app.browser_sessions.input(app, &owner.id, "chat", &cancel).await.unwrap().is_none());
     let first = app.browser_sessions.create(app, &owner.id, "Work").unwrap();
     let second = app.browser_sessions.create(app, &owner.id, "Personal").unwrap();
     assert!(first.selected && !second.selected, "the first profile is the one the bot opens");
-    assert!(app.browser_sessions.input(app, &owner.id, &cancel).await.unwrap().is_none());
+    assert!(app.browser_sessions.input(app, &owner.id, "chat", &cancel).await.unwrap().is_none());
     assert!(app.browser_sessions.create(app, &owner.id, "  ").is_err());
 }
 
@@ -88,7 +88,7 @@ async fn takeover_drains_active_input_and_parks_next_call_until_explicit_resume(
     let app = &scratch.0;
     let owner = bot(app);
     let (session, calls) = opened(app, &owner).await;
-    let active = app.browser_sessions.input(app, &owner.id, &CancellationToken::new()).await.unwrap().unwrap();
+    let active = app.browser_sessions.input(app, &owner.id, "chat", &CancellationToken::new()).await.unwrap().unwrap();
     let takeover = {
         let (app, bot_id, id) = (app.clone(), owner.id.clone(), session.id.clone());
         tokio::spawn(async move { app.browser_sessions.takeover(&app, &bot_id, &id, false).await })
@@ -105,7 +105,7 @@ async fn takeover_drains_active_input_and_parks_next_call_until_explicit_resume(
     let next = {
         let (app, bot_id) = (app.clone(), owner.id.clone());
         tokio::spawn(async move {
-            let input = app.browser_sessions.input(&app, &bot_id, &CancellationToken::new()).await?.ok_or("no profile")?;
+            let input = app.browser_sessions.input(&app, &bot_id, "chat", &CancellationToken::new()).await?.ok_or("no profile")?;
             input.server.browser_call("browser_snapshot", json!({})).await.map(|_| ())
         })
     };
@@ -135,7 +135,7 @@ async fn stop_during_takeover_wakes_waiters_and_closes_only_that_browser() {
     app.browser_sessions.takeover(app, &owner.id, &session.id, false).await.unwrap();
     let pending = {
         let (app, bot_id) = (app.clone(), owner.id.clone());
-        tokio::spawn(async move { app.browser_sessions.input(&app, &bot_id, &CancellationToken::new()).await.map(|input| input.is_some()) })
+        tokio::spawn(async move { app.browser_sessions.input(&app, &bot_id, "chat", &CancellationToken::new()).await.map(|input| input.is_some()) })
     };
     tokio::task::yield_now().await;
     assert!(!pending.is_finished());
@@ -144,7 +144,7 @@ async fn stop_during_takeover_wakes_waiters_and_closes_only_that_browser() {
     assert_eq!(pending.await.unwrap(), Ok(false), "the call goes on without the closed profile");
     assert!(app.browser_sessions.resume(app, &owner.id, &session.id, stopped.revision).await.is_err());
     assert!(!other_runtime.server.lock().unwrap().as_ref().unwrap().is_closed());
-    assert!(app.browser_sessions.input(app, &other.id, &CancellationToken::new()).await.unwrap().is_some());
+    assert!(app.browser_sessions.input(app, &other.id, "chat", &CancellationToken::new()).await.unwrap().is_some());
 }
 
 #[tokio::test]
@@ -216,9 +216,37 @@ async fn cancellation_releases_a_parked_call_and_the_bot_cannot_override_the_use
     app.browser_sessions.takeover(app, &owner.id, &session.id, false).await.unwrap();
     let cancel = CancellationToken::new();
     cancel.cancel();
-    assert_eq!(app.browser_sessions.wait_if_taken_over(&owner.id, &cancel).await.unwrap_err(), "Stopped");
+    assert_eq!(app.browser_sessions.wait_if_taken_over(app, &owner.id, "chat", &cancel).await.unwrap_err(), Parked::Stopped);
     assert!(app.browser_sessions.open(app, &owner.id, &session.id, false).await.unwrap_err().contains("hand it back"));
     assert_eq!(state(app, &owner), Control::Human);
+}
+
+/// The user writes while they have the browser: a call parked on the takeover gives way, so the
+/// bot reads the message, and the browser stays the user's. A call in another chat waits on.
+#[tokio::test]
+async fn a_message_releases_a_parked_call_in_its_chat() {
+    let scratch = setup();
+    let app = &scratch.0;
+    let owner = bot(app);
+    let (session, _) = opened(app, &owner).await;
+    app.browser_sessions.takeover(app, &owner.id, &session.id, false).await.unwrap();
+    let queue = lorca_agent::AgentMessageQueue::new(lorca_agent::QueueMode::All);
+    app.register_steering_queue("chat", "job", queue.clone());
+    let parked = |chat_id: &'static str| {
+        let (app, bot_id) = (app.clone(), owner.id.clone());
+        tokio::spawn(async move { app.browser_sessions.wait_if_taken_over(&app, &bot_id, chat_id, &CancellationToken::new()).await })
+    };
+    let (here, elsewhere) = (parked("chat"), parked("other-chat"));
+    tokio::task::yield_now().await;
+    assert!(!here.is_finished());
+
+    queue.push(lorca_agent::AgentMessage::Custom { kind: "steering".into(), data: json!({}), timestamp: 0 });
+    app.browser_sessions.user_wrote();
+    let released = tokio::time::timeout(std::time::Duration::from_secs(2), here).await.expect("the call gave way").unwrap();
+    assert_eq!(released, Err(Parked::UserWrote));
+    assert!(!elsewhere.is_finished(), "a message in another chat leaves it parked");
+    assert_eq!(state(app, &owner), Control::Human, "the browser stays the user's");
+    elsewhere.abort();
 }
 
 #[tokio::test]
@@ -261,7 +289,7 @@ async fn stop_invalidates_an_open_that_queued_behind_active_input() {
     let app = &scratch.0;
     let owner = bot(app);
     let (session, _) = opened(app, &owner).await;
-    let active = app.browser_sessions.input(app, &owner.id, &CancellationToken::new()).await.unwrap().unwrap();
+    let active = app.browser_sessions.input(app, &owner.id, "chat", &CancellationToken::new()).await.unwrap().unwrap();
     let pending_open = {
         let (app, bot_id, id) = (app.clone(), owner.id.clone(), session.id.clone());
         tokio::spawn(async move { app.browser_sessions.open(&app, &bot_id, &id, true).await })
@@ -311,7 +339,7 @@ async fn live_visible_browser_keeps_its_sign_in() {
     // The person at the Runner signs in; this call stands in for their click.
     server.browser_call("browser_click", json!({ "element": "Sign in button", "target": "button[type=submit]" })).await.unwrap();
     app.browser_sessions.resume(app, &owner.id, &session.id, human.revision).await.unwrap();
-    let input = app.browser_sessions.input(app, &owner.id, &CancellationToken::new()).await.unwrap().unwrap();
+    let input = app.browser_sessions.input(app, &owner.id, "chat", &CancellationToken::new()).await.unwrap().unwrap();
     let snapshot = input.server.browser_call("browser_snapshot", json!({})).await.unwrap();
     assert!(serde_json::to_string(&snapshot).unwrap().contains("Signed in"));
     drop(input);
