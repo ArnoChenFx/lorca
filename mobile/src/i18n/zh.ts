@@ -1013,4 +1013,8 @@ export const zh: Record<string, string> = {
   "Your gateway": "你的网关",
   "This relay doesn’t take {service}’s events itself, so they come through a gateway you run. {bot} said how to set it up in the chat.": "这个中继不直接接收 {service} 的事件，所以事件经由你运行的网关送达。{bot} 已在聊天中说明设置方法。",
   "Last event": "上次事件",
+  "Updating Lorca": "正在更新 Lorca",
+  "Downloading {latest}… {percent}%": "正在下载 {latest}… {percent}%",
+  "Installing {latest}… Lorca restarts when it is done.": "正在安装 {latest}… 完成后 Lorca 会重新启动。",
+  "Couldn’t install the update": "无法安装更新",
 };
