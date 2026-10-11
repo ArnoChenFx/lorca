@@ -6,7 +6,10 @@ Sparkle shows it in the update window. The Windows and Linux app's are in
 
 ## [Unreleased]
 
+## [1.0.15]
+
 - A chat that asks for a channel gets one reply, "Pending approval", and once you allow it, the bot answers what people asked while it waited. A chat that never asks, such as a group where the bot only hears replies to it, can be added by its id with Add… on the channel's Chats row.
+- Conversations a Telegram or Slack channel keeps show the service's mark on their avatar, so they read apart from the bot's own DM.
 
 ## [1.0.14]
 

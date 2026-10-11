@@ -4,6 +4,14 @@ The phone app's release notes, by the version in `app.config.ts`. A release (a `
 tag) takes a version's section as the notes of its GitHub release, and the Android app shows them
 when it offers the update.
 
+## [1.0.4]
+
+- A chat that asks for a channel gets one reply, "Pending approval", and once you allow it, the bot
+  answers what people asked while it waited. A chat that never asks can be added by its id with
+  Add Chat… on the channel's screen.
+- Conversations a Telegram or Slack channel keeps show the service's mark on their avatar, so they
+  read apart from the bot's own DM.
+
 ## [1.0.3]
 
 - A channel answers only in the chats you allow. Anyone can message a Telegram bot or add it to
