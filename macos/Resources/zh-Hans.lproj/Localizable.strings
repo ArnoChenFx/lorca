@@ -830,6 +830,7 @@
 "Check failed" = "检查失败";
 "The model provider turned down three sign-ins in a row, so the routine is paused. Reconnect the provider in Settings, then resume it." = "服务商连续三次拒绝登录，例行任务已暂停。请在设置中重新接入服务商，然后恢复它。";
 "The check couldn’t sign in to a plugin three times in a row, so the routine is paused. Sign in to the plugin again on %@, then resume it." = "检查连续三次无法登录插件，例行任务已暂停。请在 %@ 上重新登录该插件，然后恢复它。";
+"%@ is offline, so the routine waits for it." = "%@ 已离线，例行任务会等它上线。";
 "%@ is offline, so the routine waits for it. To keep it available while the app is closed, run lorca service install on it." = "%@ 已离线，例行任务会等它上线。要在应用关闭时也让它保持可用，请在它上面运行 lorca service install。";
 "The last run couldn’t reach the model provider. It tries again at the next run, waiting longer after each failure." = "上次运行无法连接服务商。下次运行时会重试，每次失败后等待更久。";
 "The last check couldn’t connect. It tries again at the next check, waiting longer after each failure." = "上次检查无法连接。下次检查时会重试，每次失败后等待更久。";
@@ -1346,7 +1347,6 @@
 "mentions" = "提及";
 "replies" = "回复";
 ", |list" = "、";
-"Every chat the bot is in" = "账户所在的所有聊天";
 "A message’s turn didn’t finish, so later messages wait. Read its conversation, then try it again or skip it." = "有条消息没有处理完，后面的消息都在等待。先看看它的对话，再重试或跳过。";
 "%@ stops listening there. Its conversations stay." = "%@ 不再接收那里的消息。已有的对话会保留。";
 "Watches %@" = "关注 %@";
@@ -1473,3 +1473,19 @@
 "Regenerate Key" = "重新生成密钥";
 "Rename Device" = "重命名设备";
 "Every paired Device shows this name. Leave it blank to use the name the machine goes by." = "所有已配对的设备都显示这个名称。留空则使用这台机器自己的名称。";
+"Privacy mode on" = "隐私模式开启";
+"Asking to Chat" = "请求对话";
+"A chat is waiting" = "有聊天等待允许";
+"Direct message" = "单聊";
+"Ignore" = "忽略";
+"Add the bot to a group or send it a message, then allow the chat here." = "把账户拉进群聊或给它发一条消息，然后在这里允许该聊天。";
+"Invite the bot to a channel or send it a message, then allow the chat here." = "把账户邀请进 Slack 频道或给它发一条消息，然后在这里允许该聊天。";
+"%d chats are waiting" = "%d 个聊天等待允许";
+"Group · %@" = "群聊 · %@";
+"%@ answers only in chats you allow. An ignored chat doesn’t ask again." = "%@ 只在你允许的聊天里回复。忽略的聊天不会再次请求。";
+"Add a Chat" = "添加聊天";
+"Chat ID" = "聊天 ID";
+"Couldn’t add the chat" = "无法添加聊天";
+"Paste the chat’s id, such as -1001234567890 for a group. Or message the bot there, and the chat asks here." = "粘贴聊天的 ID，群聊的 ID 形如 -1001234567890。也可以在那里给机器人发条消息，这个聊天就会在这里请求对话。";
+"Paste the channel’s id, such as C0123456789. Or message the bot there, and the chat asks here." = "粘贴 Slack 频道的 ID，形如 C0123456789。也可以在那里给机器人发条消息，这个聊天就会在这里请求对话。";
+"Add…" = "添加…";

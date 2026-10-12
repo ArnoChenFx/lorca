@@ -10,6 +10,7 @@ import { startUpdateChecks } from "../src/core/updates";
 import { useStackScreenOptions } from "../src/ui/navigation";
 import { HostPaletteContext } from "@expo/ui/jetpack-compose";
 import { AlertHost } from "../src/ui/alert";
+import { UpdateProgress } from "../src/ui/UpdateProgress";
 import { useMaterialPalette, usePalette } from "../src/ui/theme";
 
 export default function RootLayout() {
@@ -110,6 +111,7 @@ export default function RootLayout() {
               <Stack.Screen name="pair" options={{ headerShown: false, gestureEnabled: false }} />
             </Stack.Protected>
           </Stack>
+          <UpdateProgress />
           <AlertHost />
         </ThemeProvider>
       </KeyboardProvider>

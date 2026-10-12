@@ -193,6 +193,11 @@ export default function ChatScreen() {
   const topInset = Platform.OS === "ios" ? headerHeight : 0;
   const topInsetRef = useRef(topInset);
   topInsetRef.current = topInset;
+  // Where a sent message comes to rest: under the header. Android's chat bar floats over the
+  // list without an inset, so there the message stops where the first row starts, below the bar.
+  const anchorTopRef = useRef(topInset);
+  anchorTopRef.current =
+    Platform.OS === "ios" ? topInset : visibleHeaderHeight + 8;
   // FlashList pads a transcript shorter than the list up to the list's full height, so the rows
   // start from the bottom. That padding knows nothing of the header and composer insets, which
   // would leave a short chat scrollable by their sum. The top inset gives the padding back: it
@@ -332,7 +337,7 @@ export default function ChatScreen() {
       return restingSpace();
     }
     const tail = list.getChildContainerDimensions().height - layout.y;
-    const blank = layoutHeight.current - topInsetRef.current - tail;
+    const blank = layoutHeight.current - anchorTopRef.current - tail;
     if (blank <= restingSpace()) {
       releaseAnchor();
       return restingSpace();
@@ -866,6 +871,7 @@ export default function ChatScreen() {
         id={id}
         title={title}
         members={members}
+        service={chat?.channel?.service}
         working={isWorking}
         hasTasks={hasTasks}
         wide={wide}
@@ -1021,7 +1027,7 @@ export default function ChatScreen() {
 /// The chat's bar: the members and title (a tap opens Details), Running tasks while there are any,
 /// and the menu. Memoized, and its options held: the screen renders again with every event in the
 /// chat, and new header options re-apply the native bar.
-const ChatHeader = memo(function ChatHeader({ id, title, members, working, hasTasks, wide, top }: { id: string; title: string; members: Bot[]; working: boolean; hasTasks: boolean; wide: boolean; top: number }) {
+const ChatHeader = memo(function ChatHeader({ id, title, members, service, working, hasTasks, wide, top }: { id: string; title: string; members: Bot[]; service?: string; working: boolean; hasTasks: boolean; wide: boolean; top: number }) {
   useLanguage();
   const router = useRouter();
   const p = usePalette();
@@ -1045,7 +1051,7 @@ const ChatHeader = memo(function ChatHeader({ id, title, members, working, hasTa
               style={styles.titleView}
               accessibilityLabel={t("{title}, info", { title })}
             >
-              <AvatarCluster bots={members} size={30} working={working} />
+              <AvatarCluster bots={members} size={30} working={working} service={service} />
               <Text style={[styles.titleText, { color: p.label }]} numberOfLines={1}>
                 {title}
               </Text>
@@ -1081,7 +1087,7 @@ const ChatHeader = memo(function ChatHeader({ id, title, members, working, hasTa
               accessibilityRole="button"
               accessibilityLabel={t("{title}, info", { title })}
             >
-              <AvatarCluster bots={members} size={30} working={working} />
+              <AvatarCluster bots={members} size={30} working={working} service={service} />
               <Text style={[styles.titleText, { color: p.label }]} numberOfLines={1}>
                 {title}
               </Text>

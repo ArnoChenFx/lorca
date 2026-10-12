@@ -9,7 +9,7 @@ Identity is a **key pair**. Devices pair. The relay stores public keys and ciphe
 ## Constraints
 
 1. **The app speaks only to the local CLI** over localhost websocket. The app ships the CLI binary inside its bundle and starts `lorca serve` itself, unless one already answers on the port. The CLI holds keys, talks to the relay, and talks to models.
-2. **The UI is AppKit** (SPM) on macOS: system materials, SF Symbols, Auto Layout, keyboard, accessibility. On Windows and Linux it is a MyGo app in Go, drawn with MyGo's native UI toolkit, that follows the macOS app screen for screen.
+2. **The UI is AppKit** (SPM) on macOS: system materials, SF Symbols, Auto Layout, keyboard, accessibility. On Windows and Linux it is a MyGo app in Go, drawn with MyGo's native UI toolkit, that follows the macOS app screen for screen; it builds for macOS too.
 3. **The CLI owns the agent loop:** inference, tools, streaming, cancellation, orchestration.
 4. **The relay is zero-knowledge:** opaque blobs and public keys. Auth is a signature challenge. Devices check what it delivers: the account DEK encrypts what they share, and what one Device sends another is signed ([Relay trust](docs/architecture/relay-trust.md)). Its [hosted receivers](docs/architecture/receivers.md) read a service's webhook while they seal it to a Runner, and keep only the sealed copy.
 5. **Every Device records its `os`.** A Device with a desktop `os` (`macos`, `linux`, `windows`) is a **Runner**. Phones and tablets (`ios`, `ipados`, `android`) are Devices, never Runners.
@@ -73,7 +73,7 @@ One doc per subject under `docs/architecture/`, each short enough to read in one
 | --- | --- |
 | [Identity](docs/architecture/identity.md) | Key pairs and the identity device, pairing and unpairing, Devices and Runners, what the relay sees, the account's provider credentials |
 | [Relay](docs/architecture/relay.md) | `crates/relay`: storage on SQLite or Postgres, files, housekeeping, quotas, metrics, rate limits, auth, tables and migrations, the blob, sync socket, and push APIs, deploys |
-| [Relay trust](docs/architecture/relay-trust.md) | What a Device takes from the relay and how it checks it: Device records and unpaired keys, signed envelopes, the challenge nonce, the pairing reply key, the signed account key |
+| [Relay trust](docs/architecture/relay-trust.md) | What a Device takes from the relay and how it checks it: Device records and unpaired keys, signed envelopes, the challenge nonce, the pairing reply key, the account key's generations and their rotation on unpair |
 | [Protocols](docs/architecture/protocols.md) | The app ↔ CLI websocket and the CLI ↔ relay requests and blobs |
 | [CLI (runtime)](docs/architecture/runtime.md) | The `lorca` binary and its data directory, installing it, its signed self-updates and `lorca service`, the agent loop and a turn on a Runner |
 | [Notifications](docs/architecture/notifications.md) | Phone pushes for replies, failures, and questions, the macOS app's own notifications, reads on another Device, the chat on screen |
@@ -99,7 +99,7 @@ One doc per subject under `docs/architecture/`, each short enough to read in one
 | [One-time routines, routines on events, and calendar events](docs/architecture/routine-triggers.md) | Routines that run once at a date and time, run for each event about one subject (a pull request until it merges or closes, a webhook's requests), or run around a Calendar account's events |
 | [Event triggers](docs/architecture/event-triggers.md) | Runner event subscriptions, the gateways users run to sign and seal a service's events, the encrypted inbox, ordering and recovery |
 | [Hosted receivers](docs/architecture/receivers.md) | The relay's receivers for routines on events: the Lorca GitHub App and its install and bind, routine webhooks with their URL and key, what the relay sees, setup |
-| [Channels](docs/architecture/channels.md) | A bot listening on Telegram and Slack: the accounts and their builtin servers, filters, the Runner's readers, conversations and what people write there, replies, the feedback collector |
+| [Channels](docs/architecture/channels.md) | A bot listening on Telegram and Slack: the accounts and their builtin servers, filters, the chats the user allows and the ones asking, the Runner's readers, conversations and what people write there, replies, the feedback collector |
 | [Durable tasks](docs/architecture/tasks.md) | Work that spans turns: owner, revisions, runs and recovery, evidence, the apps' Tasks section |
 | [Coordinator attention](docs/architecture/attention.md) | Consolidated reviews, blockers, commitments and changes, coordinator briefs, deduplication, encrypted records and notification preferences |
 | [Shared project context](docs/architecture/project-context.md) | Group briefs, goals, constraints, decisions, source freshness and corrections, encrypted reference assets, bounded bot discovery |
@@ -111,8 +111,8 @@ One doc per subject under `docs/architecture/`, each short enough to read in one
 | [macOS app](docs/architecture/macos-app.md) | The AppKit app: launching the CLI, windows and onboarding, settings, updates, the command palette, sidebar and inspector |
 | [macOS chat](docs/architecture/macos-chat.md) | Transcript, composer, output previews, working and read state in AppKit |
 | [Windows and Linux app](docs/architecture/desktop-app.md) | The MyGo app: its model, host, and native views, title bar, commands, updates, development and builds |
-| [Phone releases](docs/architecture/phone-releases.md) | The phone app's TestFlight and Android APK releases, export compliance, and the Android build's self-update from GitHub releases |
 | [Phone app](docs/architecture/phone-app.md) | The Expo app over the Rust core: the native module, pairing, relay status, attachments, dictation, notifications, turns |
+| [Phone releases and updates](docs/architecture/phone-updates.md) | TestFlight builds, Android APK releases, and the Android app's self-update: the daily check and offer, the progress dialog, the package installer |
 | [Website](docs/architecture/website.md) | `web/`: the site, its docs, and the install scripts it serves |
 | [Languages](docs/architecture/languages.md) | English and Simplified Chinese in each app, and what the CLI words |
 | [Repo layout and development](docs/architecture/development.md) | Where each crate and app lives, the Mac, phone, and Android development loops, release bundles and their SDK restamp, a local relay |

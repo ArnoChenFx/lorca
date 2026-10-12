@@ -438,6 +438,10 @@ struct Device: Identifiable, Hashable {
     /// Derived from `os` alone: a desktop Device is a Runner and can be assigned bots.
     var isRunner: Bool { os.isDesktop }
 
+    /// Released standalone CLIs advertise updates; bundled and development CLIs do not.
+    /// Only these Runners show `lorca service` status and installation advice.
+    var isStandaloneRunner: Bool { isRunner && update != nil }
+
     var roleLabel: String { isRunner ? L("Runner") : L("Device") }
 
     /// What the Device panes say about a machine that never said what it is.
@@ -487,6 +491,16 @@ struct ChannelStatus: Identifiable, Hashable {
         var title: String
     }
 
+    /// A chat that wrote to the account's bot or added it to a group, waiting for the user to
+    /// allow it; the bot answers nothing there meanwhile.
+    struct Request: Hashable {
+        var id: String
+        var title: String
+        var isPrivate: Bool
+        /// Who wrote, or who added the bot to the group.
+        var from: String
+    }
+
     let id: String
     var botID: Bot.ID
     var name: String
@@ -498,6 +512,7 @@ struct ChannelStatus: Identifiable, Hashable {
     var state: State
     var detail: String
     var heldDelivery: String?
+    var requests: [Request] = []
 
     var serviceName: String { service == "slack" ? "Slack" : "Telegram" }
     var isPaused: Bool { state == .paused }
@@ -1194,14 +1209,16 @@ enum RoutineProblem: Hashable {
     }
 
     /// What happened and how to fix it, for the routine sheet.
-    func explanation(bot: String, runner: String) -> String {
+    func explanation(bot: String, runner: String, standaloneRunner: Bool = false) -> String {
         switch self {
         case .signedOut(model: true):
             return L("The model provider turned down three sign-ins in a row, so the routine is paused. Reconnect the provider in Settings, then resume it.")
         case .signedOut(model: false):
             return L("The check couldn’t sign in to a plugin three times in a row, so the routine is paused. Sign in to the plugin again on %@, then resume it.", runner)
         case .offline:
-            return L("%@ is offline, so the routine waits for it. To keep it available while the app is closed, run lorca service install on it.", runner)
+            return standaloneRunner
+                ? L("%@ is offline, so the routine waits for it. To keep it available while the app is closed, run lorca service install on it.", runner)
+                : L("%@ is offline, so the routine waits for it.", runner)
         case .cantConnect(model: true):
             return L("The last run couldn’t reach the model provider. It tries again at the next run, waiting longer after each failure.")
         case .cantConnect(model: false):

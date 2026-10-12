@@ -139,6 +139,12 @@ export function isRunner(device: Device): boolean {
   return device.os === "macos" || device.os === "linux" || device.os === "windows";
 }
 
+/// Released standalone CLIs advertise updates; bundled and development CLIs do not.
+/// Only these Runners show `lorca service` status and installation advice.
+export function isStandaloneRunner(device: Device | undefined): boolean {
+  return !!device && isRunner(device) && !!device.update;
+}
+
 /// What a Device goes by: a machine that never said what it is has no name of its own.
 export function deviceName(device: Device): string {
   return device.unknown ? t("Unknown Device") : device.name;
@@ -738,6 +744,18 @@ export interface ChannelStatus {
   state: "listening" | "paused" | "held" | "offline";
   detail?: string;
   held_delivery?: string | null;
+  /// Chats that wrote to the account's bot or added it to a group, waiting for the user to allow
+  /// them; the bot answers nothing there meanwhile. Newest first.
+  requests?: ChatRequest[];
+}
+
+/// A chat asking to be allowed in a channel.
+export interface ChatRequest {
+  id: string;
+  title: string;
+  private?: boolean;
+  /// Who wrote, or who added the bot to the group.
+  from?: string;
 }
 
 /// The one DM a bot has with the user: a direct chat that is not a channel's conversation.

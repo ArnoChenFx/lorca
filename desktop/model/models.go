@@ -733,6 +733,10 @@ type DeviceUpdate struct {
 // IsRunner is derived from the OS alone: a desktop Device is a Runner and can be assigned bots.
 func (d *Device) IsRunner() bool { return d.OS.IsDesktop() }
 
+// IsStandaloneRunner identifies released standalone CLIs by their advertised updates.
+// Bundled and development CLIs show no `lorca service` status or installation advice.
+func (d *Device) IsStandaloneRunner() bool { return d.IsRunner() && d.Update != nil }
+
 func (d *Device) RoleLabel() string {
 	if d.IsRunner() {
 		return L("Runner")
@@ -2152,6 +2156,16 @@ type ChannelChat struct {
 	Title string
 }
 
+// ChatRequest is a chat that wrote to the account's bot or added it to a group, waiting for the
+// user to allow it; the bot answers nothing there meanwhile.
+type ChatRequest struct {
+	ID      string
+	Title   string
+	Private bool
+	// From is who wrote, or who added the bot to the group.
+	From string
+}
+
 // Channel is a bot listening on a Telegram or Slack account, as its Runner advertises it.
 type Channel struct {
 	ID           string
@@ -2165,6 +2179,7 @@ type Channel struct {
 	State        ChannelState
 	Detail       string
 	HeldDelivery string
+	Requests     []ChatRequest
 }
 
 // ServiceName is the service as people call it.

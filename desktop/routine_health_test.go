@@ -158,6 +158,8 @@ func TestRenderRoutineStatesInInspector(t *testing.T) {
 
 func TestRenderRunnerService(t *testing.T) {
 	m, tt := settingsWindowTester(t, 760)
+	// A standalone CLI advertises updates even when automatic updates are off.
+	store.Device("dev-workbench").Update = &model.DeviceUpdate{Auto: false}
 	m.showSettingsDevice("dev-workbench")
 	m.showSettings(model.PaneDevice)
 	settle(tt)

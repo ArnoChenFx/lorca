@@ -3,7 +3,8 @@
 // so the app finds the newest published mobile-v release itself, from the tags. Once a day, at
 // launch or back in the foreground, it checks and offers a newer version in an alert (Install
 // Update, Remind Me Later, Skip This Version); Settings › Updates checks at once or installs what a
-// check found, and holds the switch for the daily check. The native module downloads the APK, checks it against the size and
+// check found, and holds the switch for the daily check. While it installs, a dialog shows how far
+// the download is (UpdateProgress), and a failure is said in an alert. The native module downloads the APK, checks it against the size and
 // SHA-256 GitHub lists for it, and hands it to the package installer, which replaces the app.
 // iOS updates through TestFlight, and Lorca Dev never updates.
 
@@ -145,8 +146,15 @@ export async function installUpdate(release: Release) {
   try {
     await core.installUpdate(release.url, release.sha256, release.size);
   } catch (error) {
-    useUpdates.setState({ phase: "idle", error: error instanceof Error ? error.message : String(error) });
+    installFailed(error instanceof Error ? error.message : String(error));
   }
+}
+
+/// An install the user started and the download or the installer failed: said in an alert, since
+/// the progress dialog it ends may be the only sign of it on screen.
+function installFailed(message: string) {
+  useUpdates.setState({ phase: "idle", error: message });
+  alert(t("Couldn’t install the update"), message);
 }
 
 let started = false;
@@ -169,7 +177,7 @@ export function startUpdateChecks() {
         useUpdates.setState({ phase: "idle" });
         break;
       case "failed":
-        useUpdates.setState({ phase: "idle", error: status.message });
+        installFailed(status.message);
         break;
     }
   });
