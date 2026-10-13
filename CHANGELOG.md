@@ -8,6 +8,7 @@ Sparkle shows it in the update window. The Windows and Linux app's are in
 
 - Right-click a brief in Attention and choose Dismiss to take it off the list on every Device; the coordinator's next brief shows again. A brief also leaves once every item it is about is resolved.
 - A bot resolves an Attention item it alone reported as soon as it sees the work is done, such as a run it approved or a pull request that merged, so you no longer clear them by hand.
+- A bot listening on Telegram sees the photos people send it, with a caption or without one, and an album's photos together as one message. The photo shows in the conversation on every Device.
 
 ## [1.0.16]
 
