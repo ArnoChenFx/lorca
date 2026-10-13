@@ -4,6 +4,13 @@ The phone app's release notes, by the version in `app.config.ts`. A release (a `
 tag) takes a version's section as the notes of its GitHub release, and the Android app shows them
 when it offers the update.
 
+## [1.0.5]
+
+- Conversations a Telegram or Slack channel keeps show the service's real mark on their avatar
+  badge.
+- Fixed a crash on iOS when a keyboard that had already settled left the chat's composer inset with
+  no height.
+
 ## [1.0.4]
 
 - A chat that asks for a channel gets one reply, "Pending approval", and once you allow it, the bot

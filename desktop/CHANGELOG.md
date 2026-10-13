@@ -6,6 +6,15 @@ and the update window shows it.
 
 ## [Unreleased]
 
+## [0.1.11]
+
+- While a bot's turn runs for a message a Telegram channel took, that chat shows the bot typing, and
+  the reply stops it.
+- A custom provider's model offers the thinking levels its own list declares, `xhigh` and `max`
+  included, and sends them as written.
+- Every bot has a built-in `lorca` skill that points at the docs on lorca.app, so it looks up how
+  Lorca works instead of guessing.
+
 ## [0.1.10]
 
 - A chat that asks for a channel gets one reply, "Pending approval", and once you allow it, the bot
