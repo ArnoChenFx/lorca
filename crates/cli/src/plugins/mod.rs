@@ -8,6 +8,7 @@
 
 #[cfg(feature = "runner")]
 pub mod builtin;
+#[cfg(feature = "runner")]
 mod google;
 #[cfg(feature = "runner")]
 pub mod mcp;
