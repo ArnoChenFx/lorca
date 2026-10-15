@@ -6,6 +6,17 @@ and the update window shows it.
 
 ## [Unreleased]
 
+## [0.1.14]
+
+- The Attention panel opens as a popover. Each item has Dismiss, Mark as Resolved, and Open buttons,
+  and Open scrolls the chat to the message the item cites and highlights it.
+- Paste a screenshot or an image copied from another app into the composer to attach it. Files
+  copied in Finder or Explorer attach too, instead of pasting their names.
+- Coding agents are set per Runner: each Device keeps its own agents, in its own order and each on
+  or off, and shows which are installed on it.
+- A bot connected to Gmail can send an email itself, not only leave a draft. With Draft first on,
+  it still waits as a draft card until you press Send.
+
 ## [0.1.13]
 
 - A bot no longer shows as working after its turn ended when the Device it runs on drops off the

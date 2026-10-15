@@ -6,6 +6,13 @@ when it offers the update.
 
 ## [Unreleased]
 
+## [1.0.8]
+
+- Coding agents are set per Runner: each Device keeps its own agents, in its own order and each on
+  or off, and shows which are installed on it.
+- A bot connected to Gmail can send an email itself, not only leave a draft. With Draft first on,
+  it still waits as a draft card until you press Send.
+
 ## [1.0.7]
 
 - Coding agents work the way Grok Bot's do. A bot hands a job to Claude Code, Codex, OpenCode,
