@@ -181,11 +181,6 @@ func ToAgentRun(wire *WireAgent) *AgentRun {
 	return agent
 }
 
-// WireCodingAgents is the account's coding agents, in its order, each on or off.
-type WireCodingAgents struct {
-	Agents []CodingAgentChoice `json:"agents"`
-}
-
 type WireAuthor struct {
 	Kind  string  `json:"kind"`
 	BotID *string `json:"bot_id"`
@@ -489,7 +484,6 @@ type WireSnapshot struct {
 	Reviews             []ReviewItem      `json:"reviews"`
 	Tasks               []DurableTask     `json:"tasks"`
 	AutoReview          *WireAutoReview   `json:"auto_review"`
-	CodingAgents        *WireCodingAgents `json:"coding_agents"`
 	SharedLinks         []SharedLink      `json:"shared_links"`
 	Providers           []WireProvider    `json:"providers"`
 	Models              []WireModel       `json:"models"`
@@ -505,7 +499,6 @@ type WireRosterChanged struct {
 	Sections     []WireSection     `json:"sections"`
 	Routines     []WireRoutine     `json:"routines"`
 	AutoReview   *WireAutoReview   `json:"auto_review"`
-	CodingAgents *WireCodingAgents `json:"coding_agents"`
 	SharedLinks  []SharedLink      `json:"shared_links"`
 	Providers    []WireProvider    `json:"providers"`
 	// Models are the catalog's models again, so a newer catalog the CLI installs reaches the pickers.

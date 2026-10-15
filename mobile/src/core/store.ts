@@ -5,7 +5,7 @@
 import { useMemo } from "react";
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
-import { defaultCodingAgents, groupOutputs, reviewIsOpen, type CodingAgents, runsInTerminal, taskOrder, type AutoReview, type ProjectContext, type BudgetState, type DurableTask, type ReviewItem, type OutputSeries, type PlaybookScope, type PlaybookSummary, type Bot, type ChannelStatus, type Chat, type ChatMeta, type ChatUsage, type Device, type Message, type ProviderModel, type ProviderStatus, type RelayProblem, type Routine, type Section } from "./model";
+import { groupOutputs, reviewIsOpen, runsInTerminal, taskOrder, type AutoReview, type ProjectContext, type BudgetState, type DurableTask, type ReviewItem, type OutputSeries, type PlaybookScope, type PlaybookSummary, type Bot, type ChannelStatus, type Chat, type ChatMeta, type ChatUsage, type Device, type Message, type ProviderModel, type ProviderStatus, type RelayProblem, type Routine, type Section } from "./model";
 import { t } from "../i18n";
 import { loadPrefs, savePrefs } from "./prefs";
 import { emptyAttention, type AttentionView } from "./attention";
@@ -48,8 +48,6 @@ export interface StoreState {
   routines: Routine[];
   /// Auto-review, from the roster.
   auto_review: AutoReview;
-  /// The coding agents bots may start, in the account's order, from the roster.
-  coding_agents: CodingAgents;
   attention: AttentionView;
   /// The account's provider credentials, the same on every Device.
   providers: ProviderStatus[];
@@ -120,7 +118,6 @@ function empty(): Omit<StoreState, "ready" | "dictation_lang" | "appActive" | "a
     chats: [],
     routines: [],
     auto_review: { is_enabled: true, rules: [] },
-    coding_agents: defaultCodingAgents(),
     attention: emptyAttention(),
     providers: [],
     models: [],
@@ -206,7 +203,6 @@ export function replaceSnapshot(snapshot: {
   shared_links?: SharedLink[];
   sections?: Section[];
   auto_review?: AutoReview;
-  coding_agents?: CodingAgents;
   attention?: AttentionView;
   providers?: ProviderStatus[];
   models?: ProviderModel[];
@@ -245,7 +241,6 @@ export function replaceSnapshot(snapshot: {
     shared_links: snapshot.shared_links ?? [],
     sections: snapshot.sections ?? [],
     auto_review: snapshot.auto_review ?? { is_enabled: true, rules: [] },
-    coding_agents: snapshot.coding_agents ?? defaultCodingAgents(),
     attention: snapshot.attention ?? emptyAttention(),
     providers: snapshot.providers ?? [],
     models: snapshot.models ?? [],
@@ -283,7 +278,7 @@ function seenOf(devices: Device[]): Record<string, number> {
 
 /// `roster.changed`: bots replace, chat metadata merges over kept messages, chats not named
 /// are gone.
-export function applyRoster(roster: { devices: Device[]; bots: Bot[]; chats: (ChatMeta & { unread_count: number; usage?: ChatUsage })[]; routines?: Routine[]; auto_review?: AutoReview; coding_agents?: CodingAgents; providers?: ProviderStatus[]; models?: ProviderModel[]; playbooks?: PlaybookSummary[]; shared_links?: SharedLink[]; sections?: Section[] }): { removed: string[] } {
+export function applyRoster(roster: { devices: Device[]; bots: Bot[]; chats: (ChatMeta & { unread_count: number; usage?: ChatUsage })[]; routines?: Routine[]; auto_review?: AutoReview; providers?: ProviderStatus[]; models?: ProviderModel[]; playbooks?: PlaybookSummary[]; shared_links?: SharedLink[]; sections?: Section[] }): { removed: string[] } {
   const removed: string[] = [];
   useStore.setState((s) => {
     const incoming = new Set(roster.chats.map((c) => c.id));
@@ -304,7 +299,6 @@ export function applyRoster(roster: { devices: Device[]; bots: Bot[]; chats: (Ch
       chats,
       routines: same(s.routines, roster.routines ?? s.routines),
       auto_review: same(s.auto_review, roster.auto_review ?? s.auto_review),
-      coding_agents: same(s.coding_agents, roster.coding_agents ?? s.coding_agents),
       providers: same(s.providers, roster.providers ?? s.providers),
       models: same(s.models, roster.models ?? s.models),
       playbooks: same(s.playbooks, roster.playbooks ?? s.playbooks),

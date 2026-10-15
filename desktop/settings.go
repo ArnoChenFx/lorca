@@ -115,8 +115,8 @@ func (m *mainWindow) settingsPage(c *ui.Context, pane model.SettingsPane) {
 		m.settings.secrets.deviceID = ""
 	}
 	if pane != model.PaneCodingAgents {
-		// And the Coding Agents pane for the agents this Device has.
-		m.settings.coding.asked = false
+		// And the Coding Agents pane for the Runner's agents.
+		m.settings.coding.deviceID = ""
 	}
 	switch pane {
 	case model.PaneGeneral:
@@ -126,7 +126,7 @@ func (m *mainWindow) settingsPage(c *ui.Context, pane model.SettingsPane) {
 	case model.PaneAutoReview:
 		s.autoReview(c)
 	case model.PaneCodingAgents:
-		s.codingAgents(c)
+		s.codingAgents(c, m)
 	case model.PaneSharedLinks:
 		s.sharedLinks(c)
 	case model.PanePlugins:

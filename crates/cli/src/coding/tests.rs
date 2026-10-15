@@ -611,12 +611,12 @@ async fn a_start_takes_the_first_agent_the_user_turned_on() {
     let scratch = setup().await;
     let app = &scratch.app;
     let choose = |kinds: &[(&str, bool)]| CodingAgents { agents: kinds.iter().map(|(kind, enabled)| CodingAgentChoice { kind: kind.to_string(), enabled: *enabled }).collect() };
-    app.set_coding_agents(choose(&[("claude", false), ("pi", true), ("codex", true)]));
+    settings::save(app, &choose(&[("claude", false), ("pi", true), ("codex", true)])).unwrap();
     let (kind, _) = settings::pick(app, None).await.unwrap();
     assert_eq!(kind, "pi");
     assert!(settings::pick(app, Some("claude")).await.unwrap_err().contains("turned Claude Code off"));
     assert_eq!(settings::pick(app, Some("codex")).await.unwrap().0, "codex");
-    app.set_coding_agents(choose(&[("claude", false), ("codex", false), ("opencode", false), ("pi", false), ("fx", false)]));
+    settings::save(app, &choose(&[("claude", false), ("codex", false), ("opencode", false), ("pi", false), ("fx", false)])).unwrap();
     assert!(settings::pick(app, None).await.unwrap_err().contains("every coding agent off"));
     // The card says why when none can start.
     let tool = tool(&scratch);
@@ -625,10 +625,12 @@ async fn a_start_takes_the_first_agent_the_user_turned_on() {
     assert!(refused.contains("every coding agent off"), "{refused}");
     app.coding_agents.call_ended(app, "chat", "call-1", &row, true, &refused, |_| {});
     assert_eq!(card(app, &row).state, "failed");
-    // The apps list every agent in the account's order.
-    let listed = settings::list(app).await;
-    let kinds: Vec<&str> = listed["agents"].as_array().unwrap().iter().map(|agent| agent["kind"].as_str().unwrap()).collect();
-    assert_eq!(kinds, vec!["claude", "codex", "opencode", "pi", "fx"]);
+    // The apps list every agent in this Runner's order, and set a new one, which it keeps.
+    let listed = settings::serve(app, "coding.agents.set", &json!({ "agents": [{ "kind": "fx", "enabled": true }, { "kind": "codex", "enabled": false }] })).await.unwrap();
+    let kinds: Vec<(&str, bool)> = listed["agents"].as_array().unwrap().iter().map(|agent| (agent["kind"].as_str().unwrap(), agent["enabled"].as_bool().unwrap())).collect();
+    assert_eq!(kinds, vec![("fx", true), ("codex", false), ("claude", true), ("opencode", true), ("pi", true)]);
+    assert_eq!(settings::of(app).agents[0].kind, "fx");
+    assert!(listed["agents"][0]["installed"].as_bool().unwrap(), "the stand-in counts as installed");
 }
 
 #[tokio::test]

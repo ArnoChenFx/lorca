@@ -445,14 +445,13 @@ export interface AgentQuestion {
   rule?: string;
 }
 
-/// The coding agents Lorca knows, in the account's default order of preference.
-export const CODING_AGENT_KINDS = ["claude", "codex", "opencode", "pi", "fx"] as const;
+/// One of a Runner's coding agents, from `coding.agents`: on or off, installed there or not, and
+/// the first line `--version` printed when it is.
+export type CodingAgent = { kind: string; name: string; enabled: boolean; installed: boolean; version?: string | null };
 
-/// Which coding agents bots may start, in the order the account prefers them, from the roster.
-export type CodingAgents = { agents: { kind: string; enabled: boolean }[] };
-
-export function defaultCodingAgents(): CodingAgents {
-  return { agents: CODING_AGENT_KINDS.map((kind) => ({ kind, enabled: true })) };
+/// The agent a bot on the Runner uses when it names none: the first one that is on and installed.
+export function readyCodingAgent(agents: CodingAgent[]): CodingAgent | undefined {
+  return agents.find((agent) => agent.enabled && agent.installed);
 }
 
 /// A coding agent's product name, which is not translated.

@@ -329,11 +329,17 @@ func TestCodingAgentSettings(t *testing.T) {
 	m, tt := settingsWindowTester(t, 900)
 	m.showSettings(model.PaneCodingAgents)
 	settle(tt)
-	for _, text := range []string{"Claude Code", "Codex", "OpenCode", "pi", "fx", "Installed · 2.3.1 (Claude Code)", "Not installed on this Device"} {
+	// The pane shows the picked Runner's agents, as that Runner keeps them.
+	runner := store.Device(m.settingsDeviceID)
+	if runner == nil || !runner.IsRunner() {
+		t.Fatalf("no Runner picked: %q", m.settingsDeviceID)
+	}
+	for _, text := range []string{L("Coding Agents on %@", runner.Name), "Claude Code", "Codex", "OpenCode", "pi", "fx", "Installed · 2.3.1 (Claude Code)", "Not installed"} {
 		if !tt.HasText(text) {
 			t.Errorf("no %q in %q", text, tt.Texts())
 		}
 	}
+	agents := func() []model.InstalledCodingAgent { return m.settings.coding.list }
 	renderBoth(t, tt, "coding-settings")
 	// Codex's row dragged onto Claude Code's goes first; the line shows where while it drags.
 	from, ok := tt.Find("Codex")
@@ -349,21 +355,28 @@ func TestCodingAgentSettings(t *testing.T) {
 	renderBoth(t, tt, "coding-settings-dragging")
 	tt.Release(to.X+to.W/2, to.Y+to.H/2)
 	settle(tt)
-	if store.CodingAgents[0].Kind != "codex" || store.CodingAgents[1].Kind != "claude" {
-		t.Errorf("order %+v", store.CodingAgents)
+	if agents()[0].Kind != "codex" || agents()[1].Kind != "claude" {
+		t.Errorf("order %+v", agents())
 	}
-	if moved := movedCodingAgent(store.CodingAgents, "claude", 4); moved[4].Kind != "claude" || moved[0].Kind != "codex" {
+	// The Runner keeps it: asked again, it answers the new order.
+	var kept []model.InstalledCodingAgent
+	store.CodingAgents(runner.ID, func(list []model.InstalledCodingAgent, _ error) { kept = list })
+	settle(tt)
+	if len(kept) == 0 || kept[0].Kind != "codex" {
+		t.Errorf("the Runner kept %+v", kept)
+	}
+	if moved := movedCodingAgent(agents(), "claude", 4); moved[4].Kind != "claude" || moved[0].Kind != "codex" {
 		t.Errorf("moved to the end: %+v", moved)
 	}
-	if store.CodingAgents[2].Kind != "opencode" || store.CodingAgents[2].Enabled {
-		t.Fatalf("order %+v", store.CodingAgents)
+	if agents()[2].Kind != "opencode" || agents()[2].Enabled {
+		t.Fatalf("order %+v", agents())
 	}
 	if err := tt.Click(L("Turn %@ on", "OpenCode")); err != nil {
 		t.Fatal(err)
 	}
 	settle(tt)
-	if !store.CodingAgents[2].Enabled {
-		t.Errorf("the switch left OpenCode off: %+v", store.CodingAgents)
+	if !agents()[2].Enabled {
+		t.Errorf("the switch left OpenCode off: %+v", agents())
 	}
 	// The search finds an agent by its maker, and the pane by its name.
 	var found []settingsEntry

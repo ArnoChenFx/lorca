@@ -1,6 +1,6 @@
-// The settings sheet's own stack: Settings first, and a Device, a provider, the coding agents, or
-// the shared links and a link's bot sliding in from its row, inside the one form sheet the root
-// presents.
+// The settings sheet's own stack: Settings first, and a Device and a Runner's coding agents, a
+// provider, or the shared links and a link's bot sliding in from its row, inside the one form
+// sheet the root presents.
 
 import { Stack } from "expo-router";
 import { Platform } from "react-native";

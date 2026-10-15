@@ -135,6 +135,8 @@ async fn answer(app: &Arc<App>, from: &str, request: &Request) -> Result<Value, 
         #[cfg(feature = "runner")]
         "coding.transcript" | "coding.stop" => crate::coding::serve(app, &request.verb, body).await,
         #[cfg(feature = "runner")]
+        "coding.agents" | "coding.agents.set" => crate::coding::settings::serve(app, &request.verb, body).await,
+        #[cfg(feature = "runner")]
         "routines.regenerate_key" => {
             let id = body["id"].as_str().ok_or("missing id")?;
             crate::routine_events::regenerate_key(app, id).await?;

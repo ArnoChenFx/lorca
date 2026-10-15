@@ -562,8 +562,8 @@ pub fn coding_agent_name(kind: &str) -> &'static str {
     }
 }
 
-/// Which coding agents bots may start, in the order the account prefers them: a start that
-/// names none takes the first one on that its Runner has installed (`crate::coding::settings`).
+/// Which coding agents a Runner's bots may start, in the order its user prefers them: a start
+/// that names none takes the first one on that the Runner has installed (`crate::coding::settings`).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CodingAgents {
     pub agents: Vec<CodingAgentChoice>,
@@ -1107,8 +1107,6 @@ pub struct RosterBlob {
     pub routines: Vec<Routine>,
     #[serde(default)]
     pub auto_review: AutoReview,
-    #[serde(default)]
-    pub coding_agents: CodingAgents,
     /// The bots the account shares as links, with their keys.
     #[serde(default)]
     pub shared_links: Vec<crate::templates::links::SharedLink>,

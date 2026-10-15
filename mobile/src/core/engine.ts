@@ -10,7 +10,7 @@ import { t } from "../i18n";
 import { exactAnswer, ExactNumber, ExactObject, stringifyExact } from "./exactJson";
 import { reviewEditParams } from "./reviewEdit";
 import { hostFacts } from "./host";
-import { orderProjectEntries, providerConnectMethod, sectionName, withReviewModel, sameDraft, type Section, type PlaybookContent, type PlaybookRecord, type PlaybookScope, type ProjectContext, type ProjectEntry, type ProjectKind, type ProjectSource, type Attachment, type AgentItem, type AgentRun, type AutoReview, type Bot, type CodingAgents, type BrowserProfile, type BudgetLimits, type BudgetState, type CallLimits, type Chat, type ChatMeta, type ChatSearchResults, type ChatUsage, type CustomAPI, type CustomModel, type DurableTask, type Message, type MessageDraft, type ReviewItem, type PluginDetail, type PluginStatus, type ProviderKind, type ProviderStatus, type SavedSecret, routinesAwaitingSetup } from "./model";
+import { orderProjectEntries, providerConnectMethod, sectionName, withReviewModel, sameDraft, type Section, type PlaybookContent, type PlaybookRecord, type PlaybookScope, type ProjectContext, type ProjectEntry, type ProjectKind, type ProjectSource, type Attachment, type AgentItem, type AgentRun, type AutoReview, type Bot, type CodingAgent, type BrowserProfile, type BudgetLimits, type BudgetState, type CallLimits, type Chat, type ChatMeta, type ChatSearchResults, type ChatUsage, type CustomAPI, type CustomModel, type DurableTask, type Message, type MessageDraft, type ReviewItem, type PluginDetail, type PluginStatus, type ProviderKind, type ProviderStatus, type SavedSecret, routinesAwaitingSetup } from "./model";
 import { coreHome, loadPrefs, pathOf, wipePrefs } from "./prefs";
 import type { SharedLink, TemplateContents, TemplateImportPreview, TemplateSelection } from "./templates";
 import { clearPushes, installPushHandlers, registerForPushes } from "./push";
@@ -1050,18 +1050,18 @@ class Engine {
     return core.request<{ items: AgentItem[]; card: AgentRun }>("coding.transcript", { chat_id: chatId, message_id: messageId });
   }
 
-  /// Sets the account's order of coding agents and which are on, the whole list at once. The
-  /// list shows the change at once and goes back to what it was when the core refuses it.
-  async setCodingAgents(value: CodingAgents) {
-    const held = useStore.getState().coding_agents;
-    useStore.setState({ coding_agents: value });
-    try {
-      const answer = await core.request<{ coding_agents: CodingAgents }>("coding_agents.set", { agents: value.agents });
-      useStore.setState({ coding_agents: answer.coding_agents });
-    } catch (error) {
-      if (useStore.getState().coding_agents === value) useStore.setState({ coding_agents: held });
-      throw error;
-    }
+  /// A Runner's coding agents in its order, each on or off and installed there or not, asked of
+  /// it through the relay when it is another Device; it fails while that Runner is offline.
+  async codingAgents(runnerId: string): Promise<CodingAgent[]> {
+    const { agents } = await core.request<{ agents: CodingAgent[] }>("coding.agents", { runner_id: runnerId });
+    return agents;
+  }
+
+  /// Sets a Runner's order of coding agents and which are on, the whole list at once, and
+  /// answers the list as it now stands there.
+  async setCodingAgents(runnerId: string, agents: { kind: string; enabled: boolean }[]): Promise<CodingAgent[]> {
+    const answer = await core.request<{ agents: CodingAgent[] }>("coding.agents.set", { runner_id: runnerId, agents: agents.map(({ kind, enabled }) => ({ kind, enabled })) });
+    return answer.agents;
   }
 
   // MARK: - Routines

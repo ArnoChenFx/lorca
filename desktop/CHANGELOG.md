@@ -16,8 +16,9 @@ and the update window shows it.
   and said, the files it explored, the commands it ran, and its edits with lines added and removed.
   The chat's details list the agents under Coding, and when an agent finishes, its message lands in
   the chat and the bot checks its work and tells you how it went.
-- Settings › Coding Agents turns each agent on or off and sets which one bots try first, and shows
-  whether each is installed on this computer.
+- Settings › Coding Agents, for the Runner picked at its top, turns each agent on or off there,
+  shows whether it is installed and its version, and sets which one its bots try first: drag an
+  agent to change the order.
 - Gmail, Google Calendar, and Google Drive work over Google's own APIs. Your Google Cloud project
   needs only the service's API turned on, with no Workspace Developer Preview enrollment.
 - The model list adds OpenCode's free and preview models and new Zen and Go models, and DeepSeek V4

@@ -1,9 +1,10 @@
-//! Which coding agents bots may start, and which one a start takes. The account keeps the
-//! agents in its order of preference, each on or off (`CodingAgents`, in the roster, set from
-//! any Device with `coding_agents.set`). A start that names no agent takes the first one on that
-//! is installed on the bot's Runner, found on the login shell's `PATH` as a terminal would find
-//! it; one that names an agent the user turned off fails. `coding.agents` answers, for this
-//! Device, each agent in order with whether it is on, installed, and its version.
+//! Which coding agents a Runner's bots may start, and which one a start takes. Each Runner keeps
+//! the agents in its user's order of preference, each on or off, in `coding-agents.json` in its
+//! data directory (0600); any Device reads and changes it with `coding.agents` and
+//! `coding.agents.set`, sealed to the Runner when it is another. A start that names no agent
+//! takes the first one on that is installed, found on the login shell's `PATH` as a terminal
+//! would find it; one that names an agent the user turned off fails. `coding.agents` answers each
+//! agent in order with whether it is on, installed, and its version.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -40,9 +41,20 @@ pub(crate) async fn find(kind: &str) -> Option<PathBuf> {
     process::find(program(kind)).await
 }
 
-/// The account's agents in its order, each on or off.
+fn file(app: &App) -> PathBuf {
+    app.config.home.join("coding-agents.json")
+}
+
+/// This Runner's agents in its order, each on or off: every agent on, in Lorca's order, until
+/// the user changes them.
 pub fn of(app: &App) -> CodingAgents {
-    app.coding_agents_settings().normalized()
+    let saved: Option<CodingAgents> = std::fs::read(file(app)).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok());
+    saved.unwrap_or_default().normalized()
+}
+
+/// Keeps `settings` as this Runner's agents.
+pub(crate) fn save(app: &App, settings: &CodingAgents) -> Result<(), String> {
+    crate::config::write_json_private(&file(app), &settings.clone().normalized()).map_err(|error| format!("Could not save the coding agents: {error}"))
 }
 
 /// The agent a start takes: the one the bot names, when it is on and installed, else the first
@@ -55,7 +67,7 @@ pub(crate) async fn pick(app: &App, asked: Option<&str>) -> Result<(String, Path
             return Err(format!("agent is one of {}", KINDS.join(", ")));
         }
         if !on.contains(&kind) {
-            return Err(format!("The user turned {} off in Settings → Coding Agents. Use another, or leave agent out.", name(kind)));
+            return Err(format!("The user turned {} off for this Runner in Settings → Coding Agents. Use another, or leave agent out.", name(kind)));
         }
         return match find(kind).await {
             Some(program) => Ok((kind.to_string(), program)),
@@ -63,7 +75,7 @@ pub(crate) async fn pick(app: &App, asked: Option<&str>) -> Result<(String, Path
         };
     }
     if on.is_empty() {
-        return Err("The user turned every coding agent off in Settings → Coding Agents.".into());
+        return Err("The user turned every coding agent off for this Runner in Settings → Coding Agents.".into());
     }
     for kind in &on {
         if let Some(program) = find(kind).await {
@@ -83,8 +95,8 @@ async fn version(path: &PathBuf) -> Option<String> {
     text.lines().map(str::trim).find(|line| !line.is_empty()).map(|line| line.chars().take(80).collect())
 }
 
-/// `coding.agents`: each agent in the account's order, on or off, and whether this Device has
-/// it installed, with its version.
+/// `coding.agents`: each agent in this Runner's order, on or off, and whether it is installed
+/// here, with its version.
 pub async fn list(app: &App) -> Value {
     let settings = of(app);
     let mut agents = Vec::new();
@@ -103,6 +115,16 @@ pub async fn list(app: &App) -> Value {
         }));
     }
     json!({ "agents": agents })
+}
+
+/// `coding.agents` and `coding.agents.set { agents: [{ kind, enabled }] }` on this Runner; a set
+/// answers the list as it now stands.
+pub async fn serve(app: &App, verb: &str, body: &Value) -> Result<Value, String> {
+    if verb == "coding.agents.set" {
+        let settings: CodingAgents = serde_json::from_value(json!({ "agents": body["agents"] })).map_err(|_| "agents is a list of { kind, enabled }".to_string())?;
+        save(app, &settings)?;
+    }
+    Ok(list(app).await)
 }
 
 #[cfg(test)]

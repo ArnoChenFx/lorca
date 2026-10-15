@@ -13,7 +13,9 @@ import {
   agentWrote,
   isAgentRow,
   pullRequestLabel,
+  readyCodingAgent,
   type AgentRun,
+  type CodingAgent,
   attachmentSummary,
   connectedProviders,
   contextWindowLabel,
@@ -119,6 +121,13 @@ describe("model", () => {
     // Ended.
     for (const state of ["exited", "failed", "stopped", "denied", "expired", "dismissed"] as const) expect(call(false, state, true)).toBe(false);
     expect(showsCard({ kind: "tool", name: "read", summary: "", detail: "", is_running: false })).toBe(false);
+  });
+
+  test("a Runner's bots use its first coding agent that is on and installed", () => {
+    const agent = (kind: string, enabled: boolean, installed: boolean): CodingAgent => ({ kind, name: agentName(kind), enabled, installed, version: installed ? "1.0.0" : null });
+    expect(readyCodingAgent([agent("claude", false, true), agent("codex", true, false), agent("pi", true, true), agent("fx", true, true)])?.kind).toBe("pi");
+    expect(readyCodingAgent([agent("claude", false, true), agent("codex", true, false)])).toBeUndefined();
+    expect(readyCodingAgent([])).toBeUndefined();
   });
 
   test("a coding agent stops while it runs and has a page once it started", () => {

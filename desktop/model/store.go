@@ -147,9 +147,6 @@ type Store struct {
 	Budgets []BudgetState
 	// AutoReview is shared through the roster.
 	AutoReview AutoReview
-	// CodingAgents are the coding agents bots may start, in the account's order of preference,
-	// each on or off, shared through the roster.
-	CodingAgents []CodingAgentChoice
 	// Attention is what waits on the user across chats, kept by the bots (attention.changed).
 	Attention AttentionView
 	// SharedLinks are the bots the account shares as links, shared through the roster.
@@ -165,6 +162,8 @@ type Store struct {
 	Playbooks []PlaybookSummary
 	// mockPlaybooks are the demo's skills, bodies and all.
 	mockPlaybooks []PlaybookRecord
+	// mockCodingAgents is the demo's coding agents per Runner, once one changed.
+	mockCodingAgents map[string][]InstalledCodingAgent
 
 	// IsConnected is the CLI answering on localhost (mock: toggled from the Debug menu).
 	IsConnected bool
@@ -242,7 +241,6 @@ func NewStore(transport Transport, post func(func()), mock bool) *Store {
 		post:               post,
 		IsStarting:         true,
 		AutoReview:         AutoReview{IsEnabled: true},
-		CodingAgents:       NormalizedCodingAgents(nil),
 		Attention:          DefaultAttention(),
 		CLI:                CLIState{Connection: "disconnected", Launcher: LauncherStatus{Kind: "idle"}, Starting: true},
 		jobStarts:          map[string]time.Time{},
@@ -489,10 +487,6 @@ func (s *Store) apply(snapshot WireSnapshot) {
 		s.Routines = append(s.Routines, ToRoutine(routine))
 	}
 	s.AutoReview = ToAutoReview(snapshot.AutoReview)
-	s.CodingAgents = NormalizedCodingAgents(nil)
-	if snapshot.CodingAgents != nil {
-		s.CodingAgents = NormalizedCodingAgents(snapshot.CodingAgents.Agents)
-	}
 	s.Attention = DefaultAttention()
 	if snapshot.Attention != nil {
 		s.Attention = *snapshot.Attention
@@ -612,9 +606,6 @@ func (s *Store) handle(name string, data json.RawMessage) {
 		}
 		if roster.AutoReview != nil {
 			s.AutoReview = ToAutoReview(roster.AutoReview)
-		}
-		if roster.CodingAgents != nil {
-			s.CodingAgents = NormalizedCodingAgents(roster.CodingAgents.Agents)
 		}
 		if roster.Providers != nil {
 			s.Providers = ToProviders(roster.Providers)
@@ -1878,63 +1869,66 @@ func (s *Store) AgentTranscript(chatID, messageID string, done func(AgentTranscr
 	}, done)
 }
 
-// InstalledCodingAgents is each coding agent in the account's order, on or off, and whether this
-// Device has it installed, with its version.
-func (s *Store) InstalledCodingAgents(done func([]InstalledCodingAgent, error)) {
+// mockCodingAgent is the demo's agent `kind` on a Runner: Claude Code and Codex installed,
+// OpenCode off.
+func mockCodingAgent(kind string) InstalledCodingAgent {
+	agent := InstalledCodingAgent{Kind: kind, Name: CodingAgentName(kind), Enabled: kind != "opencode"}
+	switch kind {
+	case "claude":
+		agent.Installed, agent.Version = true, "2.3.1 (Claude Code)"
+	case "codex":
+		agent.Installed, agent.Version = true, "codex-cli 0.98.0"
+	}
+	return agent
+}
+
+// CodingAgents is Runner `runnerID`'s coding agents in its order, each on or off, installed there
+// or not, with its version: the Runner's own, asked there through the relay when it is another.
+func (s *Store) CodingAgents(runnerID string, done func([]InstalledCodingAgent, error)) {
 	if s.IsMock {
-		var agents []InstalledCodingAgent
-		for _, choice := range s.CodingAgents {
-			agent := InstalledCodingAgent{Kind: choice.Kind, Name: CodingAgentName(choice.Kind), Enabled: choice.Enabled}
-			switch choice.Kind {
-			case "claude":
-				agent.Installed, agent.Version = true, "2.3.1 (Claude Code)"
-			case "codex":
-				agent.Installed, agent.Version = true, "codex-cli 0.98.0"
+		agents, ok := s.mockCodingAgents[runnerID]
+		if !ok {
+			for _, kind := range CodingAgentKinds {
+				agents = append(agents, mockCodingAgent(kind))
 			}
-			agents = append(agents, agent)
 		}
-		s.post(func() { done(agents, nil) })
+		s.post(func() { done(slices.Clone(agents), nil) })
 		return
 	}
 	Async(s, func() ([]InstalledCodingAgent, error) {
 		var answer struct {
 			Agents []InstalledCodingAgent `json:"agents"`
 		}
-		err := s.request("coding.agents", nil, &answer)
+		err := s.request("coding.agents", map[string]any{"runner_id": runnerID}, &answer)
 		return answer.Agents, err
 	}, done)
 }
 
-// SetCodingAgents replaces the account's order of coding agents and which are on. The change
-// shows at once; a failure puts back what was there before telling `done`.
-func (s *Store) SetCodingAgents(choices []CodingAgentChoice, done func(error)) {
-	previous := s.CodingAgents
-	s.CodingAgents = NormalizedCodingAgents(choices)
-	s.emit(Event{Kind: EventRosterChanged})
+// SetCodingAgents replaces Runner `runnerID`'s order of coding agents and which are on, and
+// answers its list as it now stands.
+func (s *Store) SetCodingAgents(runnerID string, agents []InstalledCodingAgent, done func([]InstalledCodingAgent, error)) {
+	choices := make([]CodingAgentChoice, 0, len(agents))
+	for _, agent := range agents {
+		choices = append(choices, CodingAgentChoice{Kind: agent.Kind, Enabled: agent.Enabled})
+	}
 	if s.IsMock {
-		if done != nil {
-			s.post(func() { done(nil) })
+		var next []InstalledCodingAgent
+		for _, choice := range NormalizedCodingAgents(choices) {
+			agent := mockCodingAgent(choice.Kind)
+			agent.Enabled = choice.Enabled
+			next = append(next, agent)
 		}
+		s.mockCodingAgents[runnerID] = next
+		s.post(func() { done(slices.Clone(next), nil) })
 		return
 	}
-	agents := s.CodingAgents
-	Async(s, func() (WireCodingAgents, error) {
+	Async(s, func() ([]InstalledCodingAgent, error) {
 		var answer struct {
-			CodingAgents WireCodingAgents `json:"coding_agents"`
+			Agents []InstalledCodingAgent `json:"agents"`
 		}
-		err := s.request("coding_agents.set", map[string]any{"agents": agents}, &answer)
-		return answer.CodingAgents, err
-	}, func(settings WireCodingAgents, err error) {
-		if err != nil {
-			s.CodingAgents = previous
-		} else {
-			s.CodingAgents = NormalizedCodingAgents(settings.Agents)
-		}
-		s.emit(Event{Kind: EventRosterChanged})
-		if done != nil {
-			done(err)
-		}
-	})
+		err := s.request("coding.agents.set", map[string]any{"runner_id": runnerID, "agents": choices}, &answer)
+		return answer.Agents, err
+	}, done)
 }
 
 // RunsHere is whether this Device runs the bot behind `message`: only there does its pane show.
@@ -3324,7 +3318,7 @@ func (s *Store) ResetMockData() {
 	}
 	s.Budgets = mockBudgets()
 	s.AutoReview = mockAutoReview()
-	s.CodingAgents = NormalizedCodingAgents([]CodingAgentChoice{{Kind: "claude", Enabled: true}, {Kind: "codex", Enabled: true}, {Kind: "opencode", Enabled: false}, {Kind: "pi", Enabled: true}})
+	s.mockCodingAgents = map[string][]InstalledCodingAgent{}
 	s.Attention = DefaultAttention()
 	s.SharedLinks = mockSharedLinks()
 	s.Sections = mockSections()

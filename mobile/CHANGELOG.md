@@ -12,7 +12,8 @@ when it offers the update.
   pi, or fx under a short title, and the chat shows "Messaged" and "Message from" markers with the agent's
   logo instead of a card. Tap one to follow the agent's work: what it thought and said, the files it
   explored, the commands it ran, and its edits. The chat's details list the agents under Coding.
-- Settings › Coding Agents turns each agent on or off and sets which one bots try first.
+- Each Runner in Settings has its Coding Agents: turn each on or off there, see whether it is
+  installed, and drag one to change which its bots try first.
 - A bot no longer shows as working after its turn ended when the Device it runs on drops off the
   relay: the working row and the dot on its avatar clear at once, without your next message.
 - Gmail, Google Calendar, and Google Drive work over Google's own APIs. Your Google Cloud project

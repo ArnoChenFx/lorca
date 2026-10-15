@@ -179,8 +179,8 @@ func entriesIn(pane model.SettingsPane, device *model.Device) []settingsEntry {
 		return []settingsEntry{autoReviewSwitchEntry(), autoReviewProviderEntry(), autoReviewRulesEntry()}
 	case model.PaneCodingAgents:
 		out := []settingsEntry{codingAgentsEntry()}
-		for _, choice := range store.CodingAgents {
-			out = append(out, codingAgentEntry(choice.Kind))
+		for _, kind := range model.CodingAgentKinds {
+			out = append(out, codingAgentEntry(kind))
 		}
 		return out
 	case model.PaneSharedLinks:

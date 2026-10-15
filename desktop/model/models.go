@@ -1886,7 +1886,8 @@ func NormalizedCodingAgents(choices []CodingAgentChoice) []CodingAgentChoice {
 	return out
 }
 
-// InstalledCodingAgent is what `coding.agents` says of an agent on this Device.
+// InstalledCodingAgent is what `coding.agents` says of an agent on a Runner: its place in the
+// Runner's order is its place in the list.
 type InstalledCodingAgent struct {
 	Kind      string `json:"kind"`
 	Name      string `json:"name"`
@@ -2491,10 +2492,10 @@ const (
 
 var SettingsPanes = []SettingsPane{PaneGeneral, PaneProviders, PaneAutoReview, PaneCodingAgents, PaneSharedLinks, PanePlugins, PaneSecrets, PaneBots, PaneDevice, PaneAdvanced}
 
-// IsDeviceScoped is a pane that shows one Device, picked at the top of the page: bots and plugins
-// live on a Runner. The others hold this computer's settings and the account's.
+// IsDeviceScoped is a pane that shows one Device, picked at the top of the page: bots, plugins,
+// secrets, and coding agents live on a Runner. The others hold this computer's settings and the account's.
 func (p SettingsPane) IsDeviceScoped() bool {
-	return p == PaneBots || p == PanePlugins || p == PaneSecrets || p == PaneDevice
+	return p == PaneBots || p == PanePlugins || p == PaneSecrets || p == PaneCodingAgents || p == PaneDevice
 }
 
 func (p SettingsPane) Title() string {

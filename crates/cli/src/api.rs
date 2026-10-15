@@ -952,16 +952,19 @@ pub async fn dispatch(app: &Arc<App>, method: &str, params: Value) -> Result<Val
             }
             requests::ask(app, &bot.runner_id, method, body).await
         }
-        // The coding agents in the account's order, each on or off, and whether this Device has
-        // it installed.
-        #[cfg(feature = "runner")]
-        "coding.agents" => Ok(crate::coding::settings::list(app).await),
-        // The account's order of coding agents, and which are on.
-        "coding_agents.set" => {
-            let settings: crate::model::CodingAgents = serde_json::from_value(json!({ "agents": params["agents"] })).map_err(|_| "agents is a list of { kind, enabled }".to_string())?;
-            let settings = settings.normalized();
-            app.set_coding_agents(settings.clone());
-            Ok(json!({ "coding_agents": settings }))
+        // A Runner's coding agents in its order, each on or off and installed or not, and a new
+        // order: there when this Device is the Runner, else sealed to it.
+        "coding.agents" | "coding.agents.set" => {
+            let runner_id = string(&params, "runner_id")?;
+            let mut body = params.clone();
+            if let Some(fields) = body.as_object_mut() {
+                fields.remove("runner_id");
+            }
+            if app.this_device_id().as_deref() == Some(runner_id.as_str()) {
+                #[cfg(feature = "runner")]
+                return crate::coding::settings::serve(app, method, &body).await;
+            }
+            requests::ask(app, &runner_id, method, body).await
         }
 
         // Read one API key on demand for the local settings editor. Snapshots and events

@@ -1,12 +1,12 @@
 // One Device, slid in from its row in Settings inside the same sheet: the bots assigned to it,
-// its plugins when it is a Runner, and the machine itself, with whether `lorca service` keeps an
-// online Runner's CLI running.
+// its plugins, coding agents, and secrets when it is a Runner, and the machine itself, with
+// whether `lorca service` keeps an online Runner's CLI running.
 
-import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { engine } from "../../../src/core/engine";
-import { deviceName, isBotDM, isRunner, isStandaloneRunner, providerLabel, type Device, type SavedSecret, type UpdateStatus } from "../../../src/core/model";
+import { deviceName, isBotDM, isRunner, isStandaloneRunner, providerLabel, readyCodingAgent, type CodingAgent, type Device, type SavedSecret, type UpdateStatus } from "../../../src/core/model";
 import { deviceIsOnline, useStore } from "../../../src/core/store";
 import { t, useLanguage } from "../../../src/i18n";
 import { BotAvatar } from "../../../src/ui/Avatar";
@@ -173,6 +173,8 @@ export default function DeviceScreen() {
           </Section>
         )}
 
+        {runner && <CodingAgentsSection device={device} />}
+
         {runner && <SecretsSection device={device} />}
 
         <Section
@@ -217,6 +219,32 @@ export default function DeviceScreen() {
         )}
       </ScrollView>
     </>
+  );
+}
+
+/// The Runner's coding agents as one row: the agent its bots use when they name none, and the
+/// list itself a tap away. Asked of the Runner each time the screen shows, so a change made on
+/// that list shows here on the way back.
+function CodingAgentsSection({ device }: { device: Device }) {
+  useLanguage();
+  const router = useRouter();
+  const [agents, setAgents] = useState<CodingAgent[]>();
+  const loads = useRef(0);
+  useFocusEffect(
+    useCallback(() => {
+      const ask = ++loads.current;
+      engine
+        .codingAgents(device.id)
+        .then((list) => ask === loads.current && setAgents(list))
+        .catch(() => ask === loads.current && setAgents(undefined));
+    }, [device.id]),
+  );
+  const ready = agents && readyCodingAgent(agents);
+  const detail = !agents ? undefined : ready ? ready.name : agents.some((agent) => agent.installed) ? t("Off") : t("None installed");
+  return (
+    <Section>
+      <Row title={t("Coding Agents")} detail={detail} chevron onPress={() => router.push({ pathname: "/settings/coding-agents", params: { runner: device.id } })} />
+    </Section>
   );
 }
 
