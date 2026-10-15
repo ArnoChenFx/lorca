@@ -6,6 +6,8 @@ and the update window shows it.
 
 ## [Unreleased]
 
+## [0.1.13]
+
 - A bot no longer shows as working after its turn ended when the Device it runs on drops off the
   relay: the working row and the dot on its avatar clear at once, without your next message.
 - Coding agents work the way Grok Bot's do. A bot hands a job to Claude Code, Codex, OpenCode,
@@ -16,6 +18,10 @@ and the update window shows it.
   the chat and the bot checks its work and tells you how it went.
 - Settings › Coding Agents turns each agent on or off and sets which one bots try first, and shows
   whether each is installed on this computer.
+- Gmail, Google Calendar, and Google Drive work over Google's own APIs. Your Google Cloud project
+  needs only the service's API turned on, with no Workspace Developer Preview enrollment.
+- The model list adds OpenCode's free and preview models and new Zen and Go models, and DeepSeek V4
+  Pro shows its current price.
 
 ## [0.1.12]
 
