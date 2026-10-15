@@ -6,6 +6,8 @@ and the update window shows it.
 
 ## [Unreleased]
 
+- A bot no longer shows as working after its turn ended when the Device it runs on drops off the
+  relay: the working row and the dot on its avatar clear at once, without your next message.
 - Coding agents work the way Grok Bot's do. A bot hands a job to Claude Code, Codex, OpenCode,
   pi, or fx under a short title, and the chat shows "Messaged" and "Message from" markers with the agent's
   logo instead of a card. Click one to follow the agent's work as Cursor shows it: what it thought
