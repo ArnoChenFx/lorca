@@ -8,6 +8,7 @@
 
 #[cfg(feature = "runner")]
 pub mod builtin;
+mod google;
 #[cfg(feature = "runner")]
 pub mod mcp;
 pub mod mcp_json;
@@ -106,10 +107,14 @@ pub enum ServerSpec {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         timeout: Option<u64>,
     },
-    /// A server Lorca answers itself, in the Runner (`plugins::builtin`): `telegram`, or `slack`
-    /// for Slack's bot. Only the marketplace service of that name runs one.
+    /// A server Lorca answers itself, in the Runner (`plugins::builtin`): `telegram`, `slack` for
+    /// Slack's bot, or `gmail`, `google-calendar`, and `google-drive` over Google's REST APIs.
+    /// Only the marketplace service of that name runs one. With `auth`, the account signs in as
+    /// an HTTP server's would, and the server calls the service's API with that sign-in.
     Builtin {
         service: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        auth: Option<AuthSpec>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         timeout: Option<u64>,
     },
@@ -126,6 +131,14 @@ impl ServerSpec {
             ServerSpec::Stdio { timeout, .. } | ServerSpec::Http { timeout, .. } | ServerSpec::Builtin { timeout, .. } => *timeout,
         };
         own.filter(|seconds| *seconds > 0).map(std::time::Duration::from_secs).unwrap_or(CALL_TIMEOUT)
+    }
+
+    /// The OAuth sign-in the server takes, an HTTP server's or a builtin one's.
+    pub fn oauth(&self) -> Option<&AuthSpec> {
+        match self {
+            ServerSpec::Http { auth: Some(auth @ AuthSpec::Oauth { .. }), .. } | ServerSpec::Builtin { auth: Some(auth @ AuthSpec::Oauth { .. }), .. } => Some(auth),
+            _ => None,
+        }
     }
 }
 
@@ -150,11 +163,6 @@ pub enum AuthSpec {
         client_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         client_secret: Option<String>,
-        /// A client Lorca registered with the service (`google`), which signs in when the user
-        /// set no client of their own. The relay holds its secret and swaps the codes and
-        /// refresh tokens with it; the Runner gets its id from the relay.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        lorca_client: Option<String>,
         /// With a client id: sign in with the device flow (RFC 8628) instead of a browser
         /// callback. The card shows a code to enter at the link; nothing has to run on the
         /// Runner's screen, and no client secret ships.
@@ -305,8 +313,18 @@ impl Manifest {
     /// Reads a manifest, refusing one that could not be installed.
     pub fn parse(value: &Value) -> Result<Manifest, String> {
         let mut manifest: Manifest = serde_json::from_value(value.clone()).map_err(|e| format!("Not a plugin manifest: {e}"))?;
+        // A builtin server named like an HTTP one takes its place and keeps its sign-in, so an
+        // older build still reads the HTTP server.
         for (name, service) in std::mem::take(&mut manifest.builtin_servers) {
-            manifest.servers.entry(name).or_insert(ServerSpec::Builtin { service, timeout: None });
+            let (auth, timeout) = match manifest.servers.remove(&name) {
+                Some(ServerSpec::Http { auth, timeout, .. }) => (auth, timeout),
+                Some(other) => {
+                    manifest.servers.insert(name, other);
+                    continue;
+                }
+                None => (None, None),
+            };
+            manifest.servers.insert(name, ServerSpec::Builtin { service, auth, timeout });
         }
         manifest.check()?;
         Ok(manifest)
@@ -333,7 +351,7 @@ impl Manifest {
                 }
                 _ => {}
             }
-            if let ServerSpec::Http { auth: Some(AuthSpec::Oauth { authorization_params, authorization_endpoint, token_endpoint, .. }), .. } = server {
+            if let Some(AuthSpec::Oauth { authorization_params, authorization_endpoint, token_endpoint, .. }) = server.oauth() {
                 for key in authorization_params.keys() {
                     if matches!(key.as_str(), "state" | "code_challenge" | "code_challenge_method" | "client_id" | "redirect_uri" | "response_type" | "scope" | "resource") {
                         return Err(format!("Server {name} cannot override OAuth parameter {key}."));
@@ -646,8 +664,8 @@ impl Store {
     /// An OAuth server with no tokens and no pasted token. One that signs in only when asked
     /// needs it once the server has answered with its challenge.
     pub fn needs_sign_in(&self, id: &str, server: &str, spec: &ServerSpec, values: &BTreeMap<String, String>) -> bool {
-        match spec {
-            ServerSpec::Http { auth: Some(AuthSpec::Oauth { token_variable, optional, .. }), .. } => {
+        match spec.oauth() {
+            Some(AuthSpec::Oauth { token_variable, optional, .. }) => {
                 let pasted = token_variable.as_ref().map(|v| values.contains_key(v)).unwrap_or(false);
                 let asked = !*optional || self.sign_in_secret(id, "challenge", server).is_some();
                 let tokens = self.sign_in_secret(id, "oauth", server);
@@ -829,7 +847,7 @@ pub fn sign_out(app: &Arc<App>, id: &str, server: Option<&str>) -> Result<Option
                 .manifest
                 .servers
                 .iter()
-                .filter(|(name, spec)| server.is_none_or(|server| server == name.as_str()) && matches!(spec, ServerSpec::Http { auth: Some(AuthSpec::Oauth { .. }), .. }))
+                .filter(|(name, spec)| server.is_none_or(|server| server == name.as_str()) && spec.oauth().is_some())
                 .map(|(name, _)| name.clone())
                 .collect(),
             None => server.map(|server| vec![server.to_string()]).unwrap_or_default(),
@@ -912,30 +930,37 @@ pub fn detail(app: &Arc<App>, id: &str) -> Result<Value, String> {
         .servers
         .iter()
         .map(|(name, spec)| {
+            // A server's sign-in, an HTTP server's or a builtin one's.
+            let sign_in = |auth: Option<&AuthSpec>| {
+                let waiting = store.codes.get(id).filter(|code| &code.server == name);
+                // A server that signs in only when asked shows its sign-in once it has asked.
+                let tokens = store.sign_in_secret(id, "oauth", name).is_some();
+                let oauth = match auth {
+                    Some(AuthSpec::Oauth { optional: true, .. }) => tokens || store.sign_in_secret(id, "challenge", name).is_some(),
+                    Some(AuthSpec::Oauth { .. }) => true,
+                    _ => false,
+                };
+                json!({
+                    "oauth": oauth,
+                    "signed_in": oauth && !store.needs_sign_in(id, name, spec, &values),
+                    "code": waiting.map(|code| &code.code),
+                    "link": waiting.map(|code| &code.link),
+                    "callback_port": match auth { Some(AuthSpec::Oauth { callback_port, .. }) => *callback_port, _ => None },
+                    "callback_url": match auth { Some(AuthSpec::Oauth { callback_url, .. }) => callback_url.as_deref(), _ => None },
+                })
+            };
             let (kind, auth) = match spec {
                 ServerSpec::Stdio { command, .. } => ("stdio", json!({ "command": command })),
-                ServerSpec::Builtin { service, .. } => ("builtin", json!({ "service": service })),
+                ServerSpec::Builtin { service, auth: None, .. } => ("builtin", json!({ "service": service })),
+                ServerSpec::Builtin { service, auth, .. } => {
+                    let mut detail = sign_in(auth.as_ref());
+                    detail["service"] = json!(service);
+                    ("builtin", detail)
+                }
                 ServerSpec::Http { url, auth, .. } => {
-                    let waiting = store.codes.get(id).filter(|code| &code.server == name);
-                    // A server that signs in only when asked shows its sign-in once it has asked.
-                    let tokens = store.sign_in_secret(id, "oauth", name).is_some();
-                    let oauth = match auth {
-                        Some(AuthSpec::Oauth { optional: true, .. }) => tokens || store.sign_in_secret(id, "challenge", name).is_some(),
-                        Some(AuthSpec::Oauth { .. }) => true,
-                        _ => false,
-                    };
-                    (
-                        "http",
-                        json!({
-                            "url": url,
-                            "oauth": oauth,
-                            "signed_in": oauth && !store.needs_sign_in(id, name, spec, &values),
-                            "code": waiting.map(|code| &code.code),
-                            "link": waiting.map(|code| &code.link),
-                            "callback_port": match auth { Some(AuthSpec::Oauth { callback_port, .. }) => *callback_port, _ => None },
-                            "callback_url": match auth { Some(AuthSpec::Oauth { callback_url, .. }) => callback_url.as_deref(), _ => None },
-                        }),
-                    )
+                    let mut detail = sign_in(auth.as_ref());
+                    detail["url"] = json!(url);
+                    ("http", detail)
                 }
             };
             json!({ "name": name, "kind": kind, "auth": auth })
@@ -1070,7 +1095,7 @@ pub async fn serve_request(app: &Arc<App>, verb: &str, body: &Value, requested_b
                         .manifest
                         .servers
                         .iter()
-                        .find(|(_, spec)| matches!(spec, ServerSpec::Http { auth: Some(AuthSpec::Oauth { .. }), .. }))
+                        .find(|(_, spec)| spec.oauth().is_some())
                         .map(|(name, _)| name.clone())
                         .ok_or_else(|| format!("{} has nothing to sign in to.", plugin.manifest.name))?
                 }
@@ -1218,7 +1243,7 @@ mod tests {
         let app = &scratch.0;
         let mut old = crate::marketplace::bundled().plugins.into_iter().find(|m| m.id == "github").unwrap();
         // As installed before the device flow existed: a bare OAuth entry.
-        old.servers.insert("github".into(), ServerSpec::Http { url: "https://api.githubcopilot.com/mcp/".into(), headers: BTreeMap::new(), auth: Some(AuthSpec::Oauth { scopes: vec![], token_variable: Some("GITHUB_TOKEN".into()), client_id_variable: None, client_secret_variable: None, client_id: None, client_secret: None, lorca_client: None, device_authorization_endpoint: None, token_endpoint: None, authorization_endpoint: None, authorization_params: BTreeMap::new(), optional: false, client_name: None, callback_port: None, callback_url: None, auth_server_metadata_url: None }), timeout: None });
+        old.servers.insert("github".into(), ServerSpec::Http { url: "https://api.githubcopilot.com/mcp/".into(), headers: BTreeMap::new(), auth: Some(AuthSpec::Oauth { scopes: vec![], token_variable: Some("GITHUB_TOKEN".into()), client_id_variable: None, client_secret_variable: None, client_id: None, client_secret: None, device_authorization_endpoint: None, token_endpoint: None, authorization_endpoint: None, authorization_params: BTreeMap::new(), optional: false, client_name: None, callback_port: None, callback_url: None, auth_server_metadata_url: None }), timeout: None });
         install(app, old, "marketplace").unwrap();
         let mut vars = BTreeMap::new();
         vars.insert("GITHUB_TOKEN".to_string(), "ghp-secret".to_string());
