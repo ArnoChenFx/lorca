@@ -31,10 +31,12 @@ pub struct CodingAgentTool {
 
 const DESCRIPTION: &str = "Hand a coding job to a coding agent on your Runner (Claude Code, Codex, OpenCode, pi, or fx, as the user set up \
 in Settings → Coding Agents) and supervise it. `start` runs one on `prompt`, under a short `title` that names the job for the user \
-(\"Docs: use mygo.json in the launcher examples\"), in a git worktree of `folder` (default: your working directory): a new worktree \
-on a branch of its own, or the one `worktree` names, so it never edits the user's checkout; a folder that is not a repository is \
-worked in as it is. Write the prompt as you would brief an engineer: the goal, the repository's context you know, how to check the \
-work, and whether to open a pull request. `start` returns the agent's id at once and the agent works on its own: do not wait for it \
+(\"Docs: use mygo.json in the launcher examples\"), in `folder` (default: your working directory), which it works in as it is: \
+it decides how, whether to make a branch or a worktree of its own, as when the user runs it in a terminal; say in the prompt if the \
+user asked for one. `prompt` is what the user asked for, in their words, plus what only you can tell the agent: the folder, what you \
+already found, how to check the work, and whether the user asked for a pull request. Do not replace their request with a plan, a \
+checklist, or your guesses at the fix: the agent decides how to do the job. While an agent has a job, leave the job to it. \
+`start` returns the agent's id at once and the agent works on its own: do not wait for it \
 or check on it in the same turn, tell the user you started it. When it is done, or ends on its own, what it said arrives in the chat \
 as a message from it and you get a turn: check its work, then send it a follow-up or tell the user how it went. `read` shows its \
 transcript since you last read it (or its last `lines`), `send` gives it `message`, taken up once it is done with what it does now, \
@@ -57,10 +59,9 @@ impl Tool for CodingAgentTool {
             "properties": {
                 "action": { "type": "string", "enum": ["start", "read", "send", "stop", "list"] },
                 "title": { "type": "string", "description": "start: a short title for the job, a few words the user sees wherever the agent shows." },
-                "prompt": { "type": "string", "description": "start: the job, as you would brief an engineer." },
+                "prompt": { "type": "string", "description": "start: what the user asked for, in their words, with what only you can tell the agent." },
                 "agent": { "type": "string", "enum": KINDS, "description": "start: which agent, only when the user asked for one. Default: the first the user turned on that this Runner has." },
                 "folder": { "type": "string", "description": "start: the repository or folder to work in, absolute, ~/…, or relative to your working directory." },
-                "worktree": { "type": "string", "description": "start: the worktree to work in, by name, made from the repository's current commit if new. Default: a new one named after the title." },
                 "secrets": { "type": "array", "items": { "type": "string" }, "description": "start: names of your saved command secrets the job needs, given to the agent as environment variables. Every command it runs is then reviewed knowing which." },
                 "id": { "type": "string", "description": "read, send, stop: the agent's id." },
                 "message": { "type": "string", "description": "send: the follow-up." },
@@ -178,8 +179,7 @@ impl CodingAgentTool {
             use lorca_agent::tools::SecretVariables;
             crate::secrets::CommandSecrets { app: app.clone(), bot_id: self.bot.id.clone() }.variables(&secrets)?;
         }
-        let worktree = args["worktree"].as_str().map(str::trim).filter(|name| !name.is_empty());
-        let place = workspace::prepare(&app.config.home, &self.workdir, args["folder"].as_str(), worktree, &title).await?;
+        let place = workspace::prepare(&self.workdir, args["folder"].as_str()).await?;
         let start = Start {
             chat_id: self.chat_id.clone(),
             bot_id: self.bot.id.clone(),
@@ -197,7 +197,7 @@ impl CodingAgentTool {
         let agent = super::start(app, start).await?;
         let id = agent.id();
         let place = match &place.branch {
-            Some(branch) => format!("the worktree {} on branch {branch}", super::home_relative(&place.folder)),
+            Some(branch) => format!("{} (on branch {branch})", super::home_relative(&place.folder)),
             None => super::home_relative(&place.folder),
         };
         Ok(format!(
@@ -211,10 +211,7 @@ impl CodingAgentTool {
 fn brief(prompt: &str, place: &workspace::Place, secrets: &[String]) -> String {
     let folder = place.folder.display();
     let mut brief = prompt.trim().to_string();
-    match &place.branch {
-        Some(branch) => brief.push_str(&format!("\n\nYou work in {folder}, a git worktree of its own on branch {branch}. Commit your work on that branch.")),
-        None => brief.push_str(&format!("\n\nYou work in {folder}.")),
-    }
+    brief.push_str(&format!("\n\nYou work in {folder}."));
     brief.push_str(" When you are done, end with a short summary of what you did and how you checked it. If you open a pull request, give its link.");
     if !secrets.is_empty() {
         let names = secrets.iter().map(|name| format!("${name}")).collect::<Vec<_>>().join(", ");
