@@ -1,6 +1,6 @@
 //! Coding agents end to end, against stand-ins that speak each agent's protocol: a bot starts
-//! one, it asks to run a command, the user allows it on its row, it finishes, its message lands
-//! in the chat, and the bot wakes to hear it.
+//! one, it asks to run a command, the user allows it on the card that asks in the chat, it
+//! finishes, its message lands in the chat, and the bot wakes to hear it.
 
 #![cfg(unix)]
 
@@ -298,7 +298,7 @@ fn auto_review_off(app: &App) {
 }
 
 fn tool(scratch: &Scratch) -> CodingAgentTool {
-    CodingAgentTool { app: scratch.app.clone(), bot: scratch.bot.clone(), chat_id: "chat".into(), workdir: scratch.home.join("work"), trigger_message_id: "msg-trigger".into(), event: None }
+    CodingAgentTool { app: scratch.app.clone(), bot: scratch.bot.clone(), chat_id: "chat".into(), workdir: scratch.home.join("work"), trigger_message_id: "msg-trigger".into(), event: None, unattended: false }
 }
 
 /// The row a `coding_agent` start call puts up as it begins, as the turn does.
@@ -381,8 +381,24 @@ async fn call(tool: &CodingAgentTool, call_id: &str, args: Value) -> Result<Stri
     tool.execute(call_id, args, CancellationToken::new(), Arc::new(|_| {})).await.map(|result| result.text_content()).map_err(|error| error.0)
 }
 
+/// The chat's last message, when it is a permission card: its id, command, reason, and decision.
+fn last_card(app: &App) -> Option<(String, Option<String>, Option<String>, String)> {
+    let (messages, _) = app.store.page("chat", None, 200).unwrap();
+    let message = messages.into_iter().last()?;
+    match message.body {
+        Body::Permission { arguments, reason, decision, .. } => Some((message.id, arguments["command"].as_str().map(str::to_string), reason, decision)),
+        _ => None,
+    }
+}
+
+/// The question an agent asks, once it is up: the card that ends the chat.
+async fn question(app: &App) -> (String, Option<String>, Option<String>) {
+    let (id, command, reason, _) = eventually("its question", || last_card(app).filter(|(.., decision)| decision == "pending")).await;
+    (id, command, reason)
+}
+
 #[tokio::test]
-async fn claude_code_works_in_the_folder_asks_on_its_row_and_its_message_wakes_the_bot() {
+async fn claude_code_works_in_the_folder_asks_in_the_chat_and_its_message_wakes_the_bot() {
     let scratch = setup().await;
     let app = &scratch.app;
     auto_review_off(app);
@@ -401,12 +417,13 @@ async fn claude_code_works_in_the_folder_asks_on_its_row_and_its_message_wakes_t
     assert_eq!(record.folder, std::fs::canonicalize(&scratch.repo).unwrap());
     assert!(!scratch.home.join("worktrees").exists());
 
-    // Its push asks the user on its row, Auto-review being off; Allow lets it go on.
-    let asking = card_when(app, &row, |card| card.state == "asking").await;
-    let question = asking.question.unwrap();
-    assert_eq!((question.kind.as_str(), question.command.as_deref()), ("command", Some("git push origin feature")));
-    assert!(app.message("chat", &row).unwrap().confirmation().unwrap().starts_with("Claude Code: $ git push"));
-    assert!(crate::plugins::mcp::answer(app, &row, Decision::Allowed));
+    // Its push asks the user in the chat, Auto-review being off, while its row reads asking;
+    // Allow lets it go on.
+    let (asked, command, _) = question(app).await;
+    assert_eq!(command.as_deref(), Some("git push origin feature"));
+    assert_eq!(app.message("chat", &asked).unwrap().confirmation().as_deref(), Some("$ git push origin feature"));
+    card_when(app, &row, |card| card.state == "asking").await;
+    assert!(crate::plugins::mcp::answer(app, &asked, Decision::Allowed));
     assert!(std::fs::read_to_string(programs().join("args.log")).unwrap().contains("--permission-prompt-tool stdio"));
 
     let done = card_when(app, &row, |card| card.state == "idle").await;
@@ -450,6 +467,110 @@ async fn claude_code_works_in_the_folder_asks_on_its_row_and_its_message_wakes_t
     assert!(agent.record().unheard.is_none());
 }
 
+/// An agent's question is a card at the end of the chat, where the user reads, however far up
+/// its row is; what the user writes to the bot meanwhile leaves it waiting, since the bot's turn
+/// does not wait on it.
+#[tokio::test]
+async fn an_agents_question_ends_the_chat_and_a_message_to_the_bot_leaves_it_waiting() {
+    let scratch = setup().await;
+    let app = &scratch.app;
+    auto_review_off(app);
+    let tool = tool(&scratch);
+    let row = start_row(app, "call-1");
+    // The chat goes on below the row before the agent asks.
+    for text in ["Anything else?", "Not yet."] {
+        app.upsert_message(Message::new("chat", Author::You, Body::Text { text: text.into(), attachments: Vec::new(), mentions: Vec::new(), reply_to: None }), false);
+    }
+    let chat_lock = app.chat_lock("chat");
+    let _held = chat_lock.lock().await;
+    call(&tool, "call-1", json!({ "action": "start", "agent": "claude", "title": "Login", "folder": "shop", "prompt": "Fix the login bug" })).await.unwrap();
+
+    let (card_id, command, reason) = question(app).await;
+    assert_eq!(command.as_deref(), Some("git push origin feature"));
+    assert!(reason.unwrap().starts_with("Claude Code, the coding agent on “Login”, asks to run this."));
+    assert!(app.message("chat", &card_id).unwrap().counts_unread());
+    let asking = card_when(app, &row, |card| card.state == "asking").await;
+    assert!(app.message("chat", &row).unwrap().confirmation().is_none(), "the card asks, not the row: {asking:?}");
+
+    // The user writes to the bot while it waits: the question stays up.
+    crate::plugins::mcp::dismiss_questions(app, "chat");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(last_card(app).map(|(.., decision)| decision).as_deref(), Some("pending"));
+    assert_eq!(card(app, &row).state, "asking");
+
+    // Allowed, the command runs, and the card says so.
+    assert!(crate::plugins::mcp::answer(app, &card_id, Decision::Allowed));
+    card_when(app, &row, |card| card.state == "idle").await;
+    let decision = app.message("chat", &card_id).map(|message| message.body);
+    assert!(matches!(decision, Some(Body::Permission { decision, .. }) if decision == "allowed"));
+    let agent = app.coding_agents.of("chat", "b1").pop().unwrap();
+    let push = steps_now(&agent).into_iter().find_map(|item| item.tool.filter(|step| step.kind == "execute")).unwrap();
+    assert_eq!((push.title.as_str(), push.status.as_str(), push.output.as_deref()), ("git push origin feature", "done", Some("pushed")));
+}
+
+/// Always allow on an agent's card adds the rule Auto-review proposed, as a shell card's does,
+/// and its row reads asking exactly as long as the card is up.
+#[tokio::test]
+async fn always_allow_on_an_agents_card_adds_its_rule() {
+    let scratch = setup().await;
+    let app = &scratch.app;
+    auto_review_off(app);
+    let tool = tool(&scratch);
+    let row = start_row(app, "call-1");
+    let chat_lock = app.chat_lock("chat");
+    let _held = chat_lock.lock().await;
+    call(&tool, "call-1", json!({ "action": "start", "agent": "claude", "title": "Login", "folder": "shop", "prompt": "Fix the login bug" })).await.unwrap();
+    // Its own push asks first; once it is allowed, the agent is free and running.
+    let (first, ..) = question(app).await;
+    crate::plugins::mcp::answer(app, &first, Decision::Allowed);
+    card_when(app, &row, |card| card.state == "idle").await;
+    let agent = app.coding_agents.of("chat", "b1").pop().unwrap();
+    agent.record.lock().unwrap().state = "working".into();
+
+    let rule = crate::model::AutoReviewRule { id: "rule-1".into(), text: "push branches to origin".into(), behavior: "allow".into(), tool: None };
+    let asking = {
+        let (app, agent) = (app.clone(), agent.clone());
+        tokio::spawn(async move { ask_in_chat(&app, &agent, "b1", "Workbench", "bash", "git push origin main", Some("It pushes.".into()), Some(rule)).await })
+    };
+    let (card_id, command, reason) = question(app).await;
+    assert_eq!((command.as_deref(), reason.as_deref()), (Some("git push origin main"), Some("It pushes.")));
+    assert!(matches!(app.message("chat", &card_id).unwrap().body, Body::Permission { rule: Some(ref rule), .. } if rule == "push branches to origin"));
+    assert_eq!(card(app, &row).state, "asking");
+    assert!(crate::plugins::mcp::answer(app, &card_id, Decision::Always));
+    assert_eq!(asking.await.unwrap(), Decision::Always);
+    assert!(app.auto_review().rules.iter().any(|rule| rule.text == "push branches to origin" && rule.behavior == "allow" && rule.tool.is_none()));
+    assert!(matches!(app.message("chat", &card_id).unwrap().body, Body::Permission { ref decision, .. } if decision == "always"));
+    assert_eq!(card(app, &row).state, "working");
+    stop(app, &agent, "Stopped");
+}
+
+/// An agent a routine's run or an event started has nobody to answer its questions: what its
+/// review would ask goes back to it at once, and it goes on, instead of waiting on a card.
+#[tokio::test]
+async fn an_unattended_agent_is_told_at_once_instead_of_asking_nobody() {
+    let scratch = setup().await;
+    let app = &scratch.app;
+    auto_review_off(app);
+    let mut tool = tool(&scratch);
+    tool.unattended = true;
+    let row = start_row(app, "call-1");
+    let chat_lock = app.chat_lock("chat");
+    let _held = chat_lock.lock().await;
+    call(&tool, "call-1", json!({ "action": "start", "agent": "claude", "title": "Nightly", "folder": "shop", "prompt": "Fix the login bug" })).await.unwrap();
+
+    let done = card_when(app, &row, |card| card.state == "idle").await;
+    assert_eq!(done.state, "idle");
+    assert!(app.pending_permissions.lock().unwrap().is_empty());
+    let agent = app.coding_agents.of("chat", "b1").pop().unwrap();
+    assert!(agent.record().unattended);
+    let push = steps_now(&agent).into_iter().find_map(|item| item.tool.filter(|step| step.kind == "execute")).unwrap();
+    assert_eq!(push.status, "denied");
+    // It hears why at once, with nothing waiting on the user.
+    let told = tokio::time::timeout(Duration::from_secs(5), approve(app, &agent, driver::Approval::Command { command: "git push origin main".into() })).await.expect("it waits on nobody");
+    assert!(told.unwrap_err().contains("nobody is watching the run that started you"));
+    assert!(app.pending_permissions.lock().unwrap().is_empty());
+}
+
 #[tokio::test]
 async fn an_agent_that_ends_on_its_own_says_why_in_the_chat() {
     let scratch = setup().await;
@@ -475,8 +596,8 @@ async fn a_restart_keeps_the_handle_and_a_follow_up_resumes_the_session() {
     let tool = tool(&scratch);
     let row = start_row(app, "call-1");
     call(&tool, "call-1", json!({ "action": "start", "agent": "claude", "title": "Dark mode", "folder": "shop", "prompt": "Add dark mode" })).await.unwrap();
-    card_when(app, &row, |card| card.state == "asking").await;
-    crate::plugins::mcp::answer(app, &row, Decision::Denied);
+    let (asked, ..) = question(app).await;
+    crate::plugins::mcp::answer(app, &asked, Decision::Denied);
     card_when(app, &row, |card| card.state == "idle").await;
     let agent = app.coding_agents.of("chat", "b1").pop().unwrap();
     let id = agent.id();
@@ -594,9 +715,9 @@ async fn pi_asks_through_lorcas_extension_before_a_tool_runs() {
     let launched = std::fs::read_to_string(programs().join("pi-args.log")).unwrap();
     let extension = launched.split_whitespace().skip_while(|arg| *arg != "-e").nth(1).unwrap().to_string();
     assert!(std::fs::read_to_string(&extension).unwrap().contains("pi.on(\"tool_call\""), "{extension}");
-    let asking = card_when(app, &row, |card| card.state == "asking").await;
-    assert_eq!(asking.question.unwrap().command.as_deref(), Some("npm test"));
-    assert!(crate::plugins::mcp::answer(app, &row, Decision::Denied));
+    let (asked, command, _) = question(app).await;
+    assert_eq!(command.as_deref(), Some("npm test"));
+    assert!(crate::plugins::mcp::answer(app, &asked, Decision::Denied));
     let (_, _, text, _) = eventually("its message", || agent_messages(app).pop()).await;
     assert_eq!(text, "pi is done (blocked).");
     let agent = app.coding_agents.of("chat", "b1").pop().unwrap();
@@ -689,6 +810,7 @@ async fn a_bot_without_shell_access_starts_no_agent_and_its_agent_runs_nothing()
             unheard: None,
             secrets: Vec::new(),
             event: None,
+            unattended: false,
         },
         Transcript::default(),
     );
@@ -724,10 +846,10 @@ async fn a_saved_secret_reaches_only_the_environment_the_bot_names_it_for() {
     assert_eq!(record.secrets, vec!["NPM_TOKEN".to_string()]);
     assert!(!record.task.contains(value), "{}", record.task);
 
-    // Its command asks on the row with the placeholder, though Auto-review would pass it.
-    let asking = card_when(app, &row, |card| card.state == "asking").await;
-    assert_eq!(asking.question.unwrap().command.as_deref(), Some("npm publish --token {{secret:NPM_TOKEN}}"));
-    assert!(crate::plugins::mcp::answer(app, &row, Decision::Allowed));
+    // Its command asks in the chat with the placeholder, though Auto-review would pass it.
+    let (asked, command, _) = question(app).await;
+    assert_eq!(command.as_deref(), Some("npm publish --token {{secret:NPM_TOKEN}}"));
+    assert!(crate::plugins::mcp::answer(app, &asked, Decision::Allowed));
     let (message_id, _, text, _) = eventually("its message", || agent_messages(app).pop()).await;
     assert_eq!(text, "Published with {{secret:NPM_TOKEN}}");
 
@@ -786,10 +908,9 @@ async fn real_agents() {
         let agent = app.coding_agents.of("chat", "b1").pop().expect("it started");
         let done = tokio::time::timeout(Duration::from_secs(300), async {
             loop {
-                let card = card(app, &row);
-                if card.state == "asking" {
-                    println!("   asks: {:?}", card.question.as_ref().and_then(|question| question.command.clone()));
-                    crate::plugins::mcp::answer(app, &row, Decision::Allowed);
+                if let Some((asked, command, ..)) = last_card(app).filter(|(.., decision)| decision == "pending") {
+                    println!("   asks: {command:?}");
+                    crate::plugins::mcp::answer(app, &asked, Decision::Allowed);
                 }
                 if let Some(message) = agent_messages(app).pop() {
                     return message;
@@ -820,8 +941,8 @@ async fn real_agents() {
         println!("   follow-up: {resumed:?}");
         let again = tokio::time::timeout(Duration::from_secs(300), async {
             loop {
-                if card(app, &row).state == "asking" {
-                    crate::plugins::mcp::answer(app, &row, Decision::Allowed);
+                if let Some((asked, ..)) = last_card(app).filter(|(.., decision)| decision == "pending") {
+                    crate::plugins::mcp::answer(app, &asked, Decision::Allowed);
                 }
                 let messages = agent_messages(app);
                 if messages.len() >= 2 {
