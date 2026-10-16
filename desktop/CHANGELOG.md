@@ -6,6 +6,27 @@ and the update window shows it.
 
 ## [Unreleased]
 
+## [0.1.15]
+
+- On a Mac the menu bar has a Lorca menu, with About (the standard about panel), Check for
+  Updates…, Settings, Services, Hide, and Quit; Windows and Linux keep these in File and Help.
+- Coding agents work in the folder they are given, as it is: no worktree or branch of Lorca's own,
+  and the agent decides how to work there, as it would started in a terminal. What it changed counts
+  from the commit it started at, and the branch it ends on may be one it made.
+- A bot briefs a coding agent with your request in your words, with what only it can tell the agent,
+  and leaves the job to it, instead of handing it a plan or checklist of its own.
+- A coding agent that asks permission asks on a card at the end of the chat, as a command does,
+  so you read it without scrolling back to the agent's row; writing to the bot leaves it up, and
+  Stop dismisses it.
+- When no review model can check an action, Auto-review asks you ("Auto-review could not
+  check this action") instead of handing it back to the bot to run again, and a second pass cut
+  off mid-thought decides from what it has weighed. In a routine's or an event's turn it waits
+  for your review.
+- A routine's run or an event can hand work to a coding agent now, where a start that Auto-review
+  would ask about used to be refused; nobody is there to answer the agent, so each action it would
+  ask about is denied at once with a reason, and it goes on without it or names it in its last
+  message.
+
 ## [0.1.14]
 
 - The Attention panel opens as a popover. Each item has Dismiss, Mark as Resolved, and Open buttons,
