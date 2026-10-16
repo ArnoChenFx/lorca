@@ -1559,6 +1559,7 @@ fn message_search_text(message: &Message) -> Option<String> {
             format!("{text} {names}")
         }
         Body::Handoff { reason, .. } => reason.clone(),
+        Body::AgentMessage { title, text, .. } => format!("{title} {text}"),
         Body::Notice { text, .. } => text.clone(),
         Body::Permission { summary, .. } => summary.clone(),
         Body::Draft { draft, .. } => format!("{} {} {}", draft.to.join(" "), draft.subject, draft.body),
@@ -1818,6 +1819,7 @@ fn body_kind(body: &Body) -> &'static str {
         Body::Text { .. } => "text",
         Body::Tool { .. } => "tool",
         Body::Handoff { .. } => "handoff",
+        Body::AgentMessage { .. } => "agent_message",
         Body::Notice { .. } => "notice",
         Body::Permission { .. } => "permission",
         Body::Draft { .. } => "draft",

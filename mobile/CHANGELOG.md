@@ -6,6 +6,28 @@ when it offers the update.
 
 ## [Unreleased]
 
+## [1.0.8]
+
+- Coding agents are set per Runner: each Device keeps its own agents, in its own order and each on
+  or off, and shows which are installed on it.
+- A bot connected to Gmail can send an email itself, not only leave a draft. With Draft first on,
+  it still waits as a draft card until you press Send.
+
+## [1.0.7]
+
+- Coding agents work the way Grok Bot's do. A bot hands a job to Claude Code, Codex, OpenCode,
+  pi, or fx under a short title, and the chat shows "Messaged" and "Message from" markers with the agent's
+  logo instead of a card. Tap one to follow the agent's work: what it thought and said, the files it
+  explored, the commands it ran, and its edits. The chat's details list the agents under Coding.
+- Each Runner in Settings has its Coding Agents: turn each on or off there, see whether it is
+  installed, and drag one to change which its bots try first.
+- A bot no longer shows as working after its turn ended when the Device it runs on drops off the
+  relay: the working row and the dot on its avatar clear at once, without your next message.
+- Gmail, Google Calendar, and Google Drive work over Google's own APIs. Your Google Cloud project
+  needs only the service's API turned on, with no Workspace Developer Preview enrollment.
+- The model list adds OpenCode's free and preview models and new Zen and Go models, and DeepSeek V4
+  Pro shows its current price.
+
 ## [1.0.6]
 
 - Long-press a brief in Attention and choose Dismiss to take it off the list on every Device; the

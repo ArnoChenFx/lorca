@@ -6,6 +6,35 @@ and the update window shows it.
 
 ## [Unreleased]
 
+## [0.1.14]
+
+- The Attention panel opens as a popover. Each item has Dismiss, Mark as Resolved, and Open buttons,
+  and Open scrolls the chat to the message the item cites and highlights it.
+- Paste a screenshot or an image copied from another app into the composer to attach it. Files
+  copied in Finder or Explorer attach too, instead of pasting their names.
+- Coding agents are set per Runner: each Device keeps its own agents, in its own order and each on
+  or off, and shows which are installed on it.
+- A bot connected to Gmail can send an email itself, not only leave a draft. With Draft first on,
+  it still waits as a draft card until you press Send.
+
+## [0.1.13]
+
+- A bot no longer shows as working after its turn ended when the Device it runs on drops off the
+  relay: the working row and the dot on its avatar clear at once, without your next message.
+- Coding agents work the way Grok Bot's do. A bot hands a job to Claude Code, Codex, OpenCode,
+  pi, or fx under a short title, and the chat shows "Messaged" and "Message from" markers with the agent's
+  logo instead of a card. Click one to follow the agent's work as Cursor shows it: what it thought
+  and said, the files it explored, the commands it ran, and its edits with lines added and removed.
+  The chat's details list the agents under Coding, and when an agent finishes, its message lands in
+  the chat and the bot checks its work and tells you how it went.
+- Settings › Coding Agents, for the Runner picked at its top, turns each agent on or off there,
+  shows whether it is installed and its version, and sets which one its bots try first: drag an
+  agent to change the order.
+- Gmail, Google Calendar, and Google Drive work over Google's own APIs. Your Google Cloud project
+  needs only the service's API turned on, with no Workspace Developer Preview enrollment.
+- The model list adds OpenCode's free and preview models and new Zen and Go models, and DeepSeek V4
+  Pro shows its current price.
+
 ## [0.1.12]
 
 - Right-click a brief in Attention and choose Dismiss to take it off the list on every Device; the

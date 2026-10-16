@@ -937,32 +937,34 @@ pub async fn dispatch(app: &Arc<App>, method: &str, params: Value) -> Result<Val
             requests::ask(app, &bot.runner_id, method, body).await
         }
 
-        // A coding agent's card: its transcript, Stop, an answer to what its pane asks, and its
-        // pane brought forward on the Runner. Here when the bot runs here, else sealed to its
-        // Runner, except showing the pane, which is the Runner's own.
-        "coding.transcript" | "coding.stop" | "coding.answer" | "coding.show" => {
+        // A coding agent's transcript and Stop: here when the bot runs here, else sealed to its
+        // Runner.
+        "coding.transcript" | "coding.stop" => {
             let chat_id = string(&params, "chat_id")?;
             let message_id = string(&params, "message_id")?;
             let message = app.message(&chat_id, &message_id).ok_or("Unknown message")?;
             let Author::Bot { bot_id } = &message.author else { return Err("That row has no coding agent".into()) };
             let bot = app.bot(bot_id).ok_or("Unknown bot")?;
-            let body = json!({ "chat_id": chat_id, "message_id": message_id, "choice": params["choice"], "text": params["text"] });
+            let body = json!({ "chat_id": chat_id, "message_id": message_id });
             if app.this_device_id().as_deref() == Some(bot.runner_id.as_str()) {
                 #[cfg(feature = "runner")]
                 return crate::coding::serve(app, method, &body).await;
             }
-            if method == "coding.show" {
-                return Err("Its pane is on the Runner".into());
-            }
             requests::ask(app, &bot.runner_id, method, body).await
         }
-        // `lorca coding hook` in the pane of a coding agent this CLI runs asks whether its next
-        // command may run.
-        #[cfg(feature = "runner")]
-        "coding.review" => {
-            let id = string(&params, "agent_id")?;
-            let command = string(&params, "command")?;
-            crate::coding::review_for_hook(app, &id, &command).await
+        // A Runner's coding agents in its order, each on or off and installed or not, and a new
+        // order: there when this Device is the Runner, else sealed to it.
+        "coding.agents" | "coding.agents.set" => {
+            let runner_id = string(&params, "runner_id")?;
+            let mut body = params.clone();
+            if let Some(fields) = body.as_object_mut() {
+                fields.remove("runner_id");
+            }
+            if app.this_device_id().as_deref() == Some(runner_id.as_str()) {
+                #[cfg(feature = "runner")]
+                return crate::coding::settings::serve(app, method, &body).await;
+            }
+            requests::ask(app, &runner_id, method, body).await
         }
 
         // Read one API key on demand for the local settings editor. Snapshots and events
