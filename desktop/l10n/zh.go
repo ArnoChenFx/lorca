@@ -1513,4 +1513,8 @@ var zh = map[string]string{
 	"Show the backup phrase?":                         "显示备份短语？",
 	"Anyone who sees it can restore your identity and read everything in your account. Make sure nobody else can see your screen.": "任何看到它的人都能恢复你的身份，并读取你账户里的所有内容。请确认没有其他人能看到你的屏幕。",
 	"Couldn’t show the backup phrase": "无法显示备份短语",
+	"Usage":                           "用量",
+	"Bot Settings":                    "智能体设置",
+	"Bot Settings…":                   "智能体设置…",
+	"No skills yet. Add one and the bot can follow it whenever it fits.": "还没有技能。添加一个，智能体就能在合适的时候照着做。",
 }
