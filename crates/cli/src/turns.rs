@@ -5340,6 +5340,7 @@ mod tests {
                 plugins: Vec::new(), channels: Vec::new(),
                 version: String::new(),
                 update: None,
+                app: None,
                 updated_at: 1,
             });
         }

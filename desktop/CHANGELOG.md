@@ -6,6 +6,9 @@ and the update window shows it.
 
 ## [Unreleased]
 
+- Update Lorca on another computer from this one: its Devices pane shows the Lorca app's version,
+  and Update installs the newer one there. That Lorca restarts into it once its bots finish what
+  they are doing.
 - When a coding agent reports back, the bot replies again to relay the report: the agent's
   conclusion, its pull request, and the commands it ran with their results. That reply only relays:
   the bot doesn't read the code, build, test, or judge the work, or send the agent instructions.

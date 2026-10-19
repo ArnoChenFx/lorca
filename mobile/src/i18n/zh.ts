@@ -1071,4 +1071,5 @@ export const zh: Record<string, string> = {
   "{name} is starting…": "{name} 正在启动…",
   "{name} can't take a message now": "{name} 现在无法接收消息",
   "Queued": "排队中",
+  "Lorca app": "Lorca 应用",
 };

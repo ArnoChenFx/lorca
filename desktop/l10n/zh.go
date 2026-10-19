@@ -1523,4 +1523,5 @@ var zh = map[string]string{
 	"Coding agents":      "编程智能体",
 	"Coding agents (%d)": "编程智能体（%d）",
 	"No coding agents":   "没有编程智能体",
+	"Lorca app":          "Lorca 应用",
 }

@@ -75,6 +75,7 @@ One doc per subject under `docs/architecture/`, each short enough to read in one
 | [Relay](docs/architecture/relay.md) | `crates/relay`: storage on SQLite or Postgres, files, housekeeping, quotas, metrics, rate limits, auth, tables and migrations, the blob, sync socket, and push APIs, deploys |
 | [Relay trust](docs/architecture/relay-trust.md) | What a Device takes from the relay and how it checks it: Device records and unpaired keys, signed envelopes, the challenge nonce, the pairing reply key, the account key's generations and their rotation on unpair |
 | [Protocols](docs/architecture/protocols.md) | The app ↔ CLI websocket and the CLI ↔ relay requests and blobs |
+| [Requests between Devices](docs/architecture/requests.md) | What one Device asks a Runner through the relay, sealed: timeouts and each verb |
 | [CLI (runtime)](docs/architecture/runtime.md) | The `lorca` binary and its data directory, installing it, its signed self-updates and `lorca service`, the agent loop and a turn on a Runner |
 | [Notifications](docs/architecture/notifications.md) | Phone pushes for replies, failures, and questions, the macOS app's own notifications, reads on another Device, the chat on screen |
 | [Bot permissions](docs/architecture/bot-permissions.md) | A bot's Access to plugins, tools, files, and shell; where the CLI checks it; access requests |
@@ -113,7 +114,8 @@ One doc per subject under `docs/architecture/`, each short enough to read in one
 | [Sidebar sections and alerts](docs/architecture/sidebar.md) | Sections, hidden and muted chats in every app, and the chat a computer shows in front, which no phone is alerted about |
 | [macOS app](docs/architecture/macos-app.md) | The AppKit app: launching the CLI, windows and onboarding, settings, updates, the command palette, sidebar and inspector |
 | [macOS chat](docs/architecture/macos-chat.md) | Transcript, composer, output previews, working and read state in AppKit |
-| [Windows and Linux app](docs/architecture/desktop-app.md) | The MyGo app: its model, host, and native views, title bar, commands, updates, development and builds |
+| [Windows and Linux app](docs/architecture/desktop-app.md) | The MyGo app: its model, host, and native views, title bar, commands, development and builds |
+| [Desktop app updates](docs/architecture/desktop-updates.md) | The Windows and Linux app's updater and releases, and an update another Device starts |
 | [Phone app](docs/architecture/phone-app.md) | The Expo app over the Rust core: the native module, pairing, relay status, attachments, dictation, notifications, turns |
 | [Phone layout](docs/architecture/phone-layout.md) | The phone's home tabs (Bots, Devices, Search) and a tablet's sidebar and pane |
 | [Phone releases and updates](docs/architecture/phone-updates.md) | TestFlight builds, Android APK releases, and the Android app's self-update: the daily check and offer, the progress dialog, the package installer |

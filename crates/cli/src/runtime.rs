@@ -725,6 +725,9 @@ pub(crate) async fn wait_for_turn_elsewhere(app: &App, job: &Job, cancel: &Cance
 
 /// Runs a job with its working record already installed.
 async fn run_job_started(app: &Arc<App>, job: Job, cancel: CancellationToken) -> TurnOutcome {
+    // The desktop app relaunching into a new version stops this CLI: the turn starts in the next.
+    #[cfg(feature = "cli")]
+    crate::app_update::turn_may_start(app).await;
     wait_for_turn_elsewhere(app, &job, &cancel).await;
     crate::workflows::sample_started(app, &job);
     let admitted = match crate::handoffs::begin_job(app, &job) {
@@ -968,6 +971,7 @@ mod tests {
             plugins: Vec::new(), channels: Vec::new(),
             version: String::new(),
             update: None,
+            app: None,
             updated_at: 1,
         });
         let cancel = CancellationToken::new();
@@ -1085,6 +1089,7 @@ mod tests {
             plugins: Vec::new(), channels: Vec::new(),
             version: String::new(),
             update: None,
+            app: None,
             updated_at: 1,
         });
         app.state.lock().unwrap().turns_online.insert("mac".into());
@@ -1116,6 +1121,7 @@ mod tests {
             plugins: Vec::new(), channels: Vec::new(),
             version: String::new(),
             update: None,
+            app: None,
             updated_at: 1,
         };
         app.state.lock().unwrap().device_seen.insert("mac".into(), 1);

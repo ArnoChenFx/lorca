@@ -6,6 +6,9 @@ when it offers the update.
 
 ## [Unreleased]
 
+- Update Lorca on a computer from your phone: its Device screen shows the Lorca app's version, and
+  Update installs the newer one there. That Lorca restarts into it once its bots finish what they
+  are doing.
 - A bot hands a coding agent your request in your words, with only where the repository is and what
   you already said, and no plan, checklist, branch, or way to check it of its own. The agent decides
   how to work, pushes, opens a pull request, and reports to you with the commands it ran and what

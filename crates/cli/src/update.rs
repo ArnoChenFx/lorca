@@ -14,7 +14,7 @@
 //! ([`restart_when_idle`]): in place on macOS and Linux, through the `lorca service` supervisor on
 //! Windows. A release that keeps stopping right after it starts goes back to the one before.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -23,7 +23,7 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::app::App;
+use crate::app::{App, RunningJob};
 use crate::config::{self, VERSION};
 use crate::model::UpdateStatus;
 
@@ -592,20 +592,8 @@ async fn restart_when_idle(app: Arc<App>, version: String) {
     }
     let waiting = tokio::time::Instant::now();
     loop {
-        let patient = || waiting.elapsed() < Duration::from_secs(DAY);
-        while !is_idle(&app, patient()) {
-            tokio::time::sleep(Duration::from_secs(5)).await;
-        }
-        let flushed = tokio::time::Instant::now();
-        while flushed.elapsed() < Duration::from_secs(10) && app.store.first_outbox().ok().flatten().is_some() {
-            tokio::time::sleep(Duration::from_millis(250)).await;
-        }
-        if !patient() {
-            app.shell_sessions.shutdown(&app);
-            app.coding_agents.shutdown(&app).await;
-        }
-        app.save_state_now();
-        let Some(error) = restart_if_idle(&app, &version, patient()) else { continue };
+        let patient = wait_idle(&app, waiting).await;
+        let Some(error) = restart_if_idle(&app, &version, patient) else { continue };
         tracing::error!(%error, "restarting into the new release");
         set_status(&app, |status| {
             status.state = "installed".into();
@@ -615,11 +603,49 @@ async fn restart_when_idle(app: Arc<App>, version: String) {
     }
 }
 
+/// Waits until this Runner is idle ([`is_idle`]), then for what it queued for the relay to go up
+/// (ten seconds at most), and saves its state. A day after `waiting` it stops the commands bots
+/// left running and the coding agents at work rather than wait on them for good. Answers whether
+/// it was still patient: a later check of [`is_idle`] counts those commands only then.
+async fn wait_idle(app: &Arc<App>, waiting: tokio::time::Instant) -> bool {
+    let patient = || waiting.elapsed() < Duration::from_secs(DAY);
+    while !is_idle(app, patient()) {
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+    let flushed = tokio::time::Instant::now();
+    while flushed.elapsed() < Duration::from_secs(10) && app.store.first_outbox().ok().flatten().is_some() {
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+    let patient = patient();
+    if !patient {
+        app.shell_sessions.shutdown(app);
+        app.coding_agents.shutdown(app).await;
+    }
+    app.save_state_now();
+    patient
+}
+
+/// Returns once this Runner is idle and has sent what it queued, for the desktop app to relaunch
+/// into its new version, which stops this CLI and starts the new one it carries. `hold` runs
+/// while no job can begin, once the Runner is still idle, so the caller can keep new turns from
+/// starting before it answers.
+pub async fn until_idle(app: &Arc<App>, hold: impl Fn()) {
+    let waiting = tokio::time::Instant::now();
+    loop {
+        let patient = wait_idle(app, waiting).await;
+        let jobs = app.running_jobs.lock().unwrap();
+        if idle_with(app, &jobs, patient) {
+            hold();
+            return;
+        }
+    }
+}
+
 /// Restarts unless a job began since the wait ended. No job begins while this holds the list,
 /// and the restart replaces the process; answers why it could not.
 fn restart_if_idle(app: &App, version: &str, patient: bool) -> Option<String> {
     let jobs = app.running_jobs.lock().unwrap();
-    if !jobs.values().all(|job| job.runner_id.is_some()) || (patient && (!app.shell_sessions.is_empty() || app.coding_agents.is_busy())) {
+    if !idle_with(app, &jobs, patient) {
         return None;
     }
     tracing::info!(%version, "restarting into the new release");
@@ -630,7 +656,12 @@ fn restart_if_idle(app: &App, version: &str, patient: bool) -> Option<String> {
 /// new process picks up its wait), and, while `patient`, no command a bot left running and no
 /// coding agent Lorca runs at work.
 fn is_idle(app: &App, patient: bool) -> bool {
-    app.running_jobs.lock().unwrap().values().all(|job| job.runner_id.is_some()) && (!patient || (app.shell_sessions.is_empty() && !app.coding_agents.is_busy()))
+    idle_with(app, &app.running_jobs.lock().unwrap(), patient)
+}
+
+/// [`is_idle`] with the running jobs' list already held.
+fn idle_with(app: &App, jobs: &HashMap<String, RunningJob>, patient: bool) -> bool {
+    jobs.values().all(|job| job.runner_id.is_some()) && (!patient || (app.shell_sessions.is_empty() && !app.coding_agents.is_busy()))
 }
 
 /// Starts the binary now in place with this process's arguments. Returns only when it could not.
