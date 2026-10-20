@@ -128,10 +128,10 @@ while True:
 
 /// An ACP server, scripted, standing in for OpenCode and fx: a session, and a prompt that runs
 /// `git status` once the client allows it, writes a file, and answers. A "(slow)" prompt waits
-/// for `release.txt` before it ends, so a message can arrive while it works. Each run appends its
+/// for `release.txt` or a `session/cancel` before it ends, so a message can arrive while it works. Each run appends its
 /// arguments and the permission settings it was given to `<program>-args.log`.
 const FAKE_ACP: &str = r#"#!/usr/bin/env python3
-import json, os, sys, time
+import json, os, select, sys, time
 here = os.path.dirname(os.path.abspath(__file__))
 with open(os.path.join(here, os.path.basename(sys.argv[0]) + "-args.log"), "a") as log:
     log.write(" ".join(sys.argv[1:]) + " " + os.environ.get("OPENCODE_CONFIG_CONTENT", "") + " FX_PERMISSION_MODE=" + os.environ.get("FX_PERMISSION_MODE", "") + "\n")
@@ -171,8 +171,18 @@ while True:
         update("ses_1", {"sessionUpdate": "tool_call_update", "toolCallId": "call_1", "status": "completed" if chosen == "once" else "failed", "rawInput": {"command": "git status"}, "content": [{"type": "content", "content": {"type": "text", "text": "clean"}}]})
         update("ses_1", {"sessionUpdate": "tool_call", "toolCallId": "call_2", "title": "write", "kind": "edit", "status": "completed", "locations": [{"path": os.path.abspath("b.txt")}], "content": [{"type": "diff", "path": os.path.abspath("b.txt"), "oldText": None, "newText": "hi"}]})
         if "(slow)" in text:
+            cancelled = False
             while not os.path.exists(os.path.join(here, "release.txt")):
-                time.sleep(0.05)
+                if select.select([sys.stdin], [], [], 0.05)[0]:
+                    note = read()
+                    if note is None:
+                        sys.exit(0)
+                    if note.get("method") == "session/cancel":
+                        cancelled = True
+                        break
+            if cancelled:
+                out({"jsonrpc": "2.0", "id": ident, "result": {"stopReason": "cancelled"}})
+                continue
             os.remove(os.path.join(here, "release.txt"))
         update("ses_1", {"sessionUpdate": "agent_message_chunk", "messageId": "msg_%d" % asked, "content": {"type": "text", "text": "OpenCode did it"}})
         update("ses_1", {"sessionUpdate": "agent_message_chunk", "messageId": "msg_%d" % asked, "content": {"type": "text", "text": " (" + chosen + ")."}})
@@ -732,7 +742,7 @@ async fn the_user_writes_to_an_agent_on_its_page() {
     assert!(!mine.counts_unread());
     // Auto-review reads it as the user's request; the bot reads it in its history.
     assert!(crate::plugins::mcp::answer(app, &asked, Decision::Allowed), "{:?}", last_card(app));
-    // It takes it up once it is done with what it was doing, and its step says who wrote it.
+    // It takes it up, and its step says who wrote it.
     let taken = eventually("the queued message", || steps_now(&agent).into_iter().find(|item| item.kind == "prompt" && item.text == "Use the staging branch (follow-up)")).await;
     assert_eq!(taken.from.as_deref(), Some("user"));
     card_when(app, &row, |card| card.state == "idle").await;
@@ -785,7 +795,7 @@ async fn codex_runs_read_only_commands_at_once_and_reports_its_plan() {
 }
 
 #[tokio::test]
-async fn opencode_speaks_acp_and_a_message_while_it_works_waits_for_its_turn() {
+async fn opencode_speaks_acp_and_a_message_while_it_works_cancels_its_turn() {
     let scratch = setup().await;
     let app = &scratch.app;
     let tool = tool(&scratch);
@@ -799,10 +809,9 @@ async fn opencode_speaks_acp_and_a_message_while_it_works_waits_for_its_turn() {
     assert!(launched.lines().any(|line| line.starts_with("acp ") && line.contains(r#""bash":"ask""#)), "{launched}");
     assert_eq!(agent.record().session.as_deref(), Some("ses_1"));
 
-    // A message while it works waits for its turn to end.
+    // A message while it works cancels the turn under way and starts the next.
     let sent = call(&tool, "call-2", json!({ "action": "send", "id": agent.id(), "message": "And c.txt" })).await.unwrap();
-    assert!(sent.starts_with("Sent. OpenCode takes it up once"), "{sent}");
-    std::fs::write(programs().join("release.txt"), "go").unwrap();
+    assert!(sent.starts_with("Sent. OpenCode takes it up at its next step"), "{sent}");
     // Both turns end before it is done, and it says so once.
     let (_, _, text, _) = eventually("its message", || agent_messages(app).pop()).await;
     assert_eq!(text, "OpenCode did it (once).");
@@ -810,6 +819,7 @@ async fn opencode_speaks_acp_and_a_message_while_it_works_waits_for_its_turn() {
     let prompts: Vec<&str> = items.iter().filter(|item| item.kind == "prompt").map(|item| item.text.as_str()).collect();
     assert_eq!(prompts.len(), 2, "{items:?}");
     assert_eq!(prompts[1], "And c.txt");
+    assert!(items.iter().any(|item| item.kind == "status" && item.text == "Interrupted"), "{items:?}");
     let thought = items.iter().find(|item| item.kind == "thought").unwrap();
     assert_eq!(thought.text, "Look first.");
     let edit = items.iter().find_map(|item| item.tool.clone().filter(|step| step.kind == "edit")).unwrap();
@@ -1269,4 +1279,69 @@ async fn a_start_where_no_other_agent_works_says_nothing_of_others() {
     assert!(!started.contains("Other coding agents"), "{started}");
     let empty = call(&tool, "call-2", json!({ "action": "list", "scope": "account", "query": "nothing like this" })).await.unwrap();
     assert_eq!(empty, "No coding agent on the account matches that.");
+}
+
+/// Each real agent at work on a long command: the user's message steers it at once, and Stop ends
+/// the command it runs, even one in a process group of its own, as Claude Code's are, and closes
+/// its step.
+#[tokio::test]
+#[ignore = "runs the real coding agents, which sign in and spend tokens"]
+async fn real_agents_steer_and_stop() {
+    let kinds = std::env::var("LORCA_REAL_AGENTS").unwrap_or_else(|_| "claude,codex,opencode,pi,fx".into());
+    for kind in kinds.split(',').map(str::trim).filter(|kind| !kind.is_empty()) {
+        println!("== {kind}");
+        steers_and_stops(kind).await;
+    }
+}
+
+async fn steers_and_stops(kind: &str) {
+    let scratch = setup_without_stand_ins().await;
+    let app = &scratch.app;
+    auto_review_off(app);
+    let tool = tool(&scratch);
+    start_row(app, "call-1");
+    let long = |marker: u32| format!("Run exactly this shell command in the foreground (not in the background) and wait for it: python3 -c \"import time; time.sleep({marker})\" Then say done.");
+    let running = |agent: &Agent| steps_now(agent).iter().any(|item| item.tool.as_ref().is_some_and(|step| step.kind == "execute" && step.status == "running"));
+    let wait = |agent: Arc<Agent>, what: &'static str, check: Box<dyn Fn(&Agent) -> bool + Send>| async move {
+        tokio::time::timeout(Duration::from_secs(120), async {
+            loop {
+                if let Some((asked, ..)) = last_card(app).filter(|(.., decision)| decision == "pending") {
+                    crate::plugins::mcp::answer(app, &asked, Decision::Allowed);
+                }
+                if check(&agent) {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| {
+            for item in steps_now(&agent) {
+                println!("   {}", item.lines().join("\n   "));
+            }
+            panic!("never {what}")
+        });
+    };
+    call(&tool, "call-1", json!({ "action": "start", "agent": kind, "title": "Wait", "folder": "shop", "prompt": long(301) })).await.unwrap();
+    let agent = app.coding_agents.of("chat", "b1").pop().expect("it started");
+    wait(agent.clone(), "ran the command", Box::new(running)).await;
+    let sent = send(app, &agent, "Never mind that. Reply with just the word BANANA.", false, Sender::User).await;
+    println!("sent: {sent:?}");
+    let steered = Instant::now();
+    wait(agent.clone(), "took the message up", Box::new(|agent: &Agent| steps_now(agent).iter().any(|item| item.kind == "text" && item.text.contains("BANANA")))).await;
+    println!("steered in {:?}", steered.elapsed());
+    assert!(steered.elapsed() < Duration::from_secs(60), "{kind} waited for the command");
+
+    wait(agent.clone(), "went idle", Box::new(|agent: &Agent| agent.record().state == "idle")).await;
+    send(app, &agent, &long(302), false, Sender::User).await.unwrap();
+    let alive = || !std::process::Command::new("pgrep").args(["-f", "time.sleep\\(302\\)"]).output().unwrap().stdout.is_empty();
+    wait(agent.clone(), "ran the second command", Box::new(move |_: &Agent| alive())).await;
+    stop(app, &agent, "Stopped");
+    assert!(!running(&agent), "a step still runs after Stop");
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let left = std::process::Command::new("pgrep").args(["-f", "time.sleep\\(30[1-4]\\)"]).output().unwrap();
+    assert!(left.stdout.is_empty(), "the command outlived Stop: {}", String::from_utf8_lossy(&left.stdout));
+    for item in steps_now(&agent) {
+        println!("   {}", item.lines().join("\n   "));
+    }
 }
