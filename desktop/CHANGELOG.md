@@ -6,6 +6,19 @@ and the update window shows it.
 
 ## [Unreleased]
 
+## [0.1.18]
+
+- The app draws what changed, not the whole window: windows repaint only what changed, layout
+  redoes only what changed, and a window out of sight draws nothing. Wheel scrolling glides.
+- The hover follows a row that moves under a pointer standing still, as a chat that leaves a
+  section does.
+- Windows menus are drawn in Windows 11's style on Windows 11.
+- Check for Updates… runs soon after every launch, not only once a day.
+- The Coding agents button's number counts only the agents at work now: one that finished and
+  waits for a follow-up keeps the button, without a number.
+- On Windows a second launch brings the open window to the front, and on Linux a `lorca://` link
+  opens in the window that takes the focus.
+
 ## [0.1.17]
 
 - Write to a coding agent from its page: a composer under its transcript sends your words straight
