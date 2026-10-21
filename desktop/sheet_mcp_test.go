@@ -28,9 +28,15 @@ func sheetASettle(tt *ui.Tester) {
 	}
 }
 
-// sheetAWait waits out the demo store's timers (a listing, a reconnect), then settles.
+// sheetAWait waits out the demo store's timers (a listing, a reconnect), then settles. The
+// sheet's own deadlines are compared with the frame clock, which the tester moves on by hand,
+// while the demo store keeps its timers on the wall clock: move the sheet's clock to ask, wait for
+// the store's answer, then move it again for what the answer set off.
 func sheetAWait(tt *ui.Tester, d time.Duration) {
+	tt.Advance(d)
 	time.Sleep(d)
+	sheetASettle(tt)
+	tt.Advance(d)
 	sheetASettle(tt)
 }
 

@@ -111,5 +111,5 @@ To test an update, install an older release with its installer and choose **Chec
 - **A development build never updates.** `mygo dev`'s Lorca Dev leaves the menu item and the
   Settings rows out.
 - **The GitHub API allows 60 requests an hour** from an address without a token; an app checks
-  once a day.
+  soon after each launch, and once a day after that.
 - **Old releases stay**, so the next release can make deltas from their archives.

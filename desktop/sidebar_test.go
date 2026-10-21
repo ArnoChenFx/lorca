@@ -70,8 +70,7 @@ func TestChatShortcutHints(t *testing.T) {
 	if tt.HasText(shortcutText("CmdOrCtrl+1")) {
 		t.Fatal("hints at once")
 	}
-	time.Sleep(300 * time.Millisecond)
-	tt.Frame()
+	tt.Advance(300 * time.Millisecond)
 	renderTo(t, tt, "sidebar-shortcut-hints")
 	if !tt.HasText(shortcutText("CmdOrCtrl+1")) || !tt.HasText(shortcutText("CmdOrCtrl+7")) {
 		t.Fatalf("no hints: %q", tt.Texts())
