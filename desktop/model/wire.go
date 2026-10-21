@@ -75,6 +75,12 @@ type WireDeviceUpdate struct {
 	Error  *string `json:"error"`
 }
 
+// WireDeviceApp is the desktop app on a Runner: its version beside its updates.
+type WireDeviceApp struct {
+	Version string `json:"version"`
+	WireDeviceUpdate
+}
+
 type WireDevice struct {
 	ID           string             `json:"id"`
 	Name         string             `json:"name"`
@@ -92,6 +98,7 @@ type WireDevice struct {
 	Unknown bool              `json:"unknown"`
 	Version *string           `json:"version"`
 	Update  *WireDeviceUpdate `json:"update"`
+	App     *WireDeviceApp    `json:"app"`
 }
 
 type WireAttachment struct {
@@ -141,8 +148,11 @@ type WireAgent struct {
 	State       string        `json:"state"`
 	Outcome     *string       `json:"outcome"`
 	PullRequest *string       `json:"pull_request"`
+	PullState   *string       `json:"pull_state"`
 	Changes     *AgentChanges `json:"changes"`
 	Device      *string       `json:"device"`
+	DeviceID    *string       `json:"device_id"`
+	Repository  *string       `json:"repository"`
 	StartedAt   *float64      `json:"started_at"`
 	UpdatedAt   *float64      `json:"updated_at"`
 }
@@ -158,6 +168,8 @@ func ToAgentRun(wire *WireAgent) *AgentRun {
 	agent := &AgentRun{
 		ID: wire.ID, Kind: wire.Kind, Title: str(wire.Title), Task: str(wire.Task), Folder: str(wire.Folder), Branch: str(wire.Branch),
 		State: state, Outcome: str(wire.Outcome), PullRequest: str(wire.PullRequest), Device: str(wire.Device),
+		PullState: PullState(str(wire.PullState)),
+		DeviceID:  str(wire.DeviceID), Repository: str(wire.Repository),
 	}
 	if wire.Changes != nil {
 		changes := *wire.Changes
@@ -775,11 +787,8 @@ func ToDevice(wire WireDevice) *Device {
 		Version:      str(wire.Version),
 		MachineName:  str(wire.MachineName),
 	}
-	switch device.OS {
-	case OSMacOS, OSLinux, OSWindows, OSIOS, OSIPadOS, OSAndroid:
-	default:
-		device.OS = OSLinux
-	}
+	// An `os` the app has no name for stays as the CLI reported it: no Runner, as the CLI judges
+	// it (`Device::is_runner`).
 	if wire.Unknown {
 		device.Name, device.OS = L("Unknown Device"), OSUnknown
 	}
@@ -796,14 +805,22 @@ func ToDevice(wire WireDevice) *Device {
 		device.Channels = append(device.Channels, ToChannel(channel))
 	}
 	if wire.Update != nil {
-		update := &DeviceUpdate{Auto: wire.Update.Auto, Latest: str(wire.Update.Latest), Error: str(wire.Update.Error)}
-		switch state := str(wire.Update.State); state {
-		case "installing", "restarting", "installed":
-			update.State = state
-		}
-		device.Update = update
+		update := toDeviceUpdate(*wire.Update)
+		device.Update = &update
+	}
+	if wire.App != nil && wire.App.Version != "" {
+		device.App = &DeviceApp{Version: wire.App.Version, Update: toDeviceUpdate(wire.App.WireDeviceUpdate)}
 	}
 	return device
+}
+
+func toDeviceUpdate(wire WireDeviceUpdate) DeviceUpdate {
+	update := DeviceUpdate{Auto: wire.Auto, Latest: str(wire.Latest), Error: str(wire.Error)}
+	switch state := str(wire.State); state {
+	case "installing", "restarting", "installed":
+		update.State = state
+	}
+	return update
 }
 
 func ToAttachment(wire WireAttachment) Attachment {

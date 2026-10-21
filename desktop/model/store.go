@@ -6,7 +6,9 @@ import (
 	"log"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -85,6 +87,8 @@ const (
 	EventDurableTasksChanged
 	EventAttentionChanged
 	EventProjectContextChanged
+	// EventCodingAgentsChanged is the account's coding agents, as `coding.list` answered them.
+	EventCodingAgentsChanged
 )
 
 // Event says what in the store changed.
@@ -132,6 +136,8 @@ type Store struct {
 	// IsMock is the seeded demo (`LORCA_MOCK=1`), which runs without a CLI.
 	IsMock    bool
 	transport Transport
+	// mockAgentSent are the demo's messages to a coding agent, by its start's row.
+	mockAgentSent map[string][]AgentItem
 	// post runs a function on the main thread, after the current one returns.
 	post func(func())
 
@@ -149,6 +155,8 @@ type Store struct {
 	AutoReview AutoReview
 	// Attention is what waits on the user across chats, kept by the bots (attention.changed).
 	Attention AttentionView
+	// coding is the account's coding agents, every bot's in every chat (coding.list).
+	coding codingList
 	// SharedLinks are the bots the account shares as links, shared through the roster.
 	SharedLinks []SharedLink
 	// Sections are the sidebar's sections, in order, shared through the roster.
@@ -192,6 +200,13 @@ type Store struct {
 	commandStarts map[string]time.Time
 	// reportedWatchedChat is the chat last reported to the CLI as on screen.
 	reportedWatchedChat *string
+	// watching is the report on its way to the CLI: one request at a time, the latest chat next, so
+	// the CLI ends on the chat on screen.
+	watching struct {
+		sync.Mutex
+		next    *string
+		sending bool
+	}
 	loadingOlder        map[string]bool
 	replies             *replyEngine
 	started             bool
@@ -410,6 +425,7 @@ func (s *Store) bootstrap(generation int) {
 		s.emit(Event{Kind: EventSnapshotReplaced})
 		s.emit(Event{Kind: EventConnectionChanged})
 		s.emit(Event{Kind: EventIdentityChanged})
+		s.refreshAccountAgents()
 	})
 }
 
@@ -653,15 +669,25 @@ func (s *Store) handle(name string, data json.RawMessage) {
 		if name == "message.added" && botID != "" && s.thinkingBots[payload.ChatID] == botID {
 			delete(s.thinkingBots, payload.ChatID)
 		}
-		s.upsert(ToMessage(payload.Message), payload.ChatID)
+		message := ToMessage(payload.Message)
+		s.upsert(message, payload.ChatID)
+		// A start row's card changed: the account's list follows it.
+		if AgentOf(message) != nil {
+			s.refreshAccountAgents()
+		}
 
 	case "message.removed":
 		payload, ok := decode[struct {
 			ChatID    string `json:"chat_id"`
 			MessageID string `json:"message_id"`
 		}](data)
+		if !ok {
+			return
+		}
+		// The row may carry an agent, in a chat this app has not loaded.
+		s.refreshAccountAgents()
 		chat := s.Chat(payload.ChatID)
-		if !ok || chat == nil {
+		if chat == nil {
 			return
 		}
 		chat.Messages = slices.DeleteFunc(slices.Clone(chat.Messages), func(m *Message) bool { return m.ID == payload.MessageID })
@@ -681,6 +707,7 @@ func (s *Store) handle(name string, data json.RawMessage) {
 		delete(s.outputMessages, payload.ChatID)
 		delete(s.staleOutputs, payload.ChatID)
 		s.emit(Event{Kind: EventChatsChanged})
+		s.refreshAccountAgents()
 
 	case "job.started":
 		job, ok := decode[WireJobEvent](data)
@@ -1017,6 +1044,10 @@ func (s *Store) Preview(chat *Chat) string {
 		body = L("Messaged %@: %@", target, content.Tool.Detail)
 	case BodyAgentMessage:
 		said := content.AgentMessage
+		if last.Author.Kind == AuthorYou {
+			body = L("You messaged %@: %@", firstNonEmpty(said.Title, CodingAgentName(said.AgentKind)), said.Text)
+			break
+		}
 		body = L("Message from %@: %@", firstNonEmpty(said.Title, CodingAgentName(said.AgentKind)), said.Text)
 	case BodyHandoff:
 		if slices.Contains(chat.BotIDs, content.Handoff.To) && !slices.Contains(chat.BotIDs, content.Handoff.From) {
@@ -1829,11 +1860,28 @@ func (s *Store) StopAgent(chatID, messageID string, done func(error)) {
 	s.simple(done, "coding.stop", map[string]any{"chat_id": chatID, "message_id": messageID})
 }
 
+// SendToAgent gives a coding agent the user's message, here or on its bot's Runner, down the
+// path the bot's own messages take: it takes it up at its next step, and an
+// agent whose process is gone starts again on its session. The chat shows it as the user's
+// message to the agent.
+func (s *Store) SendToAgent(chatID, messageID, text string, done func(error)) {
+	if s.IsMock {
+		if s.mockAgentSent == nil {
+			s.mockAgentSent = map[string][]AgentItem{}
+		}
+		sent := s.mockAgentSent[messageID]
+		s.mockAgentSent[messageID] = append(sent, AgentItem{ID: "sent-" + strconv.Itoa(len(sent)), Kind: "prompt", Text: text, From: "user"})
+		s.post(func() { done(nil) })
+		return
+	}
+	s.simple(done, "coding.send", map[string]any{"chat_id": chatID, "message_id": messageID, "text": text})
+}
+
 // AgentTranscript is a coding agent's transcript, from its Runner: what it was sent, thought,
 // said, and did, step by step, and its row's agent as it stands.
 func (s *Store) AgentTranscript(chatID, messageID string, done func(AgentTranscript, error)) {
 	if s.IsMock {
-		transcript := AgentTranscript{Items: MockAgentTranscript()}
+		transcript := AgentTranscript{Items: append(MockAgentTranscript(), s.mockAgentSent[messageID]...), Open: true}
 		if chat := s.Chat(chatID); chat != nil {
 			transcript.Card = AgentOf(chat.Message(messageID))
 		}
@@ -1850,11 +1898,13 @@ func (s *Store) AgentTranscript(chatID, messageID string, done func(AgentTranscr
 	}
 	Async(s, func() (AgentTranscript, error) {
 		var answer struct {
-			Items []AgentItem `json:"items"`
-			Card  *WireAgent  `json:"card"`
+			Items  []AgentItem   `json:"items"`
+			Card   *WireAgent    `json:"card"`
+			Queued []AgentQueued `json:"queued"`
+			Open   bool          `json:"open"`
 		}
 		err := s.request("coding.transcript", map[string]any{"chat_id": chatID, "message_id": messageID}, &answer)
-		transcript := AgentTranscript{Items: answer.Items}
+		transcript := AgentTranscript{Items: answer.Items, Queued: answer.Queued, Open: answer.Open}
 		if answer.Card != nil {
 			transcript.Card = ToAgentRun(answer.Card)
 		}
@@ -2628,11 +2678,34 @@ func (s *Store) SetWatchedChat(id string) {
 		return
 	}
 	s.reportedWatchedChat = &id
-	var chatID any
-	if id != "" {
-		chatID = id
+	s.watching.Lock()
+	defer s.watching.Unlock()
+	s.watching.next = &id
+	if !s.watching.sending {
+		s.watching.sending = true
+		go s.sendWatching()
 	}
-	go func() { _ = s.request("ui.watching", map[string]any{"chat_id": chatID}, nil) }()
+}
+
+// sendWatching sends the reports SetWatchedChat leaves, in order, skipping any a newer one
+// replaced before it went.
+func (s *Store) sendWatching() {
+	for {
+		s.watching.Lock()
+		next := s.watching.next
+		s.watching.next = nil
+		if next == nil {
+			s.watching.sending = false
+			s.watching.Unlock()
+			return
+		}
+		s.watching.Unlock()
+		var chatID any
+		if *next != "" {
+			chatID = *next
+		}
+		_ = s.request("ui.watching", map[string]any{"chat_id": chatID}, nil)
+	}
 }
 
 func (s *Store) MarkRead(id string) {
@@ -3069,6 +3142,49 @@ func (s *Store) UpdateDevice(id string, done func(error)) {
 		return
 	}
 	s.simple(done, "device.update", map[string]any{"id": id})
+}
+
+// UpdateDeviceApp asks the desktop app on another Runner to install its latest version, which it
+// relaunches into once no bot is at work there; the Runner's `machine` blob says how it goes.
+func (s *Store) UpdateDeviceApp(id string, done func(error)) {
+	if s.IsMock {
+		if device := s.Device(id); device != nil && device.App != nil {
+			app := *device.App
+			app.Update.State = "installing"
+			device.App = &app
+			s.emit(Event{Kind: EventRosterChanged})
+		}
+		s.post(func() { done(nil) })
+		return
+	}
+	s.simple(done, "device.update_app", map[string]any{"id": id})
+}
+
+// AppUpdateReport is what this app tells its CLI of its own updates, which the CLI puts in this
+// Device's `machine` blob as `app`.
+type AppUpdateReport struct {
+	Version string  `json:"version"`
+	Auto    bool    `json:"auto"`
+	Latest  *string `json:"latest,omitempty"`
+	State   string  `json:"state,omitempty"`
+	Error   *string `json:"error,omitempty"`
+}
+
+// ReportAppUpdate tells the CLI how this app's updates stand. It blocks: call it from a goroutine.
+func (s *Store) ReportAppUpdate(report AppUpdateReport) error {
+	if s.IsMock {
+		return nil
+	}
+	return s.request("app.update_status", report, nil)
+}
+
+// RelaunchWhenIdle returns once no bot is at work on this Runner and the CLI has sent what it
+// queued for the relay, which may be hours. It blocks: call it from a goroutine.
+func (s *Store) RelaunchWhenIdle() error {
+	if s.IsMock {
+		return nil
+	}
+	return s.request("app.relaunch_when_idle", nil, nil)
 }
 
 // ForgetIdentity unpairs this Device. The CLI asks the relay to drop its key, best effort, then

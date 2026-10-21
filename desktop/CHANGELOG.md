@@ -6,6 +6,32 @@ and the update window shows it.
 
 ## [Unreleased]
 
+## [0.1.17]
+
+- Write to a coding agent from its page: a composer under its transcript sends your words straight
+  to the agent, which takes them up at its next step, ending or moving aside the command it is
+  running. The page shows what you and the bot each sent, and marks what the agent has yet to take.
+- A coding agent's row follows its pull request: agents on one pull request share a row, and it
+  reads Draft, Merged, or Closed as GitHub reports it.
+- A coding agent whose turn ends in an error is a failed run, and the bot tells you why it stopped.
+- Every coding agent on the account, whichever bot, chat, or computer started it, is in a Coding
+  agents flyout in the header; its button counts the ones at work, and a row opens the agent's page.
+- When a coding agent reports back, the bot replies again to relay the report: the agent's
+  conclusion, its pull request, and the commands it ran with their results. That reply only relays:
+  the bot doesn't read the code, build, test, or judge the work, or send the agent instructions.
+- Bot Settings: a bot's profile, model and thinking, Access, memory, skills, and plugins are a
+  sheet of their own, opened from its row; the inspector keeps what goes on in the chat.
+- A bot can start a teammate on another computer that is online, and move one there, with that
+  computer's folder, plugins, and coding agents. Its memory stays on the computer it came from.
+- Stop ends the commands a coding agent runs, not only the agent itself.
+- Update Lorca on another computer from this one: its Devices pane shows the Lorca app's version,
+  and Update installs the newer one there. That Lorca restarts into it once its bots finish what
+  they are doing.
+- Sheets hang near the top of the window as macOS 26's do, dim the window behind them once, and a
+  sheet over another appears at once.
+- A chat whose window is restored from the Dock counts as read again, clears from the sidebar and
+  the badge, and sends no notification, without a click.
+
 ## [0.1.16]
 
 - A bot hands a coding agent your request in your words, with only where the repository is and what

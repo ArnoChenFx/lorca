@@ -10,7 +10,7 @@ import { t } from "../i18n";
 import { exactAnswer, ExactNumber, ExactObject, stringifyExact } from "./exactJson";
 import { reviewEditParams } from "./reviewEdit";
 import { hostFacts } from "./host";
-import { orderProjectEntries, providerConnectMethod, sectionName, withReviewModel, sameDraft, type Section, type PlaybookContent, type PlaybookRecord, type PlaybookScope, type ProjectContext, type ProjectEntry, type ProjectKind, type ProjectSource, type Attachment, type AgentItem, type AgentRun, type AutoReview, type Bot, type CodingAgent, type BrowserProfile, type BudgetLimits, type BudgetState, type CallLimits, type Chat, type ChatMeta, type ChatSearchResults, type ChatUsage, type CustomAPI, type CustomModel, type DurableTask, type Message, type MessageDraft, type ReviewItem, type PluginDetail, type PluginStatus, type ProviderKind, type ProviderStatus, type SavedSecret, routinesAwaitingSetup } from "./model";
+import { orderProjectEntries, providerConnectMethod, sectionName, withReviewModel, sameDraft, type Section, type PlaybookContent, type PlaybookRecord, type PlaybookScope, type ProjectContext, type ProjectEntry, type ProjectKind, type ProjectSource, type Attachment, type AgentRun, type AgentTranscript, type AutoReview, type Bot, type CodingAgent, type BrowserProfile, type BudgetLimits, type BudgetState, type CallLimits, type Chat, type ChatMeta, type ChatSearchResults, type ChatUsage, type CustomAPI, type CustomModel, type DurableTask, type Message, type MessageDraft, type ReviewItem, type PluginDetail, type PluginStatus, type ProviderKind, type ProviderStatus, type SavedSecret, routinesAwaitingSetup } from "./model";
 import { coreHome, loadPrefs, pathOf, wipePrefs } from "./prefs";
 import type { SharedLink, TemplateContents, TemplateImportPreview, TemplateSelection } from "./templates";
 import { clearPushes, installPushHandlers, registerForPushes } from "./push";
@@ -1044,10 +1044,20 @@ class Engine {
     await core.request("coding.stop", { chat_id: chatId, message_id: messageId });
   }
 
+  /// Writes a coding agent from its page. It takes the message up when it is done with what it
+  /// does now, and one whose process is gone resumes its session on it; the chat gets the user's
+  /// "You messaged ⬢ Title". Rejects with why it could not go (still starting, nothing to go on
+  /// from, no longer installed). Answers the card as the Runner has it now.
+  async sendToAgent(chatId: string, messageId: string, text: string): Promise<AgentRun> {
+    const answer = await core.request<{ sent: boolean; card: AgentRun }>("coding.send", { chat_id: chatId, message_id: messageId, text });
+    return answer.card;
+  }
+
   /// A coding agent's transcript, from its bot's Runner, here or sealed to another: its steps
-  /// in order and its card as the Runner has it now. `messageId` is the row that started it.
-  async agentTranscript(chatId: string, messageId: string): Promise<{ items: AgentItem[]; card: AgentRun }> {
-    return core.request<{ items: AgentItem[]; card: AgentRun }>("coding.transcript", { chat_id: chatId, message_id: messageId });
+  /// in order, its card as the Runner has it now, the messages waiting for it, and whether one can
+  /// reach it now. `messageId` is the row that started it.
+  async agentTranscript(chatId: string, messageId: string): Promise<AgentTranscript> {
+    return core.request<AgentTranscript>("coding.transcript", { chat_id: chatId, message_id: messageId });
   }
 
   /// A Runner's coding agents in its order, each on or off and installed there or not, asked of
@@ -1199,6 +1209,16 @@ class Engine {
     if (!answer.installing || !answer.latest) return;
     const latest = answer.latest;
     useStore.setState((s) => ({ devices: s.devices.map((d) => (d.id === id && d.update ? { ...d, update: { ...d.update, latest, state: "installing", error: undefined } } : d)) }));
+  }
+
+  /// Asks the desktop app on a Runner, through the relay, to install its latest version, which it
+  /// relaunches into once no bot is at work there. Rejects with the Runner's words, or when it does
+  /// not answer. "Installing" shows at once; the Runner's `machine` blob confirms it.
+  async updateDeviceApp(id: string) {
+    const answer = await core.request<{ version: string; latest?: string | null; installing?: boolean }>("device.update_app", { id });
+    if (!answer.installing || !answer.latest) return;
+    const latest = answer.latest;
+    useStore.setState((s) => ({ devices: s.devices.map((d) => (d.id === id && d.app ? { ...d, app: { ...d.app, latest, state: "installing", error: undefined } } : d)) }));
   }
 
   /// Whether `lorca service` keeps a Runner's CLI running, asked of the Runner through the core.

@@ -292,6 +292,9 @@ pub struct App {
     /// installs over its own binary.
     #[cfg(feature = "cli")]
     pub updates: crate::update::Updater,
+    /// What the desktop app that runs this CLI says of its own updates.
+    #[cfg(feature = "cli")]
+    pub app_updates: crate::app_update::AppUpdates,
     /// Connected MCP servers.
     #[cfg(feature = "runner")]
     pub mcp: crate::plugins::mcp::Pool,
@@ -411,6 +414,8 @@ impl App {
             catalog: crate::catalog::Updates::default(),
             #[cfg(feature = "cli")]
             updates: crate::update::Updater::default(),
+            #[cfg(feature = "cli")]
+            app_updates: crate::app_update::AppUpdates::default(),
             #[cfg(feature = "runner")]
             mcp: crate::plugins::mcp::Pool::new(),
             #[cfg(feature = "runner")]
@@ -713,6 +718,7 @@ impl App {
             channels: self.channels.statuses(),
             version: config::VERSION.into(),
             update: self.update_status(),
+            app: self.app_status(),
             updated_at: config::now_unix(),
         })
     }
@@ -722,6 +728,18 @@ impl App {
         #[cfg(feature = "cli")]
         {
             self.updates.status()
+        }
+        #[cfg(not(feature = "cli"))]
+        {
+            None
+        }
+    }
+
+    /// The desktop app that runs this CLI, while it is connected and updates itself.
+    pub fn app_status(&self) -> Option<crate::model::AppStatus> {
+        #[cfg(feature = "cli")]
+        {
+            self.app_updates.status()
         }
         #[cfg(not(feature = "cli"))]
         {
@@ -887,7 +905,7 @@ impl App {
         let budgets = self.budgets.local_snapshots(self);
         let watching = self.watched_chat.lock().unwrap().clone();
         let fingerprint = format!(
-            "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
+            "{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}",
             device.id,
             device.name,
             device.model,
@@ -897,6 +915,7 @@ impl App {
             serde_json::to_string(&device.channels).unwrap_or_default(),
             device.version,
             serde_json::to_string(&device.update).unwrap_or_default(),
+            serde_json::to_string(&device.app).unwrap_or_default(),
             serde_json::to_string(&turns).unwrap_or_default(),
             serde_json::to_string(&budgets).unwrap_or_default(),
             watching.as_deref().unwrap_or_default()
@@ -1055,6 +1074,28 @@ impl App {
             self.running_jobs.lock().unwrap().iter().filter(|(_, job)| job.runner_id.is_none()).map(|(id, job)| job.turn(id)).collect();
         turns.sort_by(|a, b| a.job_id.cmp(&b.job_id));
         turns
+    }
+
+    /// The turns another online Device lists as running there. A bot's turns run on its own
+    /// Runner, so one listed elsewhere is a turn its old Runner finishes after a move.
+    fn turns_elsewhere(&self, matches: impl Fn(&LiveTurn) -> bool) -> bool {
+        let this = self.this_device_id();
+        let state = self.state.lock().unwrap();
+        state
+            .device_turns
+            .iter()
+            .filter(|(id, _)| Some(id.as_str()) != this.as_deref() && state.turns_online.contains(*id))
+            .any(|(_, turns)| turns.iter().any(&matches))
+    }
+
+    /// Whether `bot_id` has a turn in `chat_id` on another Device, its old Runner after a move.
+    pub fn bot_turn_elsewhere(&self, chat_id: &str, bot_id: &str) -> bool {
+        self.turns_elsewhere(|turn| turn.chat_id == chat_id && turn.bot_id == bot_id)
+    }
+
+    /// Whether a run of the routine goes on on another Device, its bot's old Runner after a move.
+    pub fn routine_running_elsewhere(&self, routine_id: &str) -> bool {
+        self.turns_elsewhere(|turn| turn.routine_id.as_deref() == Some(routine_id))
     }
 
     /// Every turn in flight this Device knows of, by job id: what the other Devices list while
@@ -2175,6 +2216,7 @@ impl App {
                     "channels": device.channels,
                     "version": device.version,
                     "update": device.update,
+                    "app": device.app,
                 })
             })
             .collect();

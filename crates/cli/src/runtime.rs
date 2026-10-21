@@ -177,7 +177,8 @@ pub fn command_job(app: &App, chat_id: &str, bot_id: &str, card_id: &str) -> Job
     }
 }
 
-/// The turn in which a bot hears why a coding agent it runs ended on its own (`coding::tell`):
+/// The turn in which a bot hears a coding agent it runs, to relay its report or say why it ended
+/// on its own (`coding::tell`):
 /// `trigger_message_id` is the agent's message in the chat.
 pub fn agent_job(app: &App, chat_id: &str, bot_id: &str, message_id: &str) -> Job {
     Job { kind: "agent".into(), ..command_job(app, chat_id, bot_id, message_id) }
@@ -706,8 +707,28 @@ async fn run_job_here(app: &Arc<App>, job: Job, cancel: CancellationToken) -> Tu
     run_job_started(app, job, cancel).await
 }
 
+/// How long a turn of a bot that just moved here waits for its old Runner's turn in the chat.
+const MOVED_TURN_WAIT: std::time::Duration = REMOTE_TURN_TIMEOUT;
+
+/// Waits while the bot's old Runner still lists a turn of it in this chat: a bot moved here
+/// mid-turn finishes that turn there first, so the two never answer the chat at once, and a
+/// message the old turn took as steering is marked promoted before this turn reads it.
+pub(crate) async fn wait_for_turn_elsewhere(app: &App, job: &Job, cancel: &CancellationToken) {
+    let deadline = tokio::time::Instant::now() + MOVED_TURN_WAIT;
+    while app.bot_turn_elsewhere(&job.chat_id, &job.bot_id) && tokio::time::Instant::now() < deadline {
+        tokio::select! {
+            _ = tokio::time::sleep(std::time::Duration::from_millis(500)) => {}
+            _ = cancel.cancelled() => return,
+        }
+    }
+}
+
 /// Runs a job with its working record already installed.
 async fn run_job_started(app: &Arc<App>, job: Job, cancel: CancellationToken) -> TurnOutcome {
+    // The desktop app relaunching into a new version stops this CLI: the turn starts in the next.
+    #[cfg(feature = "cli")]
+    crate::app_update::turn_may_start(app).await;
+    wait_for_turn_elsewhere(app, &job, &cancel).await;
     crate::workflows::sample_started(app, &job);
     let admitted = match crate::handoffs::begin_job(app, &job) {
         Ok(admitted) => admitted,
@@ -950,6 +971,7 @@ mod tests {
             plugins: Vec::new(), channels: Vec::new(),
             version: String::new(),
             update: None,
+            app: None,
             updated_at: 1,
         });
         let cancel = CancellationToken::new();
@@ -1067,6 +1089,7 @@ mod tests {
             plugins: Vec::new(), channels: Vec::new(),
             version: String::new(),
             update: None,
+            app: None,
             updated_at: 1,
         });
         app.state.lock().unwrap().turns_online.insert("mac".into());
@@ -1098,6 +1121,7 @@ mod tests {
             plugins: Vec::new(), channels: Vec::new(),
             version: String::new(),
             update: None,
+            app: None,
             updated_at: 1,
         };
         app.state.lock().unwrap().device_seen.insert("mac".into(), 1);

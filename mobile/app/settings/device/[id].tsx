@@ -10,7 +10,7 @@ import { deviceName, isBotDM, isRunner, isStandaloneRunner, providerLabel, ready
 import { deviceIsOnline, useStore } from "../../../src/core/store";
 import { t, useLanguage } from "../../../src/i18n";
 import { BotAvatar } from "../../../src/ui/Avatar";
-import { deviceSymbol } from "../../../src/ui/devices";
+import { deviceSymbol, useDevicesBase } from "../../../src/ui/devices";
 import { Row, Section } from "../../../src/ui/forms";
 import { RowMenu } from "../../../src/ui/RowMenu";
 import { SecretSheet } from "../../../src/ui/SecretSheet";
@@ -23,8 +23,8 @@ import { alert, prompt } from "../../../src/ui/alert";
 
 const OS_NAMES: Record<string, string> = { macos: "macOS", linux: "Linux", windows: "Windows", ios: "iOS", ipados: "iPadOS", android: "Android" };
 
-/// A self-updating Runner's CLI: its version, then where its updates stand.
-function cliStatus(version: string, update: UpdateStatus): string {
+/// A Runner's desktop app or self-updating CLI: its version, then where its updates stand.
+function updateStatus(version: string, update: UpdateStatus): string {
   const latest = update.latest ?? "";
   switch (update.state) {
     case "installing":
@@ -43,6 +43,7 @@ export default function DeviceScreen() {
   useLanguage();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const base = useDevicesBase();
   const p = usePalette();
   const device = useStore((s) => s.devices.find((d) => d.id === id));
   const seen = useStore((s) => s.device_seen[id]);
@@ -53,6 +54,7 @@ export default function DeviceScreen() {
   const relayUpdateRequired = useStore((s) => s.relayUpdateRequired);
   const relayUrl = useStore((s) => s.relayUrl);
   const [updating, setUpdating] = useState(false);
+  const [updatingApp, setUpdatingApp] = useState(false);
   // What an online Runner said of its service, asked each time the screen shows it.
   const [service, setService] = useState<{ id: string; installed: boolean; running: boolean }>();
   const isThis = device?.id === engine.deviceId;
@@ -130,6 +132,18 @@ export default function DeviceScreen() {
       .finally(() => setUpdating(false));
   }
 
+  // A newer version than the Runner's desktop app runs: the Lorca app row installs it, and the app
+  // relaunches into it once no bot is at work there.
+  const app = device.app;
+  const offersAppUpdate = !!app?.latest && !app.state;
+  function installAppUpdate(target: Device) {
+    setUpdatingApp(true);
+    engine
+      .updateDeviceApp(target.id)
+      .catch((error: unknown) => alert(t("Couldn’t update {name}", { name: deviceName(target) }), error instanceof Error ? error.message : String(error)))
+      .finally(() => setUpdatingApp(false));
+  }
+
   return (
     <>
       <Stack.Screen options={{ title: "" }} />
@@ -164,9 +178,9 @@ export default function DeviceScreen() {
               (device.plugins ?? []).map((plugin) =>
                 // A named account (Gmail · Work) opens its own screen; its name already says which.
                 plugin.account_name ? (
-                  <Row key={plugin.id} title={plugin.name} detail={pluginStateWord(plugin)} icon={plugin.icon ?? "puzzlepiece.extension"} chevron onPress={() => router.push({ pathname: "/settings/account/[id]", params: { id: plugin.id, runner: device.id } })} />
+                  <Row key={plugin.id} title={plugin.name} detail={pluginStateWord(plugin)} icon={plugin.icon ?? "puzzlepiece.extension"} chevron onPress={() => router.push({ pathname: `${base}/account/[id]`, params: { id: plugin.id, runner: device.id } })} />
                 ) : (
-                  <Row key={plugin.id} title={plugin.name} subtitle={plugin.state === "error" ? plugin.detail || plugin.description : plugin.description} detail={pluginStateWord(plugin)} icon={plugin.icon ?? "puzzlepiece.extension"} chevron onPress={() => router.push({ pathname: "/settings/account/[id]", params: { id: plugin.id, runner: device.id } })} />
+                  <Row key={plugin.id} title={plugin.name} subtitle={plugin.state === "error" ? plugin.detail || plugin.description : plugin.description} detail={pluginStateWord(plugin)} icon={plugin.icon ?? "puzzlepiece.extension"} chevron onPress={() => router.push({ pathname: `${base}/account/[id]`, params: { id: plugin.id, runner: device.id } })} />
                 ),
               )
             )}
@@ -191,10 +205,25 @@ export default function DeviceScreen() {
         >
           <Row title={t("Machine key")} detail={device.machine_key} />
           {!device.unknown && <Row title={t("OS")} detail={device.os_version || osName} />}
+          {app && (
+            <Row
+              title={t("Lorca app")}
+              subtitle={updateStatus(app.version, app)}
+              subtitleLines={3}
+              onPress={offersAppUpdate && online && !updatingApp ? () => installAppUpdate(device) : undefined}
+              accessory={
+                updatingApp ? (
+                  <ActivityIndicator />
+                ) : offersAppUpdate ? (
+                  <Text style={[styles.action, { color: online ? p.tint : p.tertiaryLabel }]}>{t("Update")}</Text>
+                ) : undefined
+              }
+            />
+          )}
           {update && (
             <Row
               title={t("Lorca CLI")}
-              subtitle={cliStatus(device.version ?? "", update)}
+              subtitle={updateStatus(device.version ?? "", update)}
               subtitleLines={3}
               onPress={offersUpdate && online && !updating ? () => installUpdate(device) : undefined}
               accessory={
@@ -228,6 +257,7 @@ export default function DeviceScreen() {
 function CodingAgentsSection({ device }: { device: Device }) {
   useLanguage();
   const router = useRouter();
+  const base = useDevicesBase();
   const [agents, setAgents] = useState<CodingAgent[]>();
   const loads = useRef(0);
   useFocusEffect(
@@ -243,7 +273,7 @@ function CodingAgentsSection({ device }: { device: Device }) {
   const detail = !agents ? undefined : ready ? ready.name : agents.some((agent) => agent.installed) ? t("Off") : t("None installed");
   return (
     <Section>
-      <Row title={t("Coding Agents")} detail={detail} chevron onPress={() => router.push({ pathname: "/settings/coding-agents", params: { runner: device.id } })} />
+      <Row title={t("Coding Agents")} detail={detail} chevron onPress={() => router.push({ pathname: `${base}/coding-agents`, params: { runner: device.id } })} />
     </Section>
   );
 }

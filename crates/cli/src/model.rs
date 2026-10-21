@@ -57,8 +57,23 @@ pub struct Device {
     /// where an app updates the CLI it carries, and on phones.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub update: Option<UpdateStatus>,
+    /// The desktop app that carries this Runner's CLI and updates itself, while it is open: its
+    /// version and how its updates stand. Unset for a CLI on its own and on phones.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub app: Option<AppStatus>,
     #[serde(default)]
     pub updated_at: i64,
+}
+
+/// The desktop app on a Runner, as its `machine` blob tells every Device: its version and its
+/// updates, which any Device can ask it to install.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct AppStatus {
+    pub version: String,
+    /// `auto` installs a newer version by itself; `state` is `installing`, or `restarting` while
+    /// the installed version waits for the Runner's bots before the app relaunches into it.
+    #[serde(flatten)]
+    pub update: UpdateStatus,
 }
 
 /// A self-updating CLI's updates, as every Device sees them in its `machine` blob.
@@ -109,8 +124,25 @@ pub struct PluginStatus {
 }
 
 impl Device {
+    /// Whether the Device runs bots: its `os` is a desktop one. The apps judge it the same way
+    /// (`Device.IsRunner` in `desktop/model`), against the same cases in
+    /// `crates/cli/testdata/runners.json`.
     pub fn is_runner(&self) -> bool {
         matches!(self.os.as_str(), "macos" | "linux" | "windows")
+    }
+
+    /// The system by the name people know it by, else what the Device reported.
+    pub fn platform(&self) -> &str {
+        match self.os.as_str() {
+            "macos" => "macOS",
+            "linux" => "Linux",
+            "windows" => "Windows",
+            "ios" => "iOS",
+            "ipados" => "iPadOS",
+            "android" => "Android",
+            "" => "an unknown system",
+            other => other,
+        }
     }
 }
 
@@ -327,8 +359,8 @@ pub enum Body {
     },
     /// What a coding agent said when it was done with what it was asked, its report to the user,
     /// or why it ended on its own (`failed`). The apps show it as "Message from ⬢ Title"; the
-    /// bot that runs the agent reads it in its history, and wakes for it only when it is `failed`
-    /// (`crate::coding`).
+    /// bot that runs the agent wakes for it: to relay the report to the user, or to say why it
+    /// ended (`crate::coding`).
     AgentMessage {
         agent_id: String,
         /// `claude`, `codex`, `opencode`, `pi`, or `fx`.
@@ -525,12 +557,22 @@ pub struct AgentRun {
     /// The pull request it opened, when its transcript names one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pull_request: Option<String>,
+    /// How that pull request stands on its host, as the Runner last read it: `open`, `draft`,
+    /// `merged`, or `closed`; none before a read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pull_state: Option<String>,
     /// What its work changed against the commit it started from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub changes: Option<AgentChanges>,
     /// The Runner it runs on, by name: "Workbench".
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device: Option<String>,
+    /// The same Runner, by Device id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub device_id: Option<String>,
+    /// The repository its folder is a clone of, from its `origin` remote: "github.com/egoist/lorca".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repository: Option<String>,
     /// When it started, in Unix seconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub started_at: Option<f64>,
@@ -1178,7 +1220,7 @@ pub struct Job {
     /// `turn` for a user message in a DM, `room_turn` for one member's turn in a group,
     /// `message` for a teammate's message_bot, `routine` for a run of a routine, `command` for
     /// a command the bot left running that ended, `agent` for a coding agent the bot runs that
-    /// ended on its own, `event` for a service event an event subscription's inbox admitted.
+    /// is done, whose report it relays, or ended on its own, `event` for a service event an event subscription's inbox admitted.
     pub kind: String,
     pub trigger_message_id: String,
     /// A durable delegated request or the continuation that reads its report.
@@ -1543,5 +1585,24 @@ mod host_tests {
     fn the_host_name_is_what_hostname_prints() {
         let printed = std::process::Command::new("hostname").output().unwrap().stdout;
         assert_eq!(host_name().as_deref(), Some(String::from_utf8_lossy(&printed).trim()));
+    }
+}
+
+#[cfg(test)]
+mod runner_tests {
+    use super::*;
+
+    /// The cases the desktop app's `Device.IsRunner` is tested against too
+    /// (`desktop/model/runners_test.go`). A machine the relay lists that never sent its
+    /// `machine` blob is no Device here; the apps get it with an empty `os`.
+    #[test]
+    fn runners_are_the_devices_the_apps_offer_as_runners() {
+        let cases: Vec<serde_json::Value> = serde_json::from_str(include_str!("../testdata/runners.json")).unwrap();
+        assert!(cases.len() >= 9);
+        for case in cases {
+            let os = if case["unknown"] == true { "" } else { case["os"].as_str().unwrap() };
+            let device = Device { id: "d".into(), name: "D".into(), os: os.into(), ..Default::default() };
+            assert_eq!(device.is_runner(), case["runner"].as_bool().unwrap(), "{case}");
+        }
     }
 }

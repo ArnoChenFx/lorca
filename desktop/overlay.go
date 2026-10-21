@@ -72,21 +72,34 @@ func (w *appWindow) present(view func(c *ui.Context, s *sheet), onDismiss func()
 func (w *appWindow) hasSheet() bool { return len(w.sheets) > 0 }
 
 // sheetsView builds the window's sheets over its content: the one in front over a dimmed window,
-// those behind it as they were.
+// those behind it as they were. A sheet hangs near the top of the window; the first one grows into
+// place as it fades in and shrinks as it fades out, as AppKit's sheets on macOS 26 do, and one over
+// another comes and goes at once. The dimming is one element that moves under whichever sheet is
+// in front, so it stays as it was while a sheet opens or closes over another.
 func (w *appWindow) sheetsView(c *ui.Context) {
 	p := colors(c)
+	fade := ui.ElementTransition{Enter: &ui.Motion{}, Exit: &ui.Motion{}, Duration: 150_000_000}
+	pop := ui.ElementTransition{Enter: &ui.Motion{Scale: 0.96}, Exit: &ui.Motion{Scale: 0.96}, Duration: 150_000_000}
 	for i, s := range w.sheets {
 		front := i == len(w.sheets)-1
 		ui.Overlay(c, func() {
-			scrim := ui.Column(c.Key(s.id)).Absolute().Left(0).Top(0).Right(0).Bottom(0).AlignItems(ui.Center).Padding(44, 16, 16, 16)
 			if front {
-				scrim.Background(p.Scrim).Modal()
+				ui.Box(c.Key(sheetScrimKey{})).Absolute().Left(0).Top(0).Right(0).Bottom(0).Background(p.Scrim).Transition(fade)
 			}
-			scrim.Transition(ui.ElementTransition{Enter: &ui.Motion{}, Duration: 120_000_000})
-			scrim.Children(func() { s.view(c, s) })
+			layer := ui.Column(c.Key(s.id)).Absolute().Left(0).Top(0).Right(0).Bottom(0).AlignItems(ui.Center).Padding(44, 16, 16, 16).TransformOrigin(0.5, 0)
+			if front {
+				layer.Modal()
+			}
+			if i == 0 {
+				layer.Transition(pop)
+			}
+			layer.Children(func() { s.view(c, s) })
 		})
 	}
 }
+
+// sheetScrimKey keys the dimming under the sheet in front.
+type sheetScrimKey struct{}
 
 // fieldSubmitted is set when a field in the sheet being built took Return, which confirms the
 // sheet as Return elsewhere in it does.
@@ -129,9 +142,8 @@ func sheetPanel(c *ui.Context, width float32) ui.Element {
 	if width == 0 {
 		width = 420
 	}
-	return ui.Column(c).Width(width).MaxWidthPercent(100).MaxHeightPercent(100).Padding(20).Radius(22).
-		Background(p.Sheet).Shadow(0, 10, 40, 0, p.Shadow).Border(0.5, p.ShadowEdge).
-		Transition(ui.ElementTransition{Enter: &ui.Motion{Y: -10}, Duration: 160_000_000})
+	return ui.Column(c).Width(width).MaxWidthPercent(100).MaxHeightPercent(100).Padding(20).Radius(18).
+		Background(p.Sheet).Shadow(0, 10, 40, 0, p.Shadow).Border(0.5, p.ShadowEdge)
 }
 
 // sheetFrame builds the chrome around `content` and answers whether the sheet was confirmed or

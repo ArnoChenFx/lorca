@@ -131,9 +131,9 @@ async fn answer(app: &Arc<App>, from: &str, request: &Request) -> Result<Value, 
         verb if verb.starts_with("secrets.") => crate::secrets::serve(app, verb, body),
         #[cfg(feature = "runner")]
         "bash.stdin" | "bash.stop" | "bash.background" => crate::shell::serve(app, &request.verb, body).await,
-        // A coding agent's transcript and Stop, from another Device.
+        // A coding agent's transcript, the user's message to it, and Stop, from another Device.
         #[cfg(feature = "runner")]
-        "coding.transcript" | "coding.stop" => crate::coding::serve(app, &request.verb, body).await,
+        "coding.transcript" | "coding.send" | "coding.stop" => crate::coding::serve(app, &request.verb, body).await,
         #[cfg(feature = "runner")]
         "coding.agents" | "coding.agents.set" => crate::coding::settings::serve(app, &request.verb, body).await,
         #[cfg(feature = "runner")]
@@ -163,6 +163,8 @@ async fn answer(app: &Arc<App>, from: &str, request: &Request) -> Result<Value, 
         "update.install" => crate::update::install_now(app).await,
         #[cfg(feature = "cli")]
         "update.auto" => crate::update::set_auto(app, body["on"].as_bool().ok_or("missing on")?),
+        #[cfg(feature = "cli")]
+        "app.update.install" => crate::app_update::install(app),
         #[cfg(feature = "cli")]
         "service.status" => crate::service::status_out(&app.config),
         other => Err(format!("Unknown request {other}")),

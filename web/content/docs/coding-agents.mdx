@@ -1,10 +1,10 @@
 ---
 title: Coding agents
-description: A bot passes your coding request on to Claude Code, Codex, OpenCode, pi, or fx on its Runner, and the agent reports back to you with its pull request.
+description: A bot passes your coding request on to Claude Code, Codex, OpenCode, pi, or fx on its Runner; the agent reports back with its pull request, and the bot relays the report to you.
 icon: CodeXml
 ---
 
-A bot can hand a coding job to a coding agent on its Runner: **Claude Code**, **Codex**, **OpenCode**, **pi**, or Vercel's **fx**. The bot passes on your request in your words and tells you it started the agent. The agent decides how to do the job, pushes its work, opens a pull request, and reports to you itself, with the commands it ran and what they printed. You review the work; the bot does not check it for you.
+A bot can hand a coding job to a coding agent on its Runner: **Claude Code**, **Codex**, **OpenCode**, **pi**, or Vercel's **fx**. The bot passes on your request in your words and tells you it started the agent. The agent decides how to do the job, pushes its work, opens a pull request, and reports to you, with the commands it ran and what they printed; the bot then relays that report. You review the work; the bot does not check it for you.
 
 ## Start one
 
@@ -30,10 +30,10 @@ A bot can give an agent [secrets](/docs/secrets) it saved for commands, such as 
 
 Click the agent's marker in the chat, or its row under **Coding** in the chat's details, to open its page: what the bot asked, what it thought and said, the files it explored, the commands it ran, the edits it made with lines added and removed, and its plan, as they happen. The page shows its branch and pull request, and **Stop** while it works. It is read-only: to change course, tell the bot, which passes your words on to the agent.
 
-The **Coding** list shows each agent's title and how it stands: **Working**, **Needs attention** (it waits for your answer), **Ready for review** (done, with a pull request), **Finished**, **Run failed**, or **Stopped**.
+The **Coding** list shows each agent's title and how it stands: **Working**, **Needs attention** (it waits for your answer), **Ready for review** (done, with a pull request), **Draft** (its pull request is a draft), **Merged** or **Closed** (its pull request was merged or closed on GitHub), **Finished**, **Run failed**, or **Stopped**. Agents that worked on the same pull request are one row.
 
 ## When it is done
 
-When the agent finishes, its report lands in the chat as **Message from ⬢ Login: fix the flaky test** and notifies you as a reply does: what it did, the commands it ran to check it with what they printed, and its pull request's link. Click it for the whole report and transcript. The bot does not check the work or follow up on its own; if something is missing, tell the bot and it passes that on to the agent. An agent that stops on its own says why the same way, and the bot tells you what happened.
+When the agent finishes, its report lands in the chat as **Message from ⬢ Login: fix the flaky test** and notifies you as a reply does: what it did, the commands it ran to check it with what they printed, and its pull request's link. Click it for the whole report and transcript. The bot then relays the report to you in its own reply: the agent's conclusion, the pull request, and the commands it ran with their results, and what the report leaves out. That reply is only a relay: the bot doesn't read the code, build, test, or judge the work, and doesn't send the agent new instructions; if something is missing, tell the bot and it passes that on to the agent. An agent that stops on its own says why the same way, and the bot tells you what happened.
 
 **Stop** in the chat stops the chat's coding agents along with the bot's work. Quitting Lorca stops the agents at work; one that was done can take another message later and picks up where it left off. The agent's run time counts toward the [limits](/docs/limits) of the turn that started it.

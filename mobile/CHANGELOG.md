@@ -6,11 +6,33 @@ when it offers the update.
 
 ## [Unreleased]
 
+## [1.0.9]
+
+- The home screen is three tabs: Bots, the chat list; Devices, the account's computers and phones,
+  each row opening its screen; and Search, which finds chats by title or member and messages by
+  what they say. An iPad keeps the sidebar and Settings lists the Devices.
+- Write to a coding agent from its page: a composer under its transcript sends your words straight
+  to the agent, which takes them up at its next step, ending or moving aside the command it is
+  running. The page shows what you and the bot each sent, and marks what the agent has yet to take.
+- A coding agent's row follows its pull request: agents on one pull request share a row, and it
+  reads Draft, Merged, or Closed as GitHub reports it.
+- A coding agent whose turn ends in an error is a failed run, and the bot tells you why it stopped.
+- A coding agent's question is a card at the end of the chat, and your next message to the bot
+  leaves it up.
+- When no review model can check an action, Auto-review asks you instead of handing it back to the
+  bot, and a second pass cut off mid-thought decides from what it weighed.
+- Stop ends the commands a coding agent runs, not only the agent itself.
+- A bot can start a teammate on another computer that is online, and move one there, with that
+  computer's folder, plugins, and coding agents. Its memory stays on the computer it came from.
 - A bot hands a coding agent your request in your words, with only where the repository is and what
   you already said, and no plan, checklist, branch, or way to check it of its own. The agent decides
   how to work, pushes, opens a pull request, and reports to you with the commands it ran and what
-  they printed. Its report notifies you as a reply does; the bot no longer checks its work or
-  follows up on its own, and speaks up only when the agent ends on its own.
+  they printed. Its report notifies you as a reply does, and the bot then relays it to you: the
+  agent's conclusion, its pull request, and the commands it ran with their results. The bot no
+  longer checks its work, builds or tests it, or follows up on its own.
+- Update Lorca on a computer from your phone: its Device screen shows the Lorca app's version, and
+  Update installs the newer one there. That Lorca restarts into it once its bots finish what they
+  are doing.
 
 ## [1.0.8]
 
