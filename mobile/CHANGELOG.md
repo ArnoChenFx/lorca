@@ -6,6 +6,17 @@ when it offers the update.
 
 ## [Unreleased]
 
+## [1.0.10]
+
+- Opening a chat from Bots on iOS slides it in under the list's bar: the buttons fade into the
+  chat's in place and the blur stays put.
+- Opening the app after a while away no longer deletes bots, chats, or routines made on another
+  Device meanwhile. Only what a Device deleted stays deleted everywhere.
+- A coding agent that carries on by itself, such as Claude Code once a background command it
+  started finishes, shows as working again, and its report reaches the chat for the bot to relay.
+- A bot on an Anthropic model with thinking on no longer fails every request with "Invalid signature
+  in thinking block" while it has open tasks.
+
 ## [1.0.9]
 
 - The home screen is three tabs: Bots, the chat list; Devices, the account's computers and phones,
