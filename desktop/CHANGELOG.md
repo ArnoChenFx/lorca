@@ -6,6 +6,19 @@ and the update window shows it.
 
 ## [Unreleased]
 
+## [0.1.19]
+
+- Opening Lorca on a Device that was away no longer deletes bots, chats, or routines made on another
+  Device meanwhile. Only what a Device deleted stays deleted everywhere.
+- A coding agent that carries on by itself, such as Claude Code once a background command it
+  started finishes, shows as working again, and its report reaches the chat for the bot to relay.
+- A bot on an Anthropic model with thinking on no longer fails every request with "Invalid signature
+  in thinking block" while it has open tasks.
+- On Windows, Ctrl+V pastes once, a maximized window keeps its caption buttons in place, and the
+  task dialog's buttons answer reliably.
+- A press on the track of a hidden scroll bar reaches what is under it, and text fields on macOS
+  no longer show AutoFill suggestions.
+
 ## [0.1.18]
 
 - The app draws what changed, not the whole window: windows repaint only what changed, layout
