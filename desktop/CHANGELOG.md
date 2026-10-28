@@ -6,8 +6,8 @@ and the update window shows it.
 
 ## [Unreleased]
 
-- Another Device sees a new version of this app within the hour. Before, it could say Up to date
-  for up to a day after a release.
+- A Device's pane in Settings has that Device look for a newer app and CLI as it opens, so it shows
+  what is out. Before, it could say Up to date for up to a day after a release.
 
 ## [0.1.21]
 

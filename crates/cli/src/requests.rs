@@ -102,8 +102,8 @@ pub fn serve(app: Arc<App>, from: String, request: Request, blob_id: String) {
 /// event subscriptions; the permission verb answers a card a bot here is waiting on; the bash
 /// verbs type into, stop, or background a command here;
 /// Send now has a turn here read a message it holds, and compact summarizes a chat for a bot
-/// here. The update verbs install the latest release of this CLI, or turn its automatic updates
-/// on or off. A request names no release and no download: the Runner installs only what its own
+/// here. The update verbs install the latest release of this CLI, turn its automatic updates
+/// on or off, or have it and the desktop app look for a newer version. A request names no release and no download: the Runner installs only what its own
 /// signed manifest offers.
 async fn answer(app: &Arc<App>, from: &str, request: &Request) -> Result<Value, String> {
     let body = &request.body;
@@ -176,6 +176,12 @@ async fn answer(app: &Arc<App>, from: &str, request: &Request) -> Result<Value, 
         "update.auto" => crate::update::set_auto(app, body["on"].as_bool().ok_or("missing on")?),
         #[cfg(feature = "cli")]
         "app.update.install" => crate::app_update::install(app),
+        #[cfg(feature = "cli")]
+        "updates.check" => {
+            crate::update::check_soon(app);
+            crate::app_update::check(app);
+            Ok(Value::Null)
+        }
         #[cfg(feature = "cli")]
         "service.status" => crate::service::status_out(&app.config),
         other => Err(format!("Unknown request {other}")),

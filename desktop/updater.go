@@ -85,10 +85,13 @@ func checkAppRelease(ctx context.Context) (*appRelease, error) {
 	return &appRelease{version: up.Version, install: func(ctx context.Context) error { return up.Install(ctx, nil) }}, nil
 }
 
-// appCheckInterval is how often the app looks for a newer version for the other Devices to see:
-// hourly, so a release shows on them the day it comes out. The GitHub API allows 60 unsigned
-// requests an hour.
-const appCheckInterval = time.Hour
+// appCheckInterval is how often the app looks for a newer version for the other Devices to see,
+// besides when one of them shows this Device.
+const appCheckInterval = 24 * time.Hour
+
+// appRecheckGap is how long after a check a Device that shows this one leaves the answer as it
+// is, so panes opened again and again stay within the GitHub API's 60 requests an hour.
+const appRecheckGap = 5 * time.Minute
 
 type appUpdates struct {
 	enabled  func() bool
@@ -118,7 +121,7 @@ type appUpdates struct {
 }
 
 // connected runs each time the app's CLI answers: it says how the app's updates stand, after a
-// check when the last one is an hour old, and picks up the relaunch a restarted CLI interrupted.
+// check when the last one is a day old, and picks up the relaunch a restarted CLI interrupted.
 func (u *appUpdates) connected() {
 	if !u.enabled() || store.IsMock {
 		return
@@ -140,8 +143,25 @@ func (u *appUpdates) connected() {
 	}
 }
 
-// refresh checks the feed for a newer version, says what it found, and checks again an hour
-// later. The caller set busy.
+// checkNow is the `app.update.check` of a Device that shows this one: the app looks at its feed
+// now, unless it did in the last minutes or a check or an install runs.
+func (u *appUpdates) checkNow() {
+	if !u.enabled() || store.IsMock {
+		return
+	}
+	u.mu.Lock()
+	due := !u.busy && u.state == "" && u.now().Sub(u.checked) >= appRecheckGap
+	if due {
+		u.busy = true
+	}
+	u.mu.Unlock()
+	if due {
+		u.refresh()
+	}
+}
+
+// refresh checks the feed for a newer version, says what it found, and checks again a day later.
+// The caller set busy.
 func (u *appUpdates) refresh() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	release, err := u.check(ctx)

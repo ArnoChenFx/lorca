@@ -71,6 +71,21 @@ func (s *settingsServiceState) statusOf(device *model.Device) *model.ServiceStat
 	return s.status
 }
 
+// settingsUpdatesState is the Device the Devices pane last had look for newer versions, once each
+// time the pane shows it.
+type settingsUpdatesState struct{ asked string }
+
+// check has an online Device that shows a version look for a newer one.
+func (s *settingsUpdatesState) check(device *model.Device) {
+	if (device.Status != model.StatusOnline && !device.IsThisDevice) || (device.App == nil && device.Update == nil) {
+		return
+	}
+	if s.asked != device.ID {
+		s.asked = device.ID
+		store.CheckDeviceUpdates(device.ID)
+	}
+}
+
 // device is the picked Device itself: what it is, whether it is online, its machine key, whether
 // `lorca service` keeps a Runner's CLI running, and Unpair.
 func (s settingsPane) device(c *ui.Context, m *mainWindow) {
@@ -81,6 +96,7 @@ func (s settingsPane) device(c *ui.Context, m *mainWindow) {
 			return
 		}
 		service := m.settings.service.statusOf(device)
+		m.settings.updates.check(device)
 		settingsDeviceHeader(c, device, s.w)
 		s.section(c, L("Machine"), nil, func(k *card) {
 			unknown := device.OS == model.OSUnknown

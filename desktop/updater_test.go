@@ -191,3 +191,26 @@ func TestRemoteAppUpdateRequestDuringItsOwnCheck(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 	}
 }
+
+// A Device that shows this one has the app look at its feed, unless it did in the last minutes.
+func TestRemoteAppUpdateCheckOnDemand(t *testing.T) {
+	checks := make(chan struct{}, 2)
+	u, calls, _ := remoteUpdatesTester(t, func(context.Context) (*appRelease, error) {
+		checks <- struct{}{}
+		return &appRelease{version: "0.1.15"}, nil
+	})
+	u.checked = time.Now().Add(-time.Hour)
+	go u.checkNow()
+	<-checks
+	report := nextUpdateCall(t, calls, "app.update_status")
+	if report.params["latest"] != "0.1.15" {
+		t.Fatalf("check on demand %v", report.params)
+	}
+	report.reply <- nil
+	u.checkNow()
+	select {
+	case <-checks:
+		t.Fatal("checked again minutes after the last check")
+	case <-time.After(50 * time.Millisecond):
+	}
+}

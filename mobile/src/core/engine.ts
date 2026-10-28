@@ -1215,6 +1215,12 @@ class Engine {
     useStore.setState((s) => ({ devices: s.devices.map((d) => (d.id === id && d.app ? { ...d, app: { ...d.app, latest, state: "installing", error: undefined } } : d)) }));
   }
 
+  /// Has a Device's CLI and desktop app look for a newer version now. Its `machine` blob carries
+  /// what they find; a Runner too old to know the request keeps what it said.
+  checkDeviceUpdates(id: string) {
+    core.request("device.check_updates", { id }).catch(() => {});
+  }
+
   /// Whether `lorca service` keeps a Runner's CLI running, asked of the Runner through the core.
   serviceStatus(id: string) {
     return core.request<{ installed: boolean; running: boolean }>("device.service_status", { id });

@@ -6,6 +6,9 @@ when it offers the update.
 
 ## [Unreleased]
 
+- A Device's screen in Settings has that Device look for a newer app and CLI as it opens, so it shows
+  what is out. Before, it could say Up to date for up to a day after a release.
+
 ## [1.0.11]
 
 - Bots are little characters now, as in Grok Bot: one of twelve shapes in the bot's color, with two

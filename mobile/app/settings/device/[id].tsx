@@ -72,6 +72,11 @@ export default function DeviceScreen() {
       current = false;
     };
   }, [id, standaloneRunner, online, isThis]);
+  // An online Device that shows a version looks for a newer one each time the screen shows it.
+  const showsVersion = !!device && (!!device.app || !!device.update);
+  useEffect(() => {
+    if (online && showsVersion && !isThis) engine.checkDeviceUpdates(id);
+  }, [id, online, showsVersion, isThis]);
 
   if (!device) return null;
   const shown = standaloneRunner && service?.id === device.id && online ? service : undefined;

@@ -3168,6 +3168,13 @@ func (s *Store) UpdateDeviceApp(id string, done func(error)) {
 	s.simple(done, "device.update_app", map[string]any{"id": id})
 }
 
+// CheckDeviceUpdates has a Device's CLI and desktop app, or this one's, look for a newer version
+// now. The Device's `machine` blob carries what they find; a Runner too old to know the request
+// keeps what it said.
+func (s *Store) CheckDeviceUpdates(id string) {
+	s.simple(nil, "device.check_updates", map[string]any{"id": id})
+}
+
 // AppUpdateReport is what this app tells its CLI of its own updates, which the CLI puts in this
 // Device's `machine` blob as `app`.
 type AppUpdateReport struct {

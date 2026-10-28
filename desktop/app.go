@@ -212,8 +212,12 @@ func (a *appDelegate) cliEvent(name string, frame []byte) {
 		Data json.RawMessage `json:"data"`
 	}
 	_ = json.Unmarshal(frame, &payload)
-	if name == "app.update.install" {
+	switch name {
+	case "app.update.install":
 		go remoteUpdates.install()
+		return
+	case "app.update.check":
+		go remoteUpdates.checkNow()
 		return
 	}
 	post(func() { store.HandleEvent(name, payload.Data) })

@@ -219,6 +219,21 @@ pub async fn dispatch(app: &Arc<App>, method: &str, params: Value) -> Result<Val
             };
             crate::requests::ask(app, &id, "app.update.install", json!({})).await
         }
+        // Another Device's CLI and desktop app by id, or this one's: they look for a newer
+        // version now, so the pane that shows the Device shows what is out. Answers at once;
+        // the Device's `machine` blob carries what they find.
+        "device.check_updates" => {
+            let id = opt_string(&params, "id").filter(|id| app.this_device_id().as_deref() != Some(id.as_str()));
+            let Some(id) = id else {
+                #[cfg(feature = "cli")]
+                {
+                    crate::update::check_soon(app);
+                    crate::app_update::check(app);
+                }
+                return Ok(Value::Null);
+            };
+            crate::requests::ask(app, &id, "updates.check", json!({})).await
+        }
         "identity.forget" => {
             crate::sync::revoke_self(app).await;
             app.forget_identity().map_err(|e| e.to_string())?;

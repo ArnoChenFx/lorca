@@ -29,6 +29,7 @@ type settingsPageState struct {
 
 	mcp     settingsMcpState
 	service settingsServiceState
+	updates settingsUpdatesState
 	secrets settingsSecretsState
 	coding  settingsCodingState
 }
@@ -109,6 +110,7 @@ func (m *mainWindow) settingsPage(c *ui.Context, pane model.SettingsPane) {
 	if pane != model.PaneDevice {
 		// So does the Devices pane for the Runner's service.
 		m.settings.service.asked = ""
+		m.settings.updates.asked = ""
 	}
 	if pane != model.PaneSecrets {
 		// And the Secrets pane for the Runner's secrets.
