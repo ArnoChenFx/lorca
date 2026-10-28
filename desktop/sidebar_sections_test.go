@@ -149,3 +149,28 @@ func TestSidebarSectionsFoldMoveMuteAndHide(t *testing.T) {
 	settle(tt)
 	renderBoth(t, tt, "sidebar-sections-hidden")
 }
+
+func TestSidebarRowMenuLeavesTheSelectionAndChangesTheLook(t *testing.T) {
+	m := demoWindow(t)
+	tt := ui.NewTester(m.frame(m.view), 1180, 760)
+	runPosts()
+	for range 4 {
+		tt.Frame()
+	}
+	selected := m.selection.ChatID
+	if err := tt.RightClick("Writer"); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	if m.selection.ChatID != selected {
+		t.Fatalf("right-clicking Writer selected %q", m.selection.ChatID)
+	}
+	if err := tt.ChooseMenuItem(L("Change Look…")); err != nil {
+		t.Fatal(err)
+	}
+	tt.Frame()
+	tt.Frame()
+	if !tt.HasText(L("Pick a shape and a color, or use an image of your own. Paired Devices see the same look.")) {
+		t.Fatal("Change Look… did not open the bot's look")
+	}
+}

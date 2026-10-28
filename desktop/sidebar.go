@@ -469,6 +469,9 @@ func (m *mainWindow) chatRow(c *ui.Context, chat *model.Chat, selected, listFocu
 			row.Background(p.SelectionInactive)
 			backdrop = p.SelectionInactive.Over(p.Sidebar)
 		}
+	} else if row.Hovered() {
+		row.Background(p.Hover)
+		backdrop = p.Hover.Over(p.Sidebar)
 	}
 	// A row is chosen as the pointer goes down, as the Mac's are; assistive technology presses
 	// it instead.
@@ -476,12 +479,11 @@ func (m *mainWindow) chatRow(c *ui.Context, chat *model.Chat, selected, listFocu
 		m.selectChat(chat.ID)
 	}
 	if row.DoubleClicked() && chat.IsGroup() {
-		m.renameChat()
+		m.renameChat(chat.ID)
 	}
 	chatID := chat.ID
 	row.ContextMenu(func(menu *ui.Menu) {
-		// Acting on the clicked row means selecting it first; the commands read the selection.
-		m.selectChat(chatID)
+		// The menu acts on the clicked row and leaves the selection where it is.
 		pin := L("Pin")
 		if chat.IsPinned {
 			pin = L("Unpin")
@@ -493,13 +495,18 @@ func (m *mainWindow) chatRow(c *ui.Context, chat *model.Chat, selected, listFocu
 		menu.Separator()
 		if chat.IsGroup() {
 			if menu.Item(L("Rename…")).Chosen() {
-				m.renameChat()
+				m.renameChat(chatID)
 			}
 			if menu.Item(L("Add Bot…")).Disabled(len(botsAvailableToAdd(chatID)) == 0).Chosen() {
 				m.addBotToChat(chatID)
 			}
-		} else if menu.Item(L("Share as Template…")).Chosen() {
-			runCommand("shareBotTemplate")
+		} else if bots := store.BotsIn(chat); len(bots) > 0 {
+			if menu.Item(L("Change Look…")).Chosen() {
+				m.presentBotLook(bots[0].ID)
+			}
+			if menu.Item(L("Share as Template…")).Chosen() {
+				m.presentTemplateShare(bots[0].ID)
+			}
 		}
 		menu.Separator()
 		remove := L("Delete Chat")
@@ -507,7 +514,7 @@ func (m *mainWindow) chatRow(c *ui.Context, chat *model.Chat, selected, listFocu
 			remove = L("Delete Bot")
 		}
 		if menu.Item(remove).Chosen() {
-			m.deleteChat()
+			m.deleteChat(chatID)
 		}
 	})
 	row.Children(func() {
@@ -832,6 +839,8 @@ func (m *mainWindow) settingsSidebar(c *ui.Context) {
 				} else {
 					e.Background(p.SelectionInactive)
 				}
+			} else if e.Hovered() {
+				e.Background(p.Hover)
 			}
 			if (e.Pressed() || e.Clicked()) && !on {
 				pick(row)

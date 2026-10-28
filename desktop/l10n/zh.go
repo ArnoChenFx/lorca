@@ -288,6 +288,7 @@ var zh = map[string]string{
 	"Category":                       "类别",
 	"Change":                         "更改",
 	"Change look":                    "更改外观",
+	"Change Look…":                   "更改外观…",
 	"Changed":                        "变化",
 	"Changed %@":                     "修改于 %@",
 	"Changes":                        "更改",

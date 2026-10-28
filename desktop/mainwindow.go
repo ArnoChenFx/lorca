@@ -373,7 +373,7 @@ func (m *mainWindow) run(id string) {
 	case "addBot":
 		m.addBotToChat(m.selection.ChatID)
 	case "renameChat":
-		m.renameChat()
+		m.renameChat(m.selection.ChatID)
 	case "pinChat":
 		if id := m.selection.ChatID; id != "" {
 			store.TogglePin(id)
@@ -410,7 +410,7 @@ func (m *mainWindow) run(id string) {
 			}
 		}
 	case "deleteChat":
-		m.deleteChat()
+		m.deleteChat(m.selection.ChatID)
 	}
 	m.invalidate()
 }
@@ -431,13 +431,12 @@ func botsAvailableToAdd(chatID string) []*model.Bot {
 	return out
 }
 
-func (m *mainWindow) renameChat() {
-	chat := store.Chat(m.selection.ChatID)
+func (m *mainWindow) renameChat(chatID string) {
+	chat := store.Chat(chatID)
 	if chat == nil || !chat.IsGroup() {
 		mygo.Shell.Beep()
 		return
 	}
-	chatID := chat.ID
 	value := store.Title(chat)
 	m.showAlert(alertOptions{
 		Message:     L("Rename Chat"),
@@ -504,13 +503,12 @@ func (m *mainWindow) deleteSection(id string) {
 	})
 }
 
-func (m *mainWindow) deleteChat() {
-	chat := store.Chat(m.selection.ChatID)
+func (m *mainWindow) deleteChat(chatID string) {
+	chat := store.Chat(chatID)
 	if chat == nil {
 		mygo.Shell.Beep()
 		return
 	}
-	chatID := chat.ID
 	deletesBot := chat.IsBotDM() && len(chat.BotIDs) > 0 && store.Bot(chat.BotIDs[0]) != nil
 	informative := L("The transcript is removed from this Device and from paired Devices.")
 	confirm := L("Delete")
