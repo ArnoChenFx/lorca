@@ -144,6 +144,8 @@ export const zh: Record<string, string> = {
   "Chat": "聊天",
   "Chat info": "聊天信息",
   "Chats": "聊天",
+  "Hide chat list": "隐藏聊天列表",
+  "Show chat list": "显示聊天列表",
   "Check": "检查",
   "Check actions before they run": "运行前检查操作",
   "Check for Updates": "检查更新",

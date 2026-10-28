@@ -145,6 +145,8 @@ const ANDROID: Record<string, string> = {
   "point.3.connected.trianglepath.dotted": "account_tree",
   // Coding agents: how one stands, its transcript's plan, and the grip that reorders them.
   "line.3.horizontal": "drag_handle",
+  "sidebar.left": "view_sidebar",
+  "sidebar.leading": "view_sidebar",
   "stop.circle": "stop_circle",
   "circle.dotted.circle": "pending",
 };
