@@ -500,6 +500,21 @@ export const Composer = memo(function Composer({
     ) : (
       primaryButton
     );
+  // Stop and Send stay together on the trailing edge. In the expanded controls row,
+  // `space-between` would put Stop in the middle between + and Send.
+  const trailingDiscs = (
+    <View key="trailing" style={styles.trailingDiscs}>
+      {stopDisc}
+      {primaryDisc}
+    </View>
+  );
+  const expandedTrailing = (
+    <View key="trailing" style={styles.trailingDiscs}>
+      {listening && recording}
+      {stopDisc}
+      {primaryDisc}
+    </View>
+  );
 
   return (
     <View style={styles.wrap} pointerEvents="box-none">
@@ -568,12 +583,10 @@ export const Composer = memo(function Composer({
                 !listening && input,
                 <View key="controls" style={[styles.controls, !attach && styles.controlsEnd]}>
                   {plus}
-                  {listening && recording}
-                  {stopDisc}
-                  {primaryDisc}
+                  {expandedTrailing}
                 </View>,
               ]
-            : [plus, listening ? recording : input, stopDisc, primaryDisc]}
+            : [plus, listening ? recording : input, trailingDiscs]}
         </View>
       </Surface>
       {Platform.OS === "android" && attachOpen ? (
@@ -649,6 +662,7 @@ const styles = StyleSheet.create({
   replyText: { flex: 1, fontSize: 13 },
   controls: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 6, paddingTop: 4 },
   controlsEnd: { justifyContent: "flex-end" },
+  trailingDiscs: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 },
   inputBox: { flex: 1, marginVertical: 6, marginHorizontal: 6 },
   // In the stack the input is a row of its own: no growing into the column, wider margins.
   inputBoxExpanded: { flex: 0, marginHorizontal: 12, marginTop: 10, marginBottom: 6 },
