@@ -2040,6 +2040,7 @@ impl App {
             let Some(chat) = state.chats.iter_mut().find(|c| c.meta.id == chat_id) else { return };
             let entry = chat.usage.get_or_insert_with(ChatUsage::default);
             entry.context_tokens = lorca_agent::estimate::context_tokens(usage);
+            entry.context_estimated = false;
             entry.context_window = context_window;
             entry.input_tokens += usage.input + usage.cache_read + usage.cache_write;
             entry.output_tokens += usage.output;
@@ -2047,6 +2048,24 @@ impl App {
             entry.cost_usd += usage.cost.total;
             entry.turns += 1;
             entry.model = model.to_string();
+            entry.updated_at = crate::config::now_secs();
+            entry.clone()
+        };
+        self.save_state();
+        self.report_usage(chat_id, updated);
+    }
+
+    /// After a Compact, the context the next turn sends until that turn counts it: the last
+    /// turn's count less what the summary took out, `before` and `after` being the transcript's
+    /// estimated size on either side of it.
+    #[cfg(feature = "runner")]
+    pub fn record_compacted_context(&self, chat_id: &str, before: u64, after: u64) {
+        let updated = {
+            let mut state = self.state.lock().unwrap();
+            let Some(chat) = state.chats.iter_mut().find(|c| c.meta.id == chat_id) else { return };
+            let Some(entry) = chat.usage.as_mut().filter(|usage| usage.context_tokens > 0) else { return };
+            entry.context_tokens = entry.context_tokens.saturating_sub(before.saturating_sub(after)).max(after);
+            entry.context_estimated = true;
             entry.updated_at = crate::config::now_secs();
             entry.clone()
         };

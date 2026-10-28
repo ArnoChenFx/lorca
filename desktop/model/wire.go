@@ -308,6 +308,7 @@ type WireMessage struct {
 
 type WireChatUsage struct {
 	ContextTokens           int      `json:"context_tokens"`
+	ContextEstimated        bool     `json:"context_estimated"`
 	ContextWindow           int      `json:"context_window"`
 	InputTokens             int      `json:"input_tokens"`
 	OutputTokens            int      `json:"output_tokens"`
@@ -1003,6 +1004,7 @@ func ToMessage(wire WireMessage) *Message {
 func ToUsage(wire WireChatUsage) *ChatUsage {
 	return &ChatUsage{
 		ContextTokens:           wire.ContextTokens,
+		ContextEstimated:        wire.ContextEstimated,
 		ContextWindow:           wire.ContextWindow,
 		InputTokens:             wire.InputTokens,
 		OutputTokens:            wire.OutputTokens,

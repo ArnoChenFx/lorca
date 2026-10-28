@@ -6,6 +6,11 @@ and the update window shows it.
 
 ## [Unreleased]
 
+## [0.1.21]
+
+- After Compact, the inspector's Context row drops to the compacted size right away, marked ≈ as an
+  estimate until the bot's next turn counts it. Before, it kept the old size until then.
+
 ## [0.1.20]
 
 - Bots are little characters now, as in Grok Bot: one of twelve shapes in the bot's color, with two

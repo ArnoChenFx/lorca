@@ -2473,9 +2473,11 @@ func (c *Chat) Message(id string) *Message {
 // MARK: - Usage
 
 // ChatUsage is the tokens and money the turns in a chat used. ContextTokens and ContextWindow are
-// the last turn's; the rest accumulate.
+// the last turn's; the rest accumulate. ContextEstimated marks an estimate after a Compact, until
+// the next turn counts the context.
 type ChatUsage struct {
 	ContextTokens           int
+	ContextEstimated        bool
 	ContextWindow           int
 	InputTokens             int
 	OutputTokens            int
@@ -2489,13 +2491,18 @@ type ChatUsage struct {
 	PricingKinds            []string
 }
 
-// ContextSummary is "128k of 1M · 13%", or "128k" when the window is unknown.
+// ContextSummary is "128k of 1M · 13%", or "128k" when the window is unknown, with a leading "≈ "
+// when the size is an estimate.
 func (u ChatUsage) ContextSummary() string {
-	if u.ContextWindow <= 0 {
-		return Tokens(u.ContextTokens)
+	summary := Tokens(u.ContextTokens)
+	if u.ContextWindow > 0 {
+		percent := int(math.Round(float64(u.ContextTokens) / float64(u.ContextWindow) * 100))
+		summary = L("%@ of %@ · %d%%", Tokens(u.ContextTokens), Tokens(u.ContextWindow), percent)
 	}
-	percent := int(math.Round(float64(u.ContextTokens) / float64(u.ContextWindow) * 100))
-	return L("%@ of %@ · %d%%", Tokens(u.ContextTokens), Tokens(u.ContextWindow), percent)
+	if u.ContextEstimated {
+		return "≈ " + summary
+	}
+	return summary
 }
 
 // SpendSummary is "$0.42 · 18 turns". A subscription's turns cost what the plan costs, so their

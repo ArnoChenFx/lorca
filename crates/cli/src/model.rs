@@ -1029,6 +1029,9 @@ impl Chat {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct ChatUsage {
     pub context_tokens: u64,
+    /// `context_tokens` is an estimate after a Compact, until the next turn counts it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub context_estimated: bool,
     pub context_window: u64,
     pub input_tokens: u64,
     pub output_tokens: u64,

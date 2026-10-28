@@ -933,9 +933,16 @@ pub async fn compact_now(app: &Arc<App>, chat_id: &str, bot_id: Option<&str>) ->
     let chat = app.chat(chat_id).ok_or("Unknown chat")?;
     let mut settings = compaction_settings(provider.model_info().map(|i| i.context_window).unwrap_or(0));
     settings.enabled = true;
+    let workdir = bot.working_directory(&app.config.home);
+    let before = estimate_context_tokens(&transcript_for(app, &chat, &bot, &workdir)).tokens;
     let tokens_before = compact_chat(app, &chat, &bot, &provider, &settings, &CancellationToken::new())
         .await?
         .ok_or_else(|| "Nothing to compact yet".to_string())?;
+    // The Context row shows the last turn's count, which the summary just made stale.
+    if let Some(chat) = app.chat(chat_id) {
+        let after = estimate_context_tokens(&transcript_for(app, &chat, &bot, &workdir)).tokens;
+        app.record_compacted_context(chat_id, before, after);
+    }
     app.notice(chat_id, format!("Compacted {}'s context: {} tokens summarized.", bot.name, format_tokens(tokens_before)));
     Ok(tokens_before)
 }
@@ -5454,6 +5461,32 @@ mod tests {
         // The same report again changes nothing.
         phone.set_runner_usage("chat", &runner_id, reported);
         assert!(events.try_recv().is_err());
+    }
+
+    #[test]
+    fn a_compact_lowers_the_context_until_the_next_turn_counts_it() {
+        let scratch = scratch_app();
+        let app = &scratch.0;
+        crate::identity::create(app, Some("Runner".into())).unwrap();
+        app.state.lock().unwrap().chats.push(chat("chat", "dm", None, &["b1"]));
+        // No turn has counted the context yet: nothing to lower.
+        app.record_compacted_context("chat", 100_000, 20_000);
+        assert!(app.chat("chat").unwrap().usage.is_none());
+
+        let usage = lorca_agent::Usage { input: 140_000, output: 1_000, total_tokens: 141_000, ..Default::default() };
+        app.record_usage("chat", "deepseek-chat", &usage, 1_000_000);
+        let mut events = app.events.subscribe();
+        // The system prompt and tools the count carries stay; the summarized messages leave.
+        app.record_compacted_context("chat", 120_000, 25_000);
+        let shown = app.chat("chat").unwrap().usage.unwrap();
+        assert_eq!((shown.context_tokens, shown.context_estimated, shown.turns, shown.input_tokens), (46_000, true, 1, 140_000));
+        assert!(matches!(events.try_recv(), Ok(Event::ChatUsageChanged { usage, .. }) if usage.context_tokens == 46_000));
+        // An estimate past the count never shows less than the transcript left.
+        app.record_compacted_context("chat", 200_000, 30_000);
+        assert_eq!(app.chat("chat").unwrap().usage.unwrap().context_tokens, 30_000);
+        // The next turn's count replaces the estimate.
+        app.record_usage("chat", "deepseek-chat", &usage, 1_000_000);
+        assert!(!app.chat("chat").unwrap().usage.unwrap().context_estimated);
     }
 
     #[test]
