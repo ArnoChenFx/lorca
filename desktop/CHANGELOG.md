@@ -17,6 +17,9 @@ and the update window shows it.
   toast saying why it failed.
 - A bot that runs on another Device shows its context and spend in the inspector, and Compact runs
   on that Device.
+- Right-click a bot in the sidebar and choose Change Look… to change its look. Right-clicking a
+  row opens its menu without opening the chat.
+- Rows in the sidebar light up under the pointer.
 
 ## [0.1.19]
 
