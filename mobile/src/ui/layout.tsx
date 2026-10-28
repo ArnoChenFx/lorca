@@ -1,8 +1,11 @@
 // The window's shape. A wide window (a tablet, or a tablet window with room to spare) shows the
-// chat list as a sidebar beside the open chat; a narrow one stacks the chat over the list.
+// chat list as a sidebar beside the open chat; a narrow one stacks the chat over the list. The
+// sidebar can be hidden so the chat pane uses the full width.
 
-import { createContext, use } from "react";
-import { useWindowDimensions } from "react-native";
+import { CompactWidthView } from "../../modules/lorca-core/CompactWidthView";
+import { createContext, use, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { StyleSheet, useWindowDimensions, View } from "react-native";
+import { Sidebar } from "./Sidebar";
 
 /// An iPad mini in portrait (744 pt) is wide; half of an 11-inch iPad's screen is not.
 const WIDE_MIN = 700;
@@ -25,3 +28,56 @@ export function usePaneWidth(): number {
   const { width } = useWindowDimensions();
   return pane ?? width;
 }
+
+type SidebarLayoutValue = {
+  wide: boolean;
+  collapsed: boolean;
+  showsSidebar: boolean;
+  toggleSidebar: () => void;
+};
+
+const SidebarLayoutContext = createContext<SidebarLayoutValue | null>(null);
+
+export function useSidebarLayout(): SidebarLayoutValue {
+  const value = use(SidebarLayoutContext);
+  if (!value) throw new Error("useSidebarLayout must be used under WideMainPanes");
+  return value;
+}
+
+/// The row of sidebar and main pane. Hides the sidebar when the user collapses it on a wide window.
+export function WideMainPanes({ children, borderColor }: { children: ReactNode; borderColor: string }) {
+  const wide = useWide();
+  const sidebarWidth = useSidebarWidth();
+  const { width } = useWindowDimensions();
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    if (!wide) setCollapsed(false);
+  }, [wide]);
+  const showsSidebar = wide && !collapsed;
+  const paneWidth = showsSidebar ? width - sidebarWidth : width;
+  const toggleSidebar = useCallback(() => setCollapsed((on) => !on), []);
+  const layout = useMemo(
+    () => ({ wide, collapsed, showsSidebar, toggleSidebar }),
+    [wide, collapsed, showsSidebar, toggleSidebar],
+  );
+  return (
+    <SidebarLayoutContext value={layout}>
+      <View style={styles.panes}>
+        {showsSidebar ? (
+          <CompactWidthView style={[styles.sidebar, { width: sidebarWidth, borderRightColor: borderColor }]}>
+            <Sidebar />
+          </CompactWidthView>
+        ) : null}
+        <View style={styles.pane}>
+          <PaneWidth value={paneWidth}>{children}</PaneWidth>
+        </View>
+      </View>
+    </SidebarLayoutContext>
+  );
+}
+
+const styles = StyleSheet.create({
+  panes: { flex: 1, flexDirection: "row" },
+  sidebar: { borderRightWidth: StyleSheet.hairlineWidth },
+  pane: { flex: 1 },
+});

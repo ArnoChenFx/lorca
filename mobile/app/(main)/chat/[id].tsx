@@ -43,7 +43,9 @@ import { t, useLanguage } from "../../../src/i18n";
 import { AvatarCluster } from "../../../src/ui/Avatar";
 import { Composer, Surface } from "../../../src/ui/Composer";
 import { KeyboardFoot } from "../../../src/ui/KeyboardFoot";
-import { useWide } from "../../../src/ui/layout";
+import { useSidebarLayout, useWide } from "../../../src/ui/layout";
+import { SidebarToggle } from "../../../src/ui/SidebarToggle";
+import { haptic } from "../../../src/ui/haptics";
 import { Symbol } from "../../../src/ui/Symbol";
 import { usePalette, withAlpha } from "../../../src/ui/theme";
 import { quoteText } from "../../../src/ui/format";
@@ -1107,6 +1109,7 @@ const ChatHeader = memo(function ChatHeader({ id, title, members, service, worki
   useLanguage();
   const router = useRouter();
   const p = usePalette();
+  const { collapsed, toggleSidebar } = useSidebarLayout();
   const options = useMemo(() => ({ title }), [title]);
   // The bar is the surface color fading out over the transcript, the wallpaper's tint included.
   const veil = useMemo(() => {
@@ -1133,6 +1136,18 @@ const ChatHeader = memo(function ChatHeader({ id, title, members, service, worki
               </Text>
             </Pressable>
           </Stack.Title>
+          {wide ? (
+            <Stack.Toolbar placement="left">
+              <Stack.Toolbar.Button
+                icon={collapsed ? "sidebar.left" : "sidebar.leadinghalf.filled"}
+                accessibilityLabel={collapsed ? t("Show chat list") : t("Hide chat list")}
+                onPress={() => {
+                  haptic.light();
+                  toggleSidebar();
+                }}
+              />
+            </Stack.Toolbar>
+          ) : null}
           <Stack.Toolbar placement="right">
             {/* The commands the chat's bots are running, while there are any. */}
             <Stack.Toolbar.Button hidden={!hasTasks} icon="terminal" accessibilityLabel={t("Running tasks")} onPress={() => router.push(`/tasks/${id}`)} />
@@ -1152,7 +1167,7 @@ const ChatHeader = memo(function ChatHeader({ id, title, members, service, worki
           <View style={[styles.androidHeaderControls, { height: visibleHeaderHeight, paddingTop: top }]}>
             {/* A Material top bar: Back, then the title at the start. Beside the sidebar there is
                 nothing to go back to. */}
-            {wide ? null : (
+            {wide ? <SidebarToggle /> : (
               <Pressable onPress={() => router.back()} style={styles.androidHeaderButton} ripple="borderless" accessibilityRole="button" accessibilityLabel={t("Back")}>
                 <Symbol name="arrow.left" size={24} color={p.label} />
               </Pressable>
