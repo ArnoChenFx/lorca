@@ -23,7 +23,7 @@ import { AttachmentBlock } from "./attachments";
 import { OutputCard } from "./outputs";
 import { BotAvatar, ContactAvatar } from "./Avatar";
 import { AgentLogo } from "./AgentLogo";
-import { daySeparator, firstLine, workingActivity } from "./format";
+import { daySeparator, firstLine, workingActivity, workingPhrase, workingStep } from "./format";
 import { Markdown } from "./Markdown";
 import { Symbol } from "./Symbol";
 import { usePaneWidth } from "./layout";
@@ -970,17 +970,18 @@ export const StatusRow = memo(function StatusRow({ text }: { text: string }) {
   );
 });
 
-/// "Working…" in a DM and "Chef is working…" in a group, or what the one bot at work is doing,
-/// the words shimmering while a turn runs.
+/// One of Grok Bot's phrases in a DM ("Chipping away…") and "Chef is working…" in a group, or what
+/// the one bot at work is doing, the words shimmering while a turn runs.
 export const WorkingRow = memo(function WorkingRow({ chatId, bots, isGroup }: { chatId: string; bots: Bot[]; isGroup: boolean }) {
   useLanguage();
   const p = usePalette();
   const activity = useStore((s) => workingActivity(s, chatId));
+  const step = useStore((s) => workingStep(chatId, s.chats.find((c) => c.id === chatId)?.messages));
   const names = bots.map((b) => b.name);
   const label =
     names.length > 1
       ? t("{names} and {last} are working…", { names: names.slice(0, -1).join(language === "zh" ? "、" : ", "), last: names[names.length - 1] })
-      : (activity ?? (isGroup && names.length === 1 ? t("{name} is working…", { name: names[0] }) : t("Working…")));
+      : (activity ?? (isGroup && names.length === 1 ? t("{name} is working…", { name: names[0] }) : workingPhrase(step)));
   return (
     <View style={[styles.messageRow, styles.messageRowBot, { paddingTop: 14, alignItems: "center" }]}>
       <View style={{ width: AVATAR + GUTTER }}>{bots[0] && <BotAvatar bot={bots[0]} size={AVATAR} />}</View>

@@ -248,7 +248,7 @@ func (m *mainWindow) chatRowView(c *ui.Context, chat *model.Chat, row chatRow, s
 				bots = append(bots, bot)
 			}
 		}
-		workingCell(c, bots, workingActivity(row.botIDs, chat), chat.IsGroup())
+		workingCell(c, bots, workingActivity(row.botIDs, chat), chat.IsGroup(), workingStep(chat))
 	case rowMessage:
 		message := row.message
 		showsAvatar := chat.ShowsSpeakers() && (message.Author.Kind == model.AuthorBot || message.Author.Kind == model.AuthorContact)
@@ -845,28 +845,28 @@ func attachmentTiles(c *ui.Context, chatID string, message *model.Message, onUse
 // toolActivity is what a tool row means while it runs, in the words of the status line.
 // `pluginName` is the plugin behind a `<plugin>__<tool>` row, so the line reads "Using GitHub"
 // between two calls as well as during one.
-func toolActivity(tool *model.ToolInvocation, targetName, pluginName string) string {
+func toolActivity(tool *model.ToolInvocation, targetName, pluginName, step string) string {
 	switch tool.Name {
 	case "read":
-		return L("Reading a file")
+		return L("Reading the file")
 	case "write", "edit":
-		return L("Drafting a file")
+		return L("Jotting it down")
 	case "bash":
 		if tool.Description != "" {
 			return L("Running command: %@", tool.Description)
 		}
-		return L("Running commands")
+		return L("Running a few commands")
 	case "web_search":
-		return L("Searching the web")
+		return L("Digging around")
 	case "web_fetch":
-		return L("Reading the web")
+		return L("Doing some reading")
 	case "grep", "find", "ls":
 		return L("Searching files")
 	case "message_bot":
 		if targetName != "" {
-			return L("Messaging %@", targetName)
+			return L("Checking with %@", targetName)
 		}
-		return L("Messaging another bot")
+		return L("Checking with another bot")
 	case "coding_agent":
 		return L("Writing some code")
 	case "list_teammates":
@@ -884,7 +884,7 @@ func toolActivity(tool *model.ToolInvocation, targetName, pluginName string) str
 	case "bash_input":
 		return L("Answering a command")
 	case "bash_output":
-		return L("Waiting on a command")
+		return L("Waiting on results")
 	case "codemode":
 		// A codemode script: its latest command, else the plugin of its latest plugin call, which
 		// the CLI names.
@@ -894,7 +894,7 @@ func toolActivity(tool *model.ToolInvocation, targetName, pluginName string) str
 		if tool.Description != "" {
 			return L("Using %@", tool.Description)
 		}
-		return L("Working")
+		return workingPhrase(step)
 	}
 	if pluginName != "" {
 		return L("Using %@", pluginName)
@@ -902,7 +902,43 @@ func toolActivity(tool *model.ToolInvocation, targetName, pluginName string) str
 	if strings.Contains(tool.Name, "__") && strings.HasPrefix(tool.Summary, "Using ") {
 		return strings.TrimSuffix(tool.Summary, "…")
 	}
-	return L("Working")
+	return workingPhrase(step)
+}
+
+// Grok Bot's words for a bot at work with nothing more particular to say: thinking draws from
+// three phrases and working from five. The draw is by the step (`step`, the chat and its latest
+// message), so a step keeps its words and the next one may change them.
+
+func thinkingPhrase(step string) string {
+	switch motionSeed(step+"thinking") % 3 {
+	case 0:
+		return L("Thinking it through")
+	case 1:
+		return L("Mulling it over")
+	}
+	return L("Putting it together")
+}
+
+func workingPhrase(step string) string {
+	switch motionSeed(step) % 5 {
+	case 0:
+		return L("Getting it done")
+	case 1:
+		return L("Making progress")
+	case 2:
+		return L("Working on it")
+	case 3:
+		return L("Handling it")
+	}
+	return L("Chipping away")
+}
+
+// workingStep names the step a chat's work is on: its latest message.
+func workingStep(chat *model.Chat) string {
+	if n := len(chat.Messages); n > 0 {
+		return chat.ID + "/" + chat.Messages[n-1].ID
+	}
+	return chat.ID
 }
 
 // pluginNameOf is the plugin behind a `<plugin>__<tool>` row, by name, from the bot's Runner.
@@ -946,11 +982,11 @@ func workingActivity(botIDs []string, chat *model.Chat) string {
 					target = bot.Name
 				}
 			}
-			words = toolActivity(tool, target, pluginNameOf(tool.Name, only))
+			words = toolActivity(tool, target, pluginNameOf(tool.Name, only), workingStep(chat))
 		}
 	}
 	if only != "" && store.IsThinking(only, chat.ID) {
-		words = Lc("Thinking", "status")
+		words = thinkingPhrase(workingStep(chat))
 	}
 	if note := store.RetryNote(chat.ID); note != "" {
 		words = note
@@ -958,7 +994,7 @@ func workingActivity(botIDs []string, chat *model.Chat) string {
 	return words
 }
 
-func workingText(names []string, activity string, showsName bool) string {
+func workingText(names []string, activity string, showsName bool, step string) string {
 	switch {
 	case len(names) > 1:
 		return L("%@ and %@ are working…", strings.Join(names[:len(names)-1], L(", ")), names[len(names)-1])
@@ -967,18 +1003,19 @@ func workingText(names []string, activity string, showsName bool) string {
 	case showsName && len(names) > 0:
 		return L("%@ is working…", names[0])
 	}
-	return L("Working") + "…"
+	return workingPhrase(step) + "…"
 }
 
 // workingCell is "Chef is working…" after the last message, its words shimmering while a turn
-// runs. A DM reads "Working…"; with one bot at work the line says what it is doing.
-func workingCell(c *ui.Context, bots []*model.Bot, activity string, showsName bool) {
+// runs. A DM reads one of Grok Bot's phrases ("Chipping away…"); with one bot at work the line says
+// what it is doing.
+func workingCell(c *ui.Context, bots []*model.Bot, activity string, showsName bool, step string) {
 	p := colors(c)
 	names := make([]string, 0, len(bots))
 	for _, bot := range bots {
 		names = append(names, bot.Name)
 	}
-	text := workingText(names, activity, showsName)
+	text := workingText(names, activity, showsName, step)
 	label := text
 	if len(bots) == 1 {
 		label = L("%@ is working", bots[0].Name)

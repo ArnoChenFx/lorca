@@ -5,6 +5,7 @@ import type { Body, Bot, Chat, Message, Routine } from "../core/model";
 import { agentStartRow, agentTitle, agentWrote, attachmentSummary, isAgentRow, isSentMessage } from "../core/model";
 import type { StoreState } from "../core/store";
 import { language, t } from "../i18n";
+import { fnv } from "./characterMotion";
 import { draftTitle } from "./drafts";
 
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -251,34 +252,71 @@ export function workingActivity(s: WorkState, chatId: string): string | null {
   for (const r of Object.values(s.running)) if (r.chatId === chatId && r.botId) botIds.add(r.botId);
   if (botIds.size !== 1) return null;
   const [botId] = botIds;
-  if (s.thinking[chatId] === botId) return t("Thinking…");
   const chat = s.chats.find((c) => c.id === chatId);
+  const step = workingStep(chatId, chat?.messages);
+  if (s.thinking[chatId] === botId) return thinkingPhrase(step);
   const last = chat?.messages[chat.messages.length - 1];
   if (last?.author.kind !== "bot" || last.author.bot_id !== botId || last.body.kind !== "tool" || isSentMessage(last.body)) return null;
-  return toolActivity(s, botId, last.body);
+  return toolActivity(s, botId, last.body, step);
+}
+
+// Grok Bot's words for a bot at work with nothing more particular to say: thinking draws from
+// three phrases and working from five, as the desktop app does. The draw is by the step (the chat
+// and its latest message), so a step keeps its words and the next one may change them.
+
+/// The step a chat's work is on: its latest message.
+export function workingStep(chatId: string, messages: readonly { id: string }[] | undefined): string {
+  const last = messages?.[messages.length - 1];
+  return last ? `${chatId}/${last.id}` : chatId;
+}
+
+export function thinkingPhrase(step: string): string {
+  switch (fnv(step + "thinking") % 3) {
+    case 0:
+      return t("Thinking it through…");
+    case 1:
+      return t("Mulling it over…");
+    default:
+      return t("Putting it together…");
+  }
+}
+
+export function workingPhrase(step: string): string {
+  switch (fnv(step) % 5) {
+    case 0:
+      return t("Getting it done…");
+    case 1:
+      return t("Making progress…");
+    case 2:
+      return t("Working on it…");
+    case 3:
+      return t("Handling it…");
+    default:
+      return t("Chipping away…");
+  }
 }
 
 /// What a call means while it runs, in the words of the working row.
-function toolActivity(s: WorkState, botId: string, tool: Extract<Body, { kind: "tool" }>): string {
+function toolActivity(s: WorkState, botId: string, tool: Extract<Body, { kind: "tool" }>, step: string): string {
   switch (tool.name) {
     case "read":
-      return t("Reading a file…");
+      return t("Reading the file…");
     case "write":
     case "edit":
-      return t("Drafting a file…");
+      return t("Jotting it down…");
     case "bash":
-      return tool.description ? t("Running command: {description}…", { description: tool.description }) : t("Running commands…");
+      return tool.description ? t("Running command: {description}…", { description: tool.description }) : t("Running a few commands…");
     case "web_search":
-      return t("Searching the web…");
+      return t("Digging around…");
     case "web_fetch":
-      return t("Reading the web…");
+      return t("Doing some reading…");
     case "grep":
     case "find":
     case "ls":
       return t("Searching files…");
     case "message_bot": {
       const target = s.bots.find((b) => b.id === tool.target_bot_id);
-      return target ? t("Messaging {name}…", { name: target.name }) : t("Messaging another bot…");
+      return target ? t("Checking with {name}…", { name: target.name }) : t("Checking with another bot…");
     }
     case "coding_agent":
       return t("Writing some code…");
@@ -298,12 +336,12 @@ function toolActivity(s: WorkState, botId: string, tool: Extract<Body, { kind: "
     case "bash_input":
       return t("Answering a command…");
     case "bash_output":
-      return t("Waiting on a command…");
+      return t("Waiting on results…");
     case "codemode":
       // A script: its latest command, else the plugin of its latest plugin call, which the CLI
       // names.
       if (tool.script_command) return t("Running command: {description}…", { description: tool.script_command });
-      return tool.description ? t("Using {name}…", { name: tool.description }) : t("Working…");
+      return tool.description ? t("Using {name}…", { name: tool.description }) : workingPhrase(step);
   }
   // A plugin's tool, `<plugin>__<tool>`: "Using GitHub", whether the call is running or just
   // finished, so a run of quick calls never flashes back to "Working" between them.
@@ -314,7 +352,7 @@ function toolActivity(s: WorkState, botId: string, tool: Extract<Body, { kind: "
     const plugin = s.devices.find((d) => d.id === runnerId)?.plugins?.find((p) => p.id === pluginId);
     return t("Using {name}…", { name: plugin?.name ?? pluginId.charAt(0).toUpperCase() + pluginId.slice(1) });
   }
-  return t("Working…");
+  return workingPhrase(step);
 }
 
 /// How long Mute keeps a chat quiet, in seconds; 0 is until unmuted.
