@@ -65,7 +65,9 @@ export default (): ExpoConfig => {
         monochromeImage: "./assets/adaptive-icon-monochrome.png",
       },
       predictiveBackGestureEnabled: true,
-      versionCode: major * 1_000_000 + minor * 1_000 + patch,
+      // The APK workflow sets LORCA_ANDROID_VERSION_CODE to its run number, so every
+      // published APK can upgrade the previous one in place.
+      versionCode: Number(process.env.LORCA_ANDROID_VERSION_CODE ?? major * 1_000_000 + minor * 1_000 + patch),
     },
     web: {
       favicon,

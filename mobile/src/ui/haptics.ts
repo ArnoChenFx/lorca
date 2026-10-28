@@ -15,6 +15,8 @@ export const haptic = {
   longPress: () => (android ? play(Haptics.AndroidHaptics.Long_Press) : void Haptics.selectionAsync()),
   /// A message went.
   send: () => (android ? play(Haptics.AndroidHaptics.Confirm) : void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)),
+  /// A turn's hard Stop was pressed.
+  stop: () => (android ? play(Haptics.AndroidHaptics.Virtual_Key) : void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)),
   /// Recording started.
   start: () => (android ? play(Haptics.AndroidHaptics.Toggle_On) : void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)),
   /// A sheet or picker opened from a button; Android plays nothing for that.

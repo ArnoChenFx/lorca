@@ -337,6 +337,14 @@ export default function ChatScreen() {
     const layout = index < 0 ? undefined : list.getLayout(index);
     // The sent message has not reached the list yet: keep what is there.
     if (!layout) return null;
+    if (Platform.OS !== "ios") {
+      // Android never scrolls the anchor under the header (syncInsetTop only does that on
+      // iOS), so a header-pinning blank here would be dead scrollable space below the
+      // content. The anchor has done its job once the message is laid out: it held
+      // FlashList's auto-scroll for the send commit, and the message sits at the end.
+      releaseAnchor();
+      return restingSpace();
+    }
     const tail = list.getChildContainerDimensions().height - layout.y;
     const blank = layoutHeight.current - anchorTopRef.current - tail;
     if (blank <= restingSpace()) {
@@ -848,6 +856,11 @@ export default function ChatScreen() {
   const answerCommand = useCallback((message: Message) => setAnsweringId(message.id), []);
   const fillSecret = useCallback((message: Message) => setFillingId(message.id), []);
   const stopCommand = useCallback((message: Message) => engine.stopCommand(message.chat_id, message.id), []);
+  const stopTurn = useCallback(() => {
+    void engine.stopTurn(id).catch((error) => {
+      alert(t("Could not stop"), error instanceof Error ? error.message : String(error));
+    });
+  }, [id]);
   /// A coding agent's page, from any of its markers. One whose start failed has no page: its
   /// marker says why in an alert. A message whose agent's row is not loaded opens in full.
   const openAgent = useCallback(
@@ -1063,6 +1076,8 @@ export default function ChatScreen() {
             placeholder={placeholder}
             reply={replying}
             onCancelReply={cancelReply}
+            working={isWorking}
+            onStop={stopTurn}
             onSend={send}
           />
         </KeyboardFoot>
