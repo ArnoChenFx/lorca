@@ -15,11 +15,11 @@ export function SidebarToggle({ size = 24 }: { size?: number }) {
   if (!wide) return null;
   const showList = collapsed;
   const label = showList ? t("Show chat list") : t("Hide chat list");
-  const icon = showList ? "sidebar.left" : "sidebar.leadinghalf.filled";
+  const icon = showList ? "sidebar.left" : "sidebar.leading";
   return (
     <Pressable
       onPress={() => {
-        haptic.light();
+        haptic.open();
         toggleSidebar();
       }}
       style={Platform.OS === "android" ? { width: 48, height: 48, alignItems: "center", justifyContent: "center" } : undefined}

@@ -6,6 +6,7 @@ import { CompactWidthView } from "../../modules/lorca-core/CompactWidthView";
 import { createContext, use, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { StyleSheet, useWindowDimensions, View } from "react-native";
 import { Sidebar } from "./Sidebar";
+import { usePalette } from "./theme";
 
 /// An iPad mini in portrait (744 pt) is wide; half of an 11-inch iPad's screen is not.
 const WIDE_MIN = 700;
@@ -45,7 +46,8 @@ export function useSidebarLayout(): SidebarLayoutValue {
 }
 
 /// The row of sidebar and main pane. Hides the sidebar when the user collapses it on a wide window.
-export function WideMainPanes({ children, borderColor }: { children: ReactNode; borderColor: string }) {
+export function WideMainPanes({ children }: { children: ReactNode }) {
+  const p = usePalette();
   const wide = useWide();
   const sidebarWidth = useSidebarWidth();
   const { width } = useWindowDimensions();
@@ -64,7 +66,7 @@ export function WideMainPanes({ children, borderColor }: { children: ReactNode; 
     <SidebarLayoutContext value={layout}>
       <View style={styles.panes}>
         {showsSidebar ? (
-          <CompactWidthView style={[styles.sidebar, { width: sidebarWidth, borderRightColor: borderColor }]}>
+          <CompactWidthView style={[styles.sidebar, { width: sidebarWidth, borderRightColor: p.separator as string }]}>
             <Sidebar />
           </CompactWidthView>
         ) : null}

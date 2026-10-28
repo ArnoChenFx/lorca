@@ -1139,10 +1139,10 @@ const ChatHeader = memo(function ChatHeader({ id, title, members, service, worki
           {wide ? (
             <Stack.Toolbar placement="left">
               <Stack.Toolbar.Button
-                icon={collapsed ? "sidebar.left" : "sidebar.leadinghalf.filled"}
+                icon={collapsed ? "sidebar.left" : "sidebar.leading"}
                 accessibilityLabel={collapsed ? t("Show chat list") : t("Hide chat list")}
                 onPress={() => {
-                  haptic.light();
+                  haptic.open();
                   toggleSidebar();
                 }}
               />

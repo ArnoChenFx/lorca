@@ -3,8 +3,6 @@ import { Platform } from "react-native";
 import { t, useLanguage } from "../../src/i18n";
 import { useWide, WideMainPanes } from "../../src/ui/layout";
 import { useStackScreenOptions } from "../../src/ui/navigation";
-import { usePalette } from "../../src/ui/theme";
-
 // A chat opened from a link or a notification still has the list under it.
 export const unstable_settings = { initialRouteName: "(tabs)" };
 
@@ -13,12 +11,11 @@ export const unstable_settings = { initialRouteName: "(tabs)" };
 /// pane (the tabs with their bar hidden) and a chat takes the place of the one before it.
 export default function MainLayout() {
   useLanguage();
-  const p = usePalette();
   const wide = useWide();
   const screenOptions = useStackScreenOptions();
 
   return (
-    <WideMainPanes borderColor={p.separator}>
+    <WideMainPanes>
       <Stack screenOptions={screenOptions}>
         <Stack.Screen name="(tabs)" options={{ title: t("Chats"), headerShown: false }} />
         <Stack.Screen
