@@ -2454,6 +2454,7 @@ mod tests {
             name: id.into(),
             description: String::new(),
             symbol_name: "sparkles".into(),
+            shape: String::new(),
             accent: "indigo".into(),
             avatar: None,
             runner_id: "runner".into(),

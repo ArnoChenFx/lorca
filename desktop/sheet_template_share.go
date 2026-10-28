@@ -47,7 +47,9 @@ func templateMemory(id, text string, flags []string) templateItem {
 }
 
 func templateProfile(profile model.TemplateProfile, flags []string) templateItem {
-	look := avatarContent{Kind: avatarBot, SymbolName: firstNonEmpty(profile.SymbolName, "sparkles"), Accent: model.Accent(firstNonEmpty(profile.Accent, "indigo"))}
+	// A template carries no shape: it shows the one its name picks, and the bot made from it gets
+	// its own id's.
+	look := avatarContent{Kind: avatarBot, Shape: shapeFor("", profile.Name), Key: profile.Name, Accent: model.Accent(firstNonEmpty(profile.Accent, "indigo"))}
 	return templateItem{id: "profile", title: profile.Name, detail: profile.Description, flags: flags, look: &look, lines: 1}
 }
 

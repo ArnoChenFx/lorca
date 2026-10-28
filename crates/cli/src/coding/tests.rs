@@ -289,6 +289,7 @@ async fn setup() -> Scratch {
         name: "Chef".into(),
         description: String::new(),
         symbol_name: String::new(),
+        shape: String::new(),
         accent: String::new(),
         avatar: None,
         runner_id: app.this_device_id().unwrap(),

@@ -1448,7 +1448,7 @@ mod tests {
         std::fs::create_dir_all(&own_workspace).unwrap();
         let app = App::load(crate::config::Config { home: home.clone(), port: 0 }).unwrap();
         let bot = Bot {
-            id: "bot".into(), name: "Bot".into(), description: String::new(), symbol_name: String::new(), accent: String::new(), avatar: None,
+            id: "bot".into(), name: "Bot".into(), description: String::new(), symbol_name: String::new(), shape: String::new(), accent: String::new(), avatar: None,
             runner_id: "runner".into(), provider: "deepseek".into(), model: None, thinking: None, legacy_instructions: String::new(), workdir: Some(work.display().to_string()), permissions: None, created_at: 0.0,
         };
         let assistant = AssistantMessage::empty("test", "test");
