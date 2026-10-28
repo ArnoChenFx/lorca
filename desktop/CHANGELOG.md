@@ -6,11 +6,17 @@ and the update window shows it.
 
 ## [Unreleased]
 
+## [0.1.20]
+
 - Bots are little characters now, as in Grok Bot: one of twelve shapes in the bot's color, with two
   eyes. While a bot works, its character looks around, sways, spins, and flips. Look offers the
   shapes where it offered symbols; a bot you haven't given one gets its own.
 - A working bot's line speaks like Grok Bot's: "Chipping away…", "Mulling it over…", "Digging around…",
   and in Chinese 愚公移山中…, 冥思苦想中…, 东翻西找….
+- Compact in the inspector shows its progress: Compacting… while it runs, then Compacted, or a
+  toast saying why it failed.
+- A bot that runs on another Device shows its context and spend in the inspector, and Compact runs
+  on that Device.
 
 ## [0.1.19]
 

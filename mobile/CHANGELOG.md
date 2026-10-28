@@ -6,11 +6,14 @@ when it offers the update.
 
 ## [Unreleased]
 
+## [1.0.11]
+
 - Bots are little characters now, as in Grok Bot: one of twelve shapes in the bot's color, with two
   eyes. While a bot works, its character looks around, sways, spins, and flips. Look and New Bot
   offer the shapes where they offered symbols; a bot you haven't given one gets its own.
 - A working bot's line speaks like Grok Bot's: "Chipping away…", "Mulling it over…", "Digging around…",
   and in Chinese 愚公移山中…, 冥思苦想中…, 东翻西找….
+- A bot that runs on another Device shows its context and spend.
 
 ## [1.0.10]
 
