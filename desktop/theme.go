@@ -32,6 +32,8 @@ type palette struct {
 	Selection, SelectionText, SelectionInactive   ui.Color
 	Field, FieldBorder, Popover, Scrim, Sheet     ui.Color
 	SearchBG, RowHover, Shadow, ShadowEdge, White ui.Color
+	// Toast and ToastText are the inverse of the window, as a toast stands out from it.
+	Toast, ToastText ui.Color
 }
 
 var lightPalette = palette{
@@ -93,6 +95,8 @@ var lightPalette = palette{
 	Shadow:            ui.RGBA(0, 0, 0, 0.18),
 	ShadowEdge:        ui.RGBA(0, 0, 0, 0.12),
 	White:             ui.Hex("#ffffff"),
+	Toast:             ui.Hex("#1c1c1e"),
+	ToastText:         ui.Hex("#ffffff"),
 }
 
 var darkPalette = palette{
@@ -154,6 +158,8 @@ var darkPalette = palette{
 	Shadow:            ui.RGBA(0, 0, 0, 0.5),
 	ShadowEdge:        ui.RGBA(255, 255, 255, 0.14),
 	White:             ui.Hex("#ffffff"),
+	Toast:             ui.Hex("#f2f2f7"),
+	ToastText:         ui.Hex("#000000"),
 }
 
 // Text sizes, in DIPs.

@@ -722,6 +722,7 @@ func (m *mainWindow) view(c *ui.Context) {
 							m.inspectorView(c, chatID)
 						}
 					})
+					m.inspector.toast.view(c, inspector-24)
 				})
 			}
 		})

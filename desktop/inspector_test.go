@@ -164,7 +164,10 @@ func TestInspectorCompactShowsProgressAndFailure(t *testing.T) {
 	context := store.Chat("chat-nova").Usage.ContextSummary()
 	tt := ui.NewTester(func(c *ui.Context) {
 		applyTheme(c)
-		m.inspectorUsage(c, store.Bot("bot-nova"), store.Chat("chat-nova"))
+		ui.Column(c).Fill().Children(func() {
+			m.inspectorUsage(c, store.Bot("bot-nova"), store.Chat("chat-nova"))
+			m.inspector.toast.view(c, 336)
+		})
 	}, 360, 400)
 	tt.Frame()
 	answer := func(err error) {
@@ -193,15 +196,22 @@ func TestInspectorCompactShowsProgressAndFailure(t *testing.T) {
 	}
 	renderTo(t, tt, "inspector-compacting")
 	answer(&model.RequestError{Message: "Nothing to compact yet"})
-	if !tt.HasText("Nothing to compact yet") || tt.HasText(L("Compacting…")) {
-		t.Fatalf("the failure does not show: %q", tt.Texts())
+	if !tt.HasText("Nothing to compact yet") || tt.HasText(L("Compacting…")) || !tt.HasText(context) {
+		t.Fatalf("the failure does not show in a toast: %q", tt.Texts())
 	}
+	tt.Advance(300 * time.Millisecond)
+	tt.Frame()
 	renderTo(t, tt, "inspector-compact-failed")
+	tt.Advance(1800 * time.Millisecond)
+	tt.Frame()
+	if tt.HasText("Nothing to compact yet") || !tt.HasText(context) {
+		t.Fatalf("the toast stays: %q", tt.Texts())
+	}
 
 	click(t, tt, L("Compact"))
 	tt.Frame()
-	if tt.HasText("Nothing to compact yet") || !tt.HasText(L("Compacting…")) {
-		t.Fatalf("a new try keeps the old failure: %q", tt.Texts())
+	if !tt.HasText(L("Compacting…")) {
+		t.Fatalf("no progress on a new try: %q", tt.Texts())
 	}
 	answer(nil)
 	if !tt.HasText(L("Compacted")) || !tt.HasText(context) {

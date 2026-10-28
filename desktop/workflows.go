@@ -140,7 +140,7 @@ func (mk *marketplace) performWorkflow(wp *workflowPage, steps []workflowStep, t
 			}
 			if err != nil {
 				wp.busy = false
-				mk.showNotice(model.ErrorText(err), true)
+				mk.notice.show(model.ErrorText(err), true)
 				mk.afterWorkflowRequest(wp)
 				return
 			}
@@ -274,9 +274,9 @@ func (mk *marketplace) cancelWorkflow(wp *workflowPage) {
 	mk.performWorkflow(wp, []workflowStep{{"cancel", func(*model.WorkflowProgress) map[string]any { return map[string]any{"id": setup.ID} }}},
 		func(model.WorkflowProgress) {
 			if wasOn {
-				mk.showNotice(L("%@ is off.", wp.pack.Name), false)
+				mk.notice.show(L("%@ is off.", wp.pack.Name), false)
 			} else {
-				mk.showNotice(L("Setup cancelled. Your answers are kept for next time."), false)
+				mk.notice.show(L("Setup cancelled. Your answers are kept for next time."), false)
 			}
 			wp.closed = true
 			mk.goBack()

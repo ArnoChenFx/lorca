@@ -37,24 +37,23 @@ type inspectorState struct {
 	project          projectInspectorState
 	// skillsShowingAll is the bot or group whose Skills section shows every skill.
 	skillsShowingAll model.PlaybookScope
-	// compacts is each chat's last Compact from here: under way, just done, or why it failed.
+	// compacts is each chat's last Compact from here: under way or just done.
 	compacts map[string]*compactState
+	// toast says why a Compact did not compact.
+	toast toast
 }
 
-// compactState is a chat's Compact: under way until the Runner answers, then done or failed. A
-// failure stays on the row until the context it was about changes.
+// compactState is a chat's Compact: under way until the Runner answers, then done. A failure
+// drops it and shows in a toast.
 type compactState struct {
 	running bool
 	done    bool
 	// doneAt is the first frame that showed it done; the check shows for a moment from there.
-	doneAt  time.Time
-	failure string
-	// context is the chat's context summary when it failed.
-	context string
+	doneAt time.Time
 }
 
 // compact asks the chat's Runner to compact it now, and keeps what it answers for the row.
-func (s *inspectorState) compact(chatID, context string) {
+func (s *inspectorState) compact(chatID string) {
 	if s.compacts == nil {
 		s.compacts = map[string]*compactState{}
 	}
@@ -66,7 +65,10 @@ func (s *inspectorState) compact(chatID, context string) {
 	store.CompactChat(chatID, func(err error) {
 		state.running = false
 		if err != nil {
-			state.failure, state.context = model.ErrorText(err), context
+			if s.compacts[chatID] == state {
+				delete(s.compacts, chatID)
+			}
+			s.toast.show(model.ErrorText(err), true)
 		} else {
 			state.done = true
 		}
@@ -436,7 +438,7 @@ func (m *mainWindow) inspectorUsage(c *ui.Context, bot *model.Bot, chat *model.C
 	section(c.Key("usage"), L("Usage"), sectionCaption, nil, func(k *card) {
 		if usage := chat.Usage; usage != nil {
 			// Compacting waits for a running turn and the memory flush, so the row says it is under
-			// way, then checks it off or says why it did not.
+			// way, then checks it off; why it did not compact shows in a toast.
 			context := usage.ContextSummary()
 			o := actionRowOptions{Value: context, Tint: &p.Label, Action: L("Compact")}
 			state := m.inspector.compacts[chat.ID]
@@ -444,8 +446,6 @@ func (m *mainWindow) inspectorUsage(c *ui.Context, bot *model.Bot, chat *model.C
 			case state == nil:
 			case state.running:
 				o.Value, o.Tint, o.Action, o.Busy = L("Compacting…"), &p.Label2, L("Compacting…"), true
-			case state.failure != "" && state.context == context:
-				o.Value, o.Tint, o.Tooltip = state.failure, &p.Orange, state.failure
 			case state.done:
 				if state.doneAt.IsZero() {
 					state.doneAt = c.Now()
@@ -456,7 +456,7 @@ func (m *mainWindow) inspectorUsage(c *ui.Context, bot *model.Bot, chat *model.C
 				}
 			}
 			if _, result := actionRow(c, k, L("Context"), o); result.Action {
-				m.inspector.compact(chat.ID, context)
+				m.inspector.compact(chat.ID)
 			}
 			if note := usage.SpendNote(); note != "" {
 				keyValueRow(c, k, L("Spent"), usage.SpendSummary(), false, nil).Tooltip(note)
