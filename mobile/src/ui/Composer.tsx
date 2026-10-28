@@ -3,8 +3,9 @@
 // inside its right edge a disc is Dictate while the field is empty and Send once there is
 // something to send; between them a multiline input grows to five lines. Focus, text, or
 // attached files expand the pill: the text takes its own row above the discs, and chips wrap
-// above the text. @-mention chips in a group. There is no hard Stop on the phone; sending a
-// message while a turn runs steers it. Where liquid glass is not available (older iOS, Android)
+// above the text. @-mention chips in a group. While a turn runs, a Stop disc sits beside
+// Send: the hard Stop, as in the desktop apps; sending a message while a turn runs still
+// steers it. Where liquid glass is not available (older iOS, Android)
 // the pill is a plain filled field. An image pasted into the field attaches like a picked photo.
 // A coding agent's page uses it too, with no "+" disc: it waits on each send, keeps a draft that
 // did not go, and takes no text while the agent cannot be reached.
@@ -111,6 +112,8 @@ export const Composer = memo(function Composer({
   reply,
   onCancelReply,
   onSend,
+  working,
+  onStop,
   attach = true,
   disabled = false,
   sending = false,
@@ -130,6 +133,10 @@ export const Composer = memo(function Composer({
   disabled?: boolean;
   /** A send is on its way: Send waits for it. */
   sending?: boolean;
+  /** A turn is in flight in this chat: show the hard Stop disc beside Send. Only a chat passes it. */
+  working?: boolean;
+  /** The hard Stop: ends the turn in flight, wherever its Runner runs it. */
+  onStop?: () => void;
 }) {
   const { language: appLanguage } = useLanguage();
   const p = usePalette();
@@ -449,6 +456,23 @@ export const Composer = memo(function Composer({
       <Symbol name={primary === "send" ? "arrow.up" : "mic.fill"} size={16} color={primary === "send" ? p.userBubbleText : p.label} weight="bold" />
     </Pressable>
   );
+  // While a turn runs, a Stop disc sits beside Send: the hard Stop, as in the desktop apps.
+  // Send stays available, since sending steers the turn. Primary while Send is hidden, the
+  // way the Mac styles its stop button.
+  const stopDisc = working && onStop ? (
+    <Pressable
+      key="stop"
+      onPress={() => {
+        haptic.stop();
+        onStop();
+      }}
+      style={({ pressed }) => [styles.disc, Platform.OS === "android" && styles.androidDisc, { backgroundColor: primary === "send" ? p.fill : p.tint, opacity: pressed ? 0.7 : 1 }]}
+      accessibilityRole="button"
+      accessibilityLabel={t("Stop")}
+    >
+      <Symbol name="stop.fill" size={14} color={primary === "send" ? p.label : p.userBubbleText} weight="bold" />
+    </Pressable>
+  ) : null;
   const dictationActions = useMemo<MenuAction[]>(
     () => [
       {
@@ -545,10 +569,11 @@ export const Composer = memo(function Composer({
                 <View key="controls" style={[styles.controls, !attach && styles.controlsEnd]}>
                   {plus}
                   {listening && recording}
+                  {stopDisc}
                   {primaryDisc}
                 </View>,
               ]
-            : [plus, listening ? recording : input, primaryDisc]}
+            : [plus, listening ? recording : input, stopDisc, primaryDisc]}
         </View>
       </Surface>
       {Platform.OS === "android" && attachOpen ? (

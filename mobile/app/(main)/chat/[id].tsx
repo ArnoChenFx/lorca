@@ -848,6 +848,11 @@ export default function ChatScreen() {
   const answerCommand = useCallback((message: Message) => setAnsweringId(message.id), []);
   const fillSecret = useCallback((message: Message) => setFillingId(message.id), []);
   const stopCommand = useCallback((message: Message) => engine.stopCommand(message.chat_id, message.id), []);
+  const stopTurn = useCallback(() => {
+    void engine.stopTurn(id).catch((error) => {
+      alert(t("Could not stop"), error instanceof Error ? error.message : String(error));
+    });
+  }, [id]);
   /// A coding agent's page, from any of its markers. One whose start failed has no page: its
   /// marker says why in an alert. A message whose agent's row is not loaded opens in full.
   const openAgent = useCallback(
@@ -1063,6 +1068,8 @@ export default function ChatScreen() {
             placeholder={placeholder}
             reply={replying}
             onCancelReply={cancelReply}
+            working={isWorking}
+            onStop={stopTurn}
             onSend={send}
           />
         </KeyboardFoot>

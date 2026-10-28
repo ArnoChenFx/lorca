@@ -181,6 +181,7 @@ export const zh: Record<string, string> = {
   "Could not save the task": "无法保存任务",
   "Could not send": "无法发送",
   "Could not send now": "无法立即发送",
+  "Could not stop": "无法停止",
   "Could not update the bot": "无法更新智能体",
   "Could not use that photo": "无法使用这张照片",
   "Couldn't add “{name}”": "无法添加“{name}”",
