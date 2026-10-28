@@ -8,9 +8,8 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// A new bot, after the macOS app's NewBotViewController: its name, what it does, a look, the Runner
-// it runs on, and the provider, model, and thinking level. Every bot gets a direct chat, which opens
-// when it is made.
+// A new bot: its name, what it does, a look, the Runner it runs on, and the provider, model, and
+// thinking level. Every bot gets a direct chat, which opens when it is made.
 
 // newBotLook is one of the looks a new bot starts with.
 type newBotLook struct {

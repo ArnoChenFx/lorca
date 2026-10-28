@@ -110,8 +110,8 @@ A release needs no deploy of the site. A change to the scripts ships with `bun r
 
 ## Notes
 
-- **Two versions.** The CLI's is the crate's, `[workspace.package]` in `Cargo.toml`; the Mac
-  app's is `"version"` in `package.json`, which `bun run release-mac` bumps.
+- **Its own version.** The CLI's is the crate's, `[workspace.package]` in `Cargo.toml`, apart from
+  the desktop app's (`desktop/mygo.config.ts`) and the phone app's (`mobile/app.config.ts`).
 - **Mac builds carry only the linker's ad-hoc signature.** `curl` sets no quarantine flag, so
   Gatekeeper never assesses what the script installs. A tarball opened from a browser download
   would need a Developer ID signature and notarization.

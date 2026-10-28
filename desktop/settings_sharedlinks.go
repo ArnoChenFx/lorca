@@ -7,9 +7,8 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// sharedLinks is the bots the account shares as links, from the roster, after the macOS app's
-// SharedLinksSettingsViewController: a row opens its bot's Share sheet, where Update Link keeps the
-// address; its menu copies the link or revokes it.
+// sharedLinks is the bots the account shares as links, from the roster: a row opens its bot's Share
+// sheet, where Update Link keeps the address; its menu copies the link or revokes it.
 func (s settingsPane) sharedLinks(c *ui.Context) {
 	s.frame(c, string(model.PaneSharedLinks), func() {
 		s.section(c, L("Shared Links"), nil, func(k *card) {

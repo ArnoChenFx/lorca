@@ -1,4 +1,4 @@
-// SF Symbols, the same names the Mac app and bot profiles use, with Material Symbols standing
+// SF Symbols, the same names the desktop app and bot profiles use, with Material Symbols standing
 // in on Android.
 
 import { SymbolView, type SymbolViewProps, type SymbolWeight } from "expo-symbols";

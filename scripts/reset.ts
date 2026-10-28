@@ -1,13 +1,12 @@
 // Reset Lorca on this computer: stop the app and CLI, wipe identity, keys, credentials, chats,
 // app preferences, and logs. Use --dev for Lorca Dev, --build to drop build output too,
 // --relay for the local relay database, and -y to skip the confirmation. The app is the desktop
-// app (desktop/), whose data MyGo keeps in the user's configuration folder under the app's name;
-// the deprecated Mac app's preferences go too.
+// app (desktop/), whose data MyGo keeps in the user's configuration folder under the app's name.
 import { rm } from "node:fs/promises"
 import { existsSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
-import { APP_NAME, BUNDLE_ID, DEBUG_APP_NAME, DEBUG_BUNDLE_ID, PACKAGE_DIR, ROOT, color, log } from "./app.ts"
+import { APP_NAME, DEBUG_APP_NAME, ROOT, color, log } from "./common.ts"
 
 const args = process.argv.slice(2)
 const wipeBuild = args.includes("--build")
@@ -16,7 +15,6 @@ const yes = args.includes("-y") || args.includes("--yes")
 const development = args.includes("--dev")
 
 const appName = development ? DEBUG_APP_NAME : APP_NAME
-const bundleID = development ? DEBUG_BUNDLE_ID : BUNDLE_ID
 const port = development ? 4863 : 4862
 const home = process.env.LORCA_HOME ?? join(homedir(), development ? ".lorca-dev" : ".lorca")
 const mac = process.platform === "darwin"
@@ -42,7 +40,6 @@ const targets: { path: string; what: string; on: boolean }[] = [
   { path: join(ROOT, "temp", "dev-cli"), what: "the dev loop's CLI", on: wipeBuild },
   { path: join(ROOT, "desktop", ".mygo"), what: "desktop app build output", on: wipeBuild },
   { path: join(ROOT, "desktop", "build"), what: "desktop app release builds", on: wipeBuild },
-  { path: join(PACKAGE_DIR, ".build"), what: "Mac app build output", on: wipeBuild },
 ]
 
 async function pids(pattern: string): Promise<number[]> {
@@ -56,8 +53,7 @@ async function pids(pattern: string): Promise<number[]> {
 }
 
 async function stopProcesses() {
-  // The app on macOS (the desktop app's bundle and the Mac app's), the dev loop's on Linux, its
-  // CLI, and the local relay.
+  // The app's bundle on macOS, the dev loop's on Linux, its CLI, and the local relay.
   const patterns = [`${appName}.app/Contents/MacOS/`, `desktop/.mygo/dev/.*/${appName}`, `lorca serve --port ${port}`, "lorca-relay"]
   let found: number[] = []
   for (const pattern of patterns) found = found.concat(await pids(pattern))
@@ -91,7 +87,6 @@ log(`${color.bold("reset")} ${color.dim(home)}`)
 for (const target of targets.filter((t) => t.on && existsSync(t.path))) {
   console.log(`  ${color.red("✘")} ${target.path} ${color.dim(target.what)}`)
 }
-if (mac) console.log(`  ${color.red("✘")} defaults ${bundleID} ${color.dim("the Mac app's preferences")}`)
 console.log()
 
 if (!(await confirm())) {
@@ -105,12 +100,6 @@ for (const target of targets.filter((t) => t.on)) {
   if (!existsSync(target.path)) continue
   await rm(target.path, { recursive: true, force: true })
   log(`removed ${target.path}`)
-}
-
-if (mac) {
-  const defaults = Bun.spawn(["defaults", "delete", bundleID], { stdout: "ignore", stderr: "ignore" })
-  await defaults.exited
-  log(`cleared preferences ${color.dim(bundleID)}`)
 }
 
 log(color.green("done") + color.dim(" — next launch starts at onboarding"))

@@ -23,10 +23,9 @@ var trayIconDev []byte
 // store is the app's model: one for every window, on the main thread.
 var store *model.Store
 
-// appDelegate is the app's lifecycle, after the Mac app's AppDelegate: which window a launch
-// opens (onboarding or the main window, decided by the identity only the CLI knows), the
-// windows, the CLI's launcher and connection, notifications, and the tray icon that keeps the
-// app reachable while its windows are closed.
+// appDelegate is the app's lifecycle: which window a launch opens (onboarding or the main window,
+// decided by the identity only the CLI knows), the windows, the CLI's launcher and connection,
+// notifications, and the tray icon that keeps the app reachable while its windows are closed.
 type appDelegate struct {
 	mu       sync.Mutex
 	cli      *cliClient
@@ -298,9 +297,9 @@ func (a *appDelegate) keepsRunning() bool {
 	return runtime.GOOS == "darwin" || a.tray != nil
 }
 
-// newWindow opens a window of native UI. On Windows and Linux its menu bar stays out of sight
-// until Alt or F10 takes the keyboard to it, and its shortcuts work all along. The Mac's is at the
-// top of the screen.
+// newWindow opens a window of native UI. On Windows and Linux its menu bar stays out of sight until
+// Alt or F10 takes the keyboard to it, and its shortcuts work all along. On macOS it is at the top
+// of the screen.
 func (a *appDelegate) newWindow(w *appWindow, options mygo.WindowOptions, view func(c *ui.Context)) *mygo.Window {
 	options.AutoHideMenuBar = true
 	options.Content = ui.View(w.frame(view))
@@ -362,12 +361,12 @@ func (a *appDelegate) showMainWindow() {
 			// controls go in a top corner and fill the 52-pixel headers or center in them.
 			TitleBarStyle:  mygo.TitleBarHidden,
 			TitleBarHeight: 52,
-			// The sidebar shows the window's material, as the Mac's: on macOS, and Mica on
-			// Windows 11; elsewhere it draws its own color (Context.Vibrancy).
+			// The sidebar shows the window's material on macOS, and Mica on Windows 11; elsewhere
+			// it draws its own color (Context.Vibrancy).
 			Vibrancy: mygo.VibrancySidebar,
 		}
-		// The traffic lights sit in the sidebar's header where the Mac app's toolbar puts them:
-		// the close button 19 points in and down, centered in the 52-point header.
+		// The traffic lights sit in the sidebar's header: the close button 19 points in and down,
+		// centered in the 52-point header.
 		if runtime.GOOS == "darwin" {
 			options.TrafficLightPosition = &mygo.Point{X: 19, Y: 19}
 		}
@@ -416,9 +415,9 @@ func (a *appDelegate) presentOnboarding() {
 		DisableMinimize: true,
 		DisableMaximize: true,
 		BackgroundColor: "light-dark(#ffffff, #262628)",
-		// As the Mac app's: the page fills the window, under the window controls (the close
-		// button alone on Windows, as a window that can neither minimize nor maximize has), and
-		// its background drags the window.
+		// The page fills the window, under the window controls (the close button alone on Windows,
+		// as a window that can neither minimize nor maximize has), and its background drags the
+		// window.
 		TitleBarStyle: mygo.TitleBarHidden,
 	}, o.view)
 	win.OnClose(func(e *mygo.CloseEvent) {

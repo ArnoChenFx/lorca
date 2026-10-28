@@ -44,20 +44,41 @@ MyGo's folder (or `MYGO_UPDATER_PRIVATE_KEY`). It stops before building when eit
 
 ### 3. macOS signing and notarization
 
-The macOS app is signed and notarized as the Mac app is, with the same secrets
-([Releasing the Mac app](releasing-mac.md)): the workflow's macOS job puts the Developer ID
-Application certificate (`MAC_SIGNING_IDENTITY`, `MAC_SIGNING_IDENTITY_PASSWORD`) in a keychain of
+Gatekeeper opens only a Developer ID-signed, notarized app, and notarization requires the hardened
+runtime. The workflow's macOS job puts the Developer ID Application certificate in a keychain of
 its own and stores the notarytool profile `NOTARY` there, signed in with the App Store Connect API
-key (`ASC_KEY`, `ASC_KEY_ID`, `ASC_ISSUER_ID`). On a Mac, `release-desktop` signs with
+key. It reads these Actions secrets; the App Store Connect key is the one the phone app's workflow
+uploads with ([releasing-mobile.md](releasing-mobile.md#1-app-store-connect-api-key)), and a team
+key can notarize.
+
+| Secret | What |
+| --- | --- |
+| `ASC_KEY` | The App Store Connect API key, the text of `AuthKey_<id>.p8` |
+| `ASC_KEY_ID` | Its key ID |
+| `ASC_ISSUER_ID` | The team's issuer ID |
+| `MAC_SIGNING_IDENTITY` | The Developer ID Application certificate and its private key, as a base64 `.p12` |
+| `MAC_SIGNING_IDENTITY_PASSWORD` | The `.p12`'s password |
+
+Export the identity from Keychain Access ▸ login ▸ My Certificates: the "Developer ID
+Application: …" item with its private key, File ▸ Export Items… as `identity.p12` with a password.
+
+```sh
+base64 -i identity.p12 | gh secret set MAC_SIGNING_IDENTITY
+gh secret set MAC_SIGNING_IDENTITY_PASSWORD
+rm identity.p12
+```
+
+On a Mac, `release-desktop` signs with
 `SIGN_IDENTITY` (default `Developer ID Application`, which has to match one identity in the
 keychains) and notarizes with the profile `NOTARY_PROFILE` (default `NOTARY`), which
-`xcrun notarytool store-credentials NOTARY` stores in the login keychain once. It stops before
+`xcrun notarytool store-credentials NOTARY --apple-id you@example.com --team-id XXXXXXXXXX`
+stores in the login keychain once (it asks for an app-specific password; `--key` takes an App Store
+Connect API key instead). It stops before
 building when the identity is missing.
 
 ## Cutting a release
 
-The version is `version` in [`desktop/mygo.config.ts`](../desktop/mygo.config.ts), apart from the
-Mac app's in the root `package.json`.
+The version is `version` in [`desktop/mygo.config.ts`](../desktop/mygo.config.ts).
 
 1. Set the version, and give it a `## [<version>]` section in
    [`desktop/CHANGELOG.md`](../desktop/CHANGELOG.md): the section becomes the notes of the release

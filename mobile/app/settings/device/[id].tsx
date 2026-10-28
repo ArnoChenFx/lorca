@@ -278,10 +278,10 @@ function CodingAgentsSection({ device }: { device: Device }) {
   );
 }
 
-/// The secrets the Runner keeps for its bots, as the Mac's Secrets pane lists them: what each is,
-/// whose it is, and where it goes, never its value. A tap opens its menu: Replace…, which opens a
-/// field for the new value, or Delete…. Asked of the Runner through the relay when the screen
-/// opens; nothing shows while it has none.
+/// The secrets the Runner keeps for its bots, as the desktop app's Secrets pane lists them: what
+/// each is, whose it is, and where it goes, never its value. A tap opens its menu: Replace…, which
+/// opens a field for the new value, or Delete…. Asked of the Runner through the relay when the
+/// screen opens; nothing shows while it has none.
 function SecretsSection({ device }: { device: Device }) {
   useLanguage();
   const bots = useStore((s) => s.bots);

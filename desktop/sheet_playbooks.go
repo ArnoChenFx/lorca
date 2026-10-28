@@ -13,9 +13,8 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// A bot's or a group's skills, after the macOS app's skills section in InspectorViewController,
-// PlaybookViewController, and PlaybookCaptureViewController: the list in the inspector, a sheet per
-// skill, and Save as Skill on a message.
+// A bot's or a group's skills: the list in the inspector, a sheet per skill, and Save as Skill on a
+// message.
 
 // inspectorSkills are the skills of a bot, in its settings, or of a group, hidden while there are none:
 // past five rows the rest wait behind Show More. A row opens its skill, and its menu exports or

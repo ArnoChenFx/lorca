@@ -1,4 +1,4 @@
-// One durable task, slid in from the chat's details, after the desktop apps' task sheet: where it
+// One durable task, slid in from the chat's details, after the desktop app's task sheet: where it
 // stands, why when it is blocked or cancelled, its result and what supports it, the one step the
 // state allows (Start, Resume, Mark Complete, Reopen), and its Limits; then the goal, owner, next
 // step, and what done looks like, which Save writes back, and what it waits for and links to.

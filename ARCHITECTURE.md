@@ -9,7 +9,7 @@ Identity is a **key pair**. Devices pair. The relay stores public keys and ciphe
 ## Constraints
 
 1. **The app speaks only to the local CLI** over localhost websocket. The app ships the CLI binary inside its bundle and starts `lorca serve` itself, unless one already answers on the port. The CLI holds keys, talks to the relay, and talks to models.
-2. **The UI is a MyGo app in Go** (`desktop/`), drawn with MyGo's native UI toolkit on macOS, Windows, and Linux. The AppKit app (`macos/`) is deprecated; its code stays for now.
+2. **The UI is a MyGo app in Go** (`desktop/`), drawn with MyGo's native UI toolkit on macOS, Windows, and Linux.
 3. **The CLI owns the agent loop:** inference, tools, streaming, cancellation, orchestration.
 4. **The relay is zero-knowledge:** opaque blobs and public keys. Auth is a signature challenge. Devices check what it delivers: the account DEK encrypts what they share, and what one Device sends another is signed ([Relay trust](docs/architecture/relay-trust.md)). Its [hosted receivers](docs/architecture/receivers.md) read a service's webhook while they seal it to a Runner, and keep only the sealed copy.
 5. **Every Device records its `os`.** A Device with a desktop `os` (`macos`, `linux`, `windows`) is a **Runner**. Phones and tablets (`ios`, `ipados`, `android`) are Devices, never Runners.
@@ -77,7 +77,7 @@ One doc per subject under `docs/architecture/`, each short enough to read in one
 | [Protocols](docs/architecture/protocols.md) | The app ↔ CLI websocket and the CLI ↔ relay requests and blobs |
 | [Requests between Devices](docs/architecture/requests.md) | What one Device asks a Runner through the relay, sealed: timeouts and each verb |
 | [CLI (runtime)](docs/architecture/runtime.md) | The `lorca` binary and its data directory, installing it, its signed self-updates and `lorca service`, the agent loop and a turn on a Runner |
-| [Notifications](docs/architecture/notifications.md) | Phone pushes for replies, failures, and questions, the macOS app's own notifications, reads on another Device, the chat on screen |
+| [Notifications](docs/architecture/notifications.md) | Phone pushes for replies, failures, and questions, the desktop app's own notifications, reads on another Device, the chat on screen |
 | [Bot permissions](docs/architecture/bot-permissions.md) | A bot's Access to plugins, tools, files, and shell; where the CLI checks it; access requests |
 | [Tools](docs/architecture/tools.md) | Team, memory, and coding tools |
 | [Auto-review](docs/architecture/auto-review.md) | Fast paths, what the review reads, its rules and two passes, holds back to the bot, asks |
@@ -113,16 +113,14 @@ One doc per subject under `docs/architecture/`, each short enough to read in one
 | [Compaction and usage](docs/architecture/compaction.md) | Summarizing a long chat, Compact, chat usage on every Device |
 | [Budgets and connector limits](docs/architecture/budgets.md) | Limits on turns, tasks, and routines, stopping and resuming, price labels, shared plugin call limits |
 | [Sidebar sections and alerts](docs/architecture/sidebar.md) | Sections, hidden and muted chats in every app, and the chat a computer shows in front, which no phone is alerted about |
-| [macOS app](docs/architecture/macos-app.md) | The AppKit app: launching the CLI, windows and onboarding, settings, updates, the command palette, sidebar and inspector |
-| [macOS chat](docs/architecture/macos-chat.md) | Transcript, composer, output previews, working and read state in AppKit |
-| [Windows and Linux app](docs/architecture/desktop-app.md) | The MyGo app: its model, host, and native views, title bar, commands, development and builds |
-| [Desktop app updates](docs/architecture/desktop-updates.md) | The Windows and Linux app's updater and releases, and an update another Device starts |
+| [Desktop app](docs/architecture/desktop-app.md) | The MyGo app: its model, host, and native views, title bar, commands, development and builds |
+| [Desktop app updates](docs/architecture/desktop-updates.md) | The desktop app's updater and releases, and an update another Device starts |
 | [Phone app](docs/architecture/phone-app.md) | The Expo app over the Rust core: the native module, pairing, relay status, attachments, dictation, notifications, turns |
 | [Phone layout](docs/architecture/phone-layout.md) | The phone's home tabs (Bots, Devices, Search) and a tablet's sidebar and pane |
 | [Phone releases and updates](docs/architecture/phone-updates.md) | TestFlight builds, Android APK releases, and the Android app's self-update: the daily check and offer, the progress dialog, the package installer |
 | [Website](docs/architecture/website.md) | `web/`: the site, its docs, and the install scripts it serves |
 | [Languages](docs/architecture/languages.md) | English and Simplified Chinese in each app, and what the CLI words |
-| [Repo layout and development](docs/architecture/development.md) | Where each crate and app lives, the Mac, phone, and Android development loops, release bundles and their SDK restamp, a local relay |
+| [Repo layout and development](docs/architecture/development.md) | Where each crate and app lives, the desktop, phone, and Android development loops, a local relay |
 | [Status](docs/architecture/status.md) | What is done, what is next, and the open points |
 
 ## Status

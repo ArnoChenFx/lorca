@@ -8,10 +8,10 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// The marketplace's workflows, after the macOS app's MarketplaceWorkflowPage: a section of them on
-// the home page, the list onboarding opens, and a workflow's setup on the picked Runner, with its
-// questions and its bot, the accounts it needs, a sample run to read, and its schedule, which stays
-// off until the user turns it on. The CLI keeps the setup, so leaving the page keeps it too.
+// The marketplace's workflows: a section of them on the home page, the list onboarding opens, and a
+// workflow's setup on the picked Runner, with its questions and its bot, the accounts it needs, a
+// sample run to read, and its schedule, which stays off until the user turns it on. The CLI keeps
+// the setup, so leaving the page keeps it too.
 
 // workflowMatchingPacks is the workflows whose name, outcome, or description has every word of the
 // query; all of them for none.

@@ -125,7 +125,7 @@ function checkIfDue() {
   void checkForUpdates(true);
 }
 
-/// Sparkle's offer: what is new, then install it, ask again tomorrow, or never for this version.
+/// The update offer: what is new, then install it, ask again tomorrow, or never for this version.
 export function offerUpdate(release: Release) {
   const notes = release.notes.length > 1200 ? `${release.notes.slice(0, 1200).trimEnd()}…` : release.notes;
   alert(

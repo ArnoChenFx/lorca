@@ -1,7 +1,7 @@
-// A workflow's setup on a Runner, slid in from its row, after the Mac's workflow page: its questions,
-// the Runner and the bot, the accounts it needs, then Run Sample, the sample's replies, and its
-// schedule, which stays off until the user turns it on. The core keeps the setup in the account's
-// roster, so leaving the screen keeps it too.
+// A workflow's setup on a Runner, slid in from its row, after the desktop app's workflow page: its
+// questions, the Runner and the bot, the accounts it needs, then Run Sample, the sample's replies,
+// and its schedule, which stays off until the user turns it on. The core keeps the setup in the
+// account's roster, so leaving the screen keeps it too.
 
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";

@@ -10,9 +10,8 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// The marketplace, after the macOS app's MarketplaceViewController and its pages: workflows,
-// featured plugins and bots, everything else by category, one search over all of them, and a page
-// for each workflow, plugin, and bot.
+// The marketplace: workflows, featured plugins and bots, everything else by category, one search
+// over all of them, and a page for each workflow, plugin, and bot.
 // A sheet with a way back: the home page leads to a plugin, a bot, a full list, or the plugins the
 // Runner has. Plugins install on the Runner picked in the top bar, for every bot there; a bot is
 // added to that Runner, and the sheet closes on the new bot's chat, where the bot sets itself up.

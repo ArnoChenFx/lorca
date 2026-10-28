@@ -1,6 +1,6 @@
-// Package model is the app's model, after the macOS app's Models.swift and AppStore: everything
-// comes from the CLI over 127.0.0.1, read into these types by wire.go, and kept by the Store.
-// The views read it on the main thread, where the Store changes it.
+// Package model is the app's model: everything comes from the CLI over 127.0.0.1, read into these
+// types by wire.go, and kept by the Store. The views read it on the main thread, where the Store
+// changes it.
 package model
 
 import (

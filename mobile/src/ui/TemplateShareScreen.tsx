@@ -1,4 +1,4 @@
-// Shares a bot as a template, after the desktop apps' share sheet: the profile, which every
+// Shares a bot as a template, after the desktop app's share sheet: the profile, which every
 // template holds, then the skills, routines, plugins, and memories to pick from, each as the
 // template will hold it. Share Link in the bar puts it on the relay behind a link and opens the
 // share sheet on it; a bot shared before updates its link, which keeps its address. Save as File

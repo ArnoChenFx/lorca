@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// The demo's stand-in for the CLI's setups, as the macOS app's MockWorkflows: the same answers,
-// from the demo roster, with a sample that finishes a moment after it starts.
+// The demo's stand-in for the CLI's setups: the same answers, from the demo roster, with a sample
+// that finishes a moment after it starts.
 
 func demoWorkflowPacks() []WorkflowPack {
 	return []WorkflowPack{

@@ -8,17 +8,7 @@ license.workspace = true
 [lib]
 name = "lorca_markdown"
 path = "src/lib.rs"
-# A static library for the Mac app, a host dylib the bindings generator reads, and the rlib
-# the phone core links.
-crate-type = ["lib", "staticlib", "cdylib"]
-
-[[bin]]
-name = "uniffi-bindgen"
-path = "src/bindgen.rs"
-required-features = ["bindgen"]
-
-[features]
-bindgen = ["uniffi/cli"]
+crate-type = ["lib"]
 
 [dependencies]
 pulldown-cmark = { version = "0.13", default-features = false }

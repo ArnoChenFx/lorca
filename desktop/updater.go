@@ -11,12 +11,11 @@ import (
 	"github.com/egoist/mygo/plugins/updater"
 )
 
-// useUpdater gives the app MyGo's update window, as Sparkle gives the macOS app its own: a daily
-// check in the background, the release notes of a new version with Install Update, Remind Me
-// Later and Skip This Version, the download's progress, and the offer to relaunch. It installs
-// signed updates, by delta from the running version when the release has one. The user's choices
-// are this computer's, in updater.json. The window speaks the language picked in Settings, else
-// the system's.
+// useUpdater gives the app MyGo's update window: a daily check in the background, the release notes
+// of a new version with Install Update, Remind Me Later and Skip This Version, the download's
+// progress, and the offer to relaunch. It installs signed updates, by delta from the running
+// version when the release has one. The user's choices are this computer's, in updater.json. The
+// window speaks the language picked in Settings, else the system's.
 func useUpdater() {
 	mygo.Use(updater.New(updater.Options{Language: prefs.get().AppLanguage}))
 	// A check that went through, the update window's checkbox, or a switch: General shows it,

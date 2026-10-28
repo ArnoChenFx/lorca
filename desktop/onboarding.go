@@ -9,9 +9,9 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// Onboarding, after the macOS app's OnboardingWindowController: a new identity with its backup
-// phrase, a restore from that phrase, or pairing with a Device that has the account; then the first
-// bot and a provider for it. Its own window, which the main window replaces when it finishes.
+// Onboarding: a new identity with its backup phrase, a restore from that phrase, or pairing with a
+// Device that has the account; then the first bot and a provider for it. Its own window, which the
+// main window replaces when it finishes.
 
 // onboardingStep is one page of onboarding.
 type onboardingStep int
@@ -450,8 +450,8 @@ func (o *onboardingWindow) laterButton(skip func(), cancels bool) *onboardingBut
 // MARK: - View
 
 // view is the whole window, its title bar hidden: white in the light appearance, as macOS 26 draws
-// a window's background, and it drags the window by its background, as the Mac app's does. The
-// content starts below the window controls.
+// a window's background, and it drags the window by its background. The content starts below the
+// window controls.
 func (o *onboardingWindow) view(c *ui.Context) {
 	p := colors(c)
 	o.setTitle(appName())

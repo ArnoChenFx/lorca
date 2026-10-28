@@ -11,11 +11,10 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// Bot templates, after the macOS app's TemplateShareViewController and TemplateItemViews.
-// Sharing: the user picks what goes in a bot's template besides its profile (routines, plugins,
-// memories), sees each as the template will hold it, and shares a link, which the CLI puts on the
-// relay encrypted with a key only the link carries, or saves a file. A bot shared before updates
-// its link, which keeps its address.
+// Bot templates. Sharing: the user picks what goes in a bot's template besides its profile
+// (routines, plugins, memories), sees each as the template will hold it, and shares a link, which
+// the CLI puts on the relay encrypted with a key only the link carries, or saves a file. A bot
+// shared before updates its link, which keeps its address.
 
 // templateItem is a piece of a template as the sheets list it.
 type templateItem struct {

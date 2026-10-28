@@ -38,7 +38,7 @@ export interface MenuChoice {
   title: string;
   selected: boolean;
   onPress: () => void;
-  /// A separator under this choice, as under "Automatic" in the Mac app's pop-ups.
+  /// A separator under this choice, as under "Automatic" in a pop-up.
   dividerAfter?: boolean;
 }
 

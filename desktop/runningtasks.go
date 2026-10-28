@@ -9,11 +9,11 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// A chat's running tasks, after the macOS app's RunningTasksViewController: the commands its bots
-// have running in their terminals, each with what it does in the bot's words, who runs it and for
-// how long, the command (a click shows all of it), its last lines, and Stop, with Run in Background
-// while the bot's call still waits on it, in a flyout under the header's button, as Attention's. One
-// that ends while the list is open stays, saying how it ended, until the list closes.
+// A chat's running tasks: the commands its bots have running in their terminals, each with what it
+// does in the bot's words, who runs it and for how long, the command (a click shows all of it), its
+// last lines, and Stop, with Run in Background while the bot's call still waits on it, in a flyout
+// under the header's button, as Attention's. One that ends while the list is open stays, saying how
+// it ended, until the list closes.
 
 type runningTask struct {
 	id           string
@@ -53,7 +53,7 @@ func (t runningTask) status(now time.Time) string {
 	return strings.Join(parts, " · ")
 }
 
-// runningTasksWidth is the flyout's, as the Mac's popover.
+// runningTasksWidth is the flyout's width.
 const runningTasksWidth = 420
 
 // runningTasksState is the flyout's own while it is open: the commands it has listed, so one that

@@ -10,9 +10,9 @@ import (
 	"time"
 )
 
-// The seeded demo (`LORCA_MOCK=1`), after the macOS app's MockData: the snapshot the CLI would
-// send, for screenshots and for working on the views without a CLI. The marketplace is the CLI's
-// own bundled index, read from the checkout the demo runs in.
+// The seeded demo (`LORCA_MOCK=1`): the snapshot the CLI would send, for screenshots and for
+// working on the views without a CLI. The marketplace is the CLI's own bundled index, read from the
+// checkout the demo runs in.
 
 var nonAlnum = regexp.MustCompile(`[^a-z0-9]+`)
 

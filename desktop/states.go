@@ -9,9 +9,9 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// The content area's states besides a chat and Settings, after the macOS app's
-// StateViewControllers: loading while the CLI starts, the recovery page while it is not answering,
-// and the placeholder when nothing is selected. And the Help menu's notes.
+// The content area's states besides a chat and Settings: loading while the CLI starts, the recovery
+// page while it is not answering, and the placeholder when nothing is selected. And the Help menu's
+// notes.
 
 // statePage centers a column of a state in the content.
 func statePage(c *ui.Context, fn func()) {

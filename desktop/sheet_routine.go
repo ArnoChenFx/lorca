@@ -11,14 +11,13 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// One routine's details, after the macOS app's RoutineViewController: how it stands, with what
-// happened and how to fix it when something went wrong; the schedule, its next run, what happens
-// to runs its Runner missed, and its last check and run; the task, the check when it has one, and
-// the actions on it. Run Now starts it on the bot's Runner; Pause and Resume flip the switch the
-// inspector shows; Edit in Chat hands the bot the change to make, since the bot owns its routines
-// (its timezone and missed-run policy too); Delete asks first. A routine on events shows what it
-// listens to and its latest event instead of a next run; one with a webhook has its URL, key, and
-// header to copy, and a new key.
+// One routine's details: how it stands, with what happened and how to fix it when something went
+// wrong; the schedule, its next run, what happens to runs its Runner missed, and its last check and
+// run; the task, the check when it has one, and the actions on it. Run Now starts it on the bot's
+// Runner; Pause and Resume flip the switch the inspector shows; Edit in Chat hands the bot the
+// change to make, since the bot owns its routines (its timezone and missed-run policy too); Delete
+// asks first. A routine on events shows what it listens to and its latest event instead of a next
+// run; one with a webhook has its URL, key, and header to copy, and a new key.
 
 // routineSheet is what the sheet keeps while it is up: whether the webhook key shows, and when
 // each row last copied.

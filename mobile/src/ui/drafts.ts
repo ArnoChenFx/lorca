@@ -1,5 +1,4 @@
-// A bot's email or Slack message as its draft card and editor word it, after the Mac app's
-// DraftCellView.
+// A bot's email or Slack message as its draft card and editor word it.
 
 import type { Body, MessageDraft } from "../core/model";
 import { t } from "../i18n";

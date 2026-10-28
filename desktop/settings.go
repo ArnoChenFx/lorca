@@ -7,9 +7,9 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// Settings panes in the main window's content area, after the macOS app's settings view
-// controllers: section cards and footnotes in one scrolling column, the window's header carrying
-// the page title. General and Advanced also fill the small Settings window onboarding opens.
+// Settings panes in the main window's content area: section cards and footnotes in one scrolling
+// column, the window's header carrying the page title. General and Advanced also fill the small
+// Settings window onboarding opens.
 
 // settingsPageState is the settings page's own state, kept by the main window: a search pick
 // being revealed, the picked Runner's mcp.json, and how its service stands.
@@ -61,7 +61,7 @@ func (s *settingsPageState) begin(c *ui.Context, revealed *revealedSetting, pane
 
 // claim answers whether the element labelled `label` scrolls into view in this frame, and how
 // strongly it flashes. A section claims ahead of its rows, so a section of that name flashes its
-// card ahead of a row with the same label, as on the Mac.
+// card ahead of a row with the same label.
 func (s *settingsPageState) claim(c *ui.Context, label string, section bool) (reveal bool, flash float32) {
 	if s.claimed || label == "" {
 		return false, 0

@@ -6,9 +6,9 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// A description edited in a sheet of its own, after the macOS app's DescriptionViewController, opened
-// from a compact row in the inspector: a bot's (what it does and how it should work) or a group's
-// (what it is for). Saving publishes it, so the next turn and every paired Device see it.
+// A description edited in a sheet of its own, opened from a compact row in the inspector: a bot's
+// (what it does and how it should work) or a group's (what it is for). Saving publishes it, so the
+// next turn and every paired Device see it.
 
 // presentDescription edits `initial` under `subtitle`; save gets the trimmed text.
 func (w *appWindow) presentDescription(subtitle, initial string, save func(description string)) {

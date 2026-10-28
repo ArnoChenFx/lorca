@@ -173,7 +173,7 @@ export const BotAvatar = memo(function BotAvatar({ bot, size = 40, working = fal
   );
 });
 
-/// The services' real marks as round badges, rendered from the Mac's PluginLogo SVGs:
+/// The services' real marks as round badges, rendered from the plugins' SVG marks:
 /// Telegram's disc as it is, Slack's mark on white.
 const SERVICE_MARKS: Record<string, number> = {
   telegram: require("../../assets/services/telegram.png"),
@@ -249,7 +249,7 @@ export const PresenceDot = memo(function PresenceDot({ size, ring, top = false }
 });
 
 /// One to six members. One shows its avatar; two sit diagonally; more stack the first two
-/// with the rest implied, the way the Mac sidebar clusters them.
+/// with the rest implied.
 /// `service` is a channel conversation's (telegram, slack), whose mark the avatar wears.
 export const AvatarCluster = memo(function AvatarCluster({ bots, size = 40, working = false, service }: { bots: Bot[]; size?: number; working?: boolean; service?: string }) {
   const p = usePalette();

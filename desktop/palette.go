@@ -14,10 +14,10 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-// The command palette, after the macOS app's CommandPalette and PaletteIndex: a search field over
-// the menu bar's commands, the chats, and the settings, floating over the main window. The field
-// keeps the keyboard; the arrows move the list's selection, Return runs it, and Escape or a click
-// elsewhere closes it. A query also searches the chats' messages through the CLI.
+// The command palette: a search field over the menu bar's commands, the chats, and the settings,
+// floating over the main window. The field keeps the keyboard; the arrows move the list's
+// selection, Return runs it, and Escape or a click elsewhere closes it. A query also searches the
+// chats' messages through the CLI.
 
 type paletteItem struct {
 	symbol string
@@ -45,9 +45,9 @@ type paletteRow struct {
 	item   *paletteItem
 }
 
-// paletteCommands are the menu bar's commands worth offering, in the macOS app's order. Each takes
-// its title, shortcut, and enabled state from the command table, so it reads and behaves as it does
-// in the menu.
+// paletteCommands are the menu bar's commands worth offering, in the order the palette lists them.
+// Each takes its title, shortcut, and enabled state from the command table, so it reads and behaves
+// as it does in the menu.
 var paletteCommands = []struct{ id, symbol, keywords string }{
 	{"newBot", "plus.message", "create add"},
 	{"newGroupChat", "person.2", "create room"},
@@ -105,7 +105,7 @@ func (s *paletteState) show() {
 		beep()
 		return
 	}
-	// Read when the palette opens, as the Mac palette reads the menu before it takes the keyboard.
+	// Read when the palette opens, before it takes the keyboard.
 	*s = paletteState{open: true, picked: -1, m: m, generation: s.generation + 1}
 	s.sections = []paletteSection{
 		{L("Actions"), paletteActions(m)},
@@ -223,7 +223,7 @@ func paletteSearchSections(m *mainWindow, results model.WireSearchResults) []pal
 
 var paletteFolding = transform.Chain(norm.NFKC, norm.NFD, runes.Remove(runes.In(unicode.Mn)), norm.NFC)
 
-// paletteFold folds case, accents, and full-width forms away, as the Mac palette compares.
+// paletteFold folds case, accents, and full-width forms away, so a query matches across them.
 func paletteFold(text string) string {
 	folded, _, err := transform.String(paletteFolding, text)
 	if err != nil {

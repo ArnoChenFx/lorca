@@ -8,8 +8,8 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// The marketplace's pages, after the macOS app's MarketplacePages and MarketplaceDetailPages: the
-// home page, a full list, the plugins the Runner has, a plugin in full, and a bot in full.
+// The marketplace's pages: the home page, a full list, the plugins the Runner has, a plugin in
+// full, and a bot in full.
 
 // MARK: - Home
 

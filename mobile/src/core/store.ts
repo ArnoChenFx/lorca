@@ -1,5 +1,5 @@
 // The phone's view of the account: what the core last said. Pure data and reducers fed by the
-// core's events (engine.ts applies them), the way the macOS app's AppStore mirrors the CLI. The
+// core's events (engine.ts applies them), the way the desktop app's store mirrors the CLI. The
 // core keeps the truth on disk; nothing here is persisted except the phone's own prefs.
 
 import { useMemo } from "react";
@@ -554,8 +554,8 @@ export function useWorkingBotIds(): Set<string> {
   return useStore(useShallow((s) => new Set(Object.values(s.running).map((r) => r.botId).filter(Boolean))));
 }
 
-/// A bot's routines, oldest first. One whose run is among the turns in flight is running, as on
-/// the Mac, wherever the run was started.
+/// A bot's routines, oldest first. One whose run is among the turns in flight is running,
+/// wherever the run was started.
 export function useRoutines(botId: string | undefined): Routine[] {
   const routines = useStore(useShallow((s) => s.routines.filter((r) => r.bot_id === botId).sort((a, b) => a.created_at - b.created_at)));
   const running = useStore(useShallow((s) => Object.values(s.running).flatMap((r) => (r.routineId ? [r.routineId] : []))));

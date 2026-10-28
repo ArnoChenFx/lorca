@@ -1,5 +1,5 @@
-// The marketplace's workflows, from the chat list's New menu, as the Mac's Choose a Workflow: each
-// with its symbol and outcome, sliding in its setup.
+// The marketplace's workflows, from the chat list's New menu, as the desktop app's Choose a
+// Workflow: each with its symbol and outcome, sliding in its setup.
 
 import { Stack, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";

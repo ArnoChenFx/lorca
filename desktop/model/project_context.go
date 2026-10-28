@@ -7,10 +7,9 @@ import (
 	"time"
 )
 
-// A group's shared project context, after the macOS app's ProjectContext.swift: the briefs, goals,
-// constraints, decisions, facts, links, and files every bot in the group can read. The CLI owns
-// scope, immutable revisions, source checks, and sync; the app lists the current entries and sends
-// the user's changes.
+// A group's shared project context: the briefs, goals, constraints, decisions, facts, links, and
+// files every bot in the group can read. The CLI owns scope, immutable revisions, source checks,
+// and sync; the app lists the current entries and sends the user's changes.
 
 // ProjectKinds are the kinds in the order the inspector lists them; the CLI calls a link
 // `document` and a file `asset`.
@@ -346,7 +345,7 @@ func (s *Store) ProjectFile(chatID, entryID string, done func(string, error)) {
 	}, done)
 }
 
-// mockProjectContext is the demo's Launch room context, as the macOS app's mock shows it.
+// mockProjectContext is the demo's Launch room context.
 func mockProjectContext(chatID string) ProjectContext {
 	if chatID != "chat-relay" {
 		return ProjectContext{}

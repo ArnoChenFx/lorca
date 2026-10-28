@@ -11,8 +11,8 @@ import (
 	"github.com/egoist/lorca/desktop/l10n"
 )
 
-// Dates, sizes, and schedules in the app's language, after the macOS app's `Format`. English keeps
-// a 12-hour clock, as the United States does, and Chinese a 24-hour one, as China does.
+// Dates, sizes, and schedules in the app's language. English keeps a 12-hour clock, as the United
+// States does, and Chinese a 24-hour one, as China does.
 
 // Now is the clock the formatters read; tests set it.
 var Now = time.Now

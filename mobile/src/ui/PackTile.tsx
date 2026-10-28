@@ -1,4 +1,4 @@
-// A workflow's symbol on a light tile with a hairline, as the Mac draws a plugin without a logo.
+// A workflow's symbol on a light tile with a hairline, as a plugin without a logo is drawn.
 
 import { StyleSheet, View } from "react-native";
 import { Symbol } from "./Symbol";

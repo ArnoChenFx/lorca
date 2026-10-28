@@ -8,9 +8,8 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// Picking bots, after the macOS app's NewGroupChatViewController and BotPickerViewController: one to
-// six bots for a new group chat, whose members change later, or one bot to add to a chat. Direct
-// chats need no picker because every bot gets one when it is made.
+// Picking bots: one to six bots for a new group chat, whose members change later, or one bot to add
+// to a chat. Direct chats need no picker because every bot gets one when it is made.
 
 // pickerBotRow is a bot to pick: a check, its avatar, its name over its provider and Runner, and
 // "offline" when the Runner is. It reports a click while it is enabled.

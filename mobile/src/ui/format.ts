@@ -1,5 +1,4 @@
-// Stamps, previews, and the working row's words, the rules the Mac app uses
-// (Design/Formatters.swift, AppStore.preview, ChatViewController.activity).
+// Stamps, previews, and the working row's words, the rules the desktop app uses too.
 
 import type { Body, Bot, Chat, Message, Routine } from "../core/model";
 import { agentStartRow, agentTitle, agentWrote, attachmentSummary, isAgentRow, isSentMessage } from "../core/model";
@@ -239,9 +238,9 @@ export function firstLine(text: string): string {
 /// What the working row reads from the store.
 export type WorkState = Pick<StoreState, "running" | "thinking" | "retries" | "chats" | "bots" | "devices">;
 
-/// What the one bot at work in a chat is doing, in the words of the Mac's working row: a model
-/// call waiting to be asked again, its model thinking, or its latest tool, running or just
-/// finished, which the row keeps reading between calls until the bot says something.
+/// What the one bot at work in a chat is doing, in the words of the working row: a model call
+/// waiting to be asked again, its model thinking, or its latest tool, running or just finished,
+/// which the row keeps reading between calls until the bot says something.
 export function workingActivity(s: WorkState, chatId: string): string | null {
   const retry = s.retries[chatId];
   if (retry) {

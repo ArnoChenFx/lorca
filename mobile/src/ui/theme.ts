@@ -123,7 +123,7 @@ export function withAlpha(hex: string, alpha: number): string {
   return `rgba(${(value >> 16) & 255},${(value >> 8) & 255},${value & 255},${alpha})`;
 }
 
-/// The eight bot accents, as the Mac app's system colors, with a lifted twin for gradients.
+/// The eight bot accents, as Apple's system colors, with a lifted twin for gradients.
 export const ACCENTS: Record<Accent, { light: [string, string]; dark: [string, string] }> = {
   indigo: { light: ["#8583F5", "#5856D6"], dark: ["#8B89F7", "#5E5CE6"] },
   blue: { light: ["#4DA3FF", "#007AFF"], dark: ["#4FA8FF", "#0A84FF"] },

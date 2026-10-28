@@ -64,7 +64,7 @@ export function setDictationLanguage(tag: string | undefined) {
   mutate(() => ({ dictation_lang: tag }));
 }
 
-/// The languages the menus offer, named as the Mac app names them ("Chinese (China mainland)").
+/// The languages the menus offer, named as macOS names them ("Chinese (China mainland)").
 /// Hermes has no `Intl.DisplayNames`, so the names are kept here, in both of the app's languages;
 /// the recognizer knows some sixty locales, and these are the ones most people speak.
 const COMMON: Record<string, { en: string; zh: string }> = {

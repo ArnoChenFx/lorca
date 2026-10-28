@@ -12,10 +12,10 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// Outputs, after the macOS app: what a chat's bots published shows in the inspector, the latest
-// three with View all for the rest. A row opens the output's sheet: a preview of the file or the
-// link, what the bot checked, and its versions. Open hands the file to its app or the link to the
-// browser; Save As… copies the file. The files come from the local CLI.
+// Outputs: what a chat's bots published shows in the inspector, the latest three with View all for
+// the rest. A row opens the output's sheet: a preview of the file or the link, what the bot
+// checked, and its versions. Open hands the file to its app or the link to the browser; Save As…
+// copies the file. The files come from the local CLI.
 
 // outputSaveDestination asks where to save a copy; tests put their own in its place.
 var outputSaveDestination = func(parent *mygo.Window, name string) (string, error) {
@@ -313,8 +313,8 @@ func (o *outputSheet) view(c *ui.Context, s *sheet) {
 	}
 }
 
-// previewBox shows the file: an image, the start of a text file, or what it is, as Quick Look does
-// in the macOS app; while it is on its way, or when it could not be fetched, it says so.
+// previewBox shows the file: an image, the start of a text file, or what it is, as Quick Look does;
+// while it is on its way, or when it could not be fetched, it says so.
 func (o *outputSheet) previewBox(c *ui.Context, attachment model.Attachment, messageID, path, fileError string) {
 	p := colors(c)
 	box := ui.Column(c.Key("preview")).Height(260).Radius(10).Clip().Background(p.BotBubble).Border(1, p.BotBubbleBorder).

@@ -4,8 +4,8 @@
 export default ({ command }: { command: string }) => ({
   name: "Lorca",
   identifier: "app.lorca",
-  // The app's own version, apart from the Mac app's (the root package.json's). `bun run
-  // release-desktop` and the Release desktop workflow read it here.
+  // The app's own version, apart from the root package.json's. `bun run release-desktop` and the
+  // Release desktop workflow read it here.
   version: "0.1.20",
   icon: command === "dev" ? "assets/icon-dev.png" : "assets/icon.png",
   out: "build",
@@ -24,7 +24,7 @@ export default ({ command }: { command: string }) => ({
   },
   // Signed ad hoc unless SIGN_IDENTITY names a Developer ID, and notarized with the notarytool
   // profile NOTARY_PROFILE (in the keychain NOTARY_KEYCHAIN, else the login keychain). `bun run
-  // release-desktop` sets both for a macOS release, as `bun run release-mac` signs the Mac app.
+  // release-desktop` sets both for a macOS release.
   macos: {
     signingIdentity: process.env.SIGN_IDENTITY,
     notarize: process.env.NOTARY_PROFILE

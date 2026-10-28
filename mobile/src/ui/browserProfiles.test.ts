@@ -9,7 +9,7 @@ const profile = (state: BrowserProfile["state"]): BrowserProfile => ({ id: "brow
 const menu = (state: BrowserProfile["state"], busy = false) =>
   profileActions(profile(state), "Workbench", true, busy).map((action) => action.title + (action.disabled ? " (disabled)" : ""));
 
-test("a profile's state reads as the Mac's", () => {
+test("a profile's state reads as the desktop app's", () => {
   expect(["stopped", "bot", "taking_over", "human"].map((state) => profileStateWord(profile(state as BrowserProfile["state"])))).toEqual(["Closed", "Open", "Taking over…", "You have control"]);
   expect(profileStateWord({ ...profile("human"), recording: true })).toBe("Recording");
 });

@@ -7,7 +7,7 @@
 // copy, since a running program can't be overwritten on Windows. A relay save rebuilds the relay.
 import { copyFileSync, chmodSync, mkdirSync, watch } from "node:fs"
 import { join } from "node:path"
-import { CLI_NAME, CRATES_DIR, ROOT, buildCLI, color, log } from "./app.ts"
+import { CLI_NAME, CRATES_DIR, ROOT, buildCLI, color, log } from "./common.ts"
 import { restartRelay, startRelay, stopRelay } from "./relay.ts"
 
 const DESKTOP = join(ROOT, "desktop")

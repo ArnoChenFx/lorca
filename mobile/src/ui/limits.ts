@@ -1,5 +1,5 @@
-// What the Limits screen and the rows that open it say, after the Mac's Budgets.swift: a limit
-// set in a word or two, which limit work stopped at and what it used of it, and the form's
+// What the Limits screen and the rows that open it say, after the desktop app's Limits sheet: a
+// limit set in a word or two, which limit work stopped at and what it used of it, and the form's
 // fields. Kept free of React Native so `bun test` reads it.
 
 import type { BudgetLimits, BudgetState, CallLimits } from "../core/model";

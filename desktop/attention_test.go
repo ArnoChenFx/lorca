@@ -9,7 +9,7 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// attentionFixture is the demo's team with a brief and four items, as the Mac's probe shows them.
+// attentionFixture is the demo's team with a brief and four items.
 func attentionFixture() {
 	revision := func(n uint64) model.AttentionRevision {
 		return model.AttentionRevision{Counter: n, DeviceID: "dev-workbench"}

@@ -11,11 +11,11 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// Adds or edits one of a Runner's MCP servers, after the macOS app's McpServerViewController: its
-// name, the command that starts it or its URL, the environment or headers, and what it is for, in a
-// form or as the JSON of its mcp.json entry; JSON pasted into a field of the form, as READMEs and
-// other apps' configs write it, opens the JSON view. Once saved, the sheet follows the server: how
-// it stands, Reconnect or Sign In, a switch to turn it off, and the tools it offered.
+// Adds or edits one of a Runner's MCP servers: its name, the command that starts it or its URL, the
+// environment or headers, and what it is for, in a form or as the JSON of its mcp.json entry; JSON
+// pasted into a field of the form, as READMEs and other apps' configs write it, opens the JSON
+// view. Once saved, the sheet follows the server: how it stands, Reconnect or Sign In, a switch to
+// turn it off, and the tools it offered.
 
 // mcpFetching is a server being fetched before its sheet opens, so a second click waits.
 var mcpFetching bool

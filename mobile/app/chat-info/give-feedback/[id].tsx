@@ -1,4 +1,4 @@
-// Feedback on one of the bot's replies, after the desktop apps' Give Feedback…, which hangs off a
+// Feedback on one of the bot's replies, after the desktop app's Give Feedback…, which hangs off a
 // message's menu there: on the phone a message's long press selects its text, so Details' Give
 // Feedback opens this with the newest reply picked. Whether it was right, the user's own version,
 // or a note for next time, and the routine or skill it applies to, go to the bot's Runner.

@@ -7,10 +7,10 @@ import (
 	"github.com/egoist/lorca/desktop/model"
 )
 
-// System notifications for replies, failed responses, and questions, after the macOS app's Notifier
-// and ChatNotification: posted unless the message was read on a paired Device first, and a click
-// brings the app forward on the chat; a muted chat posts none. The same "looking at" fact goes to
-// the CLI (`ui.watching`), so no Runner pushes a reply the user is watching arrive to their phone.
+// System notifications for replies, failed responses, and questions: posted unless the message was
+// read on a paired Device first, and a click brings the app forward on the chat; a muted chat posts
+// none. The same "looking at" fact goes to the CLI (`ui.watching`), so no Runner pushes a reply the
+// user is watching arrive to their phone.
 
 type notificationKind int
 
@@ -115,7 +115,7 @@ func newNotifier() *notifier {
 func (n *notifier) started() bool { return store != nil && !store.IsStarting }
 
 // watchedChat is the chat the user is looking at: the app is in front and its main window, on
-// screen, shows it. As the Mac app's, the window need not have the keyboard.
+// screen, shows it. The window need not have the keyboard.
 func (n *notifier) watchedChat() string {
 	m := app.main
 	if m == nil || !app.inFront() || !m.onScreen || !m.selection.IsChat() {

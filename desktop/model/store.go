@@ -12,9 +12,9 @@ import (
 	"time"
 )
 
-// The app's model, after the macOS app's AppStore. Everything comes from the CLI over 127.0.0.1;
-// mutations are applied optimistically and confirmed by the events the CLI sends back.
-// `LORCA_MOCK=1` runs the seeded demo with the in-process reply engine instead.
+// The app's model. Everything comes from the CLI over 127.0.0.1; mutations are applied
+// optimistically and confirmed by the events the CLI sends back. `LORCA_MOCK=1` runs the seeded
+// demo with the in-process reply engine instead.
 //
 // The store lives on the main thread, like the Swift one: the views read it while they build, its
 // methods change it, and its state is read right after it is written. Requests go out on

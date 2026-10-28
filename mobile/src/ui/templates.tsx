@@ -1,6 +1,5 @@
-// The pieces the template screens share, after the macOS app's TemplateItemViews: a row per
-// piece of the bot, as the template holds it, with what to look at before sharing it, and the
-// contents of a template read-only.
+// The pieces the template screens share: a row per piece of the bot, as the template holds it, with
+// what to look at before sharing it, and the contents of a template read-only.
 
 import { Checkbox, Host as ComposeHost } from "@expo/ui/jetpack-compose";
 import { Platform, PlatformColor, StyleSheet, Text, View } from "react-native";

@@ -7,8 +7,8 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// The app's colors and type, after the macOS app's Theme: semantic label and fill colors, the
-// system accent colors bots take, and the bubble, code, chip, and composer fills, light and dark.
+// The app's colors and type: semantic label and fill colors, the system accent colors bots take,
+// and the bubble, code, chip, and composer fills, light and dark.
 
 type palette struct {
 	Label, Label2, Label3, Label4 ui.Color
@@ -174,8 +174,8 @@ const (
 // monoFont is the system's monospaced family.
 const monoFont = "monospace"
 
-// colors is the palette of the appearance the view draws in, in the desktop's accent color when
-// it has one, as the Mac app follows the system's.
+// colors is the palette of the appearance the view draws in, in the desktop's accent color when it
+// has one.
 func colors(c *ui.Context) *palette {
 	base := &lightPalette
 	if c.Theme().Dark {

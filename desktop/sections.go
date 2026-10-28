@@ -14,9 +14,9 @@ func L(key string, args ...any) string { return l10n.L(key, args...) }
 // Lc is one English word that means two things, looked up with its context.
 func Lc(text, context string) string { return l10n.Lc(text, context) }
 
-// Titled cards of rows, after the macOS app's DetailViews: the inspector's captioned, bordered card
-// and System Settings' heading and plain fill, with dividers between the rows (edge to edge under
-// a caption, between the rows' text margins under a heading), and the rows they hold.
+// Titled cards of rows: the inspector's captioned, bordered card and System Settings' heading and
+// plain fill, with dividers between the rows (edge to edge under a caption, between the rows' text
+// margins under a heading), and the rows they hold.
 
 type sectionStyle int
 
@@ -382,9 +382,9 @@ func actionRow(c *ui.Context, k *card, label string, o actionRowOptions) (ui.Ele
 	return r, result
 }
 
-// disclosureRow is a key on the left, a short value and a chevron on the right, after the Mac's
-// DisclosureRow. It reports a click anywhere on it, which opens what the value sums up. A tint
-// colors the value, as orange does something to act on.
+// disclosureRow is a key on the left, a short value and a chevron on the right. It reports a click
+// anywhere on it, which opens what the value sums up. A tint colors the value, as orange does
+// something to act on.
 func disclosureRow(c *ui.Context, k *card, label, value string, tint *ui.Color) bool {
 	p := colors(c)
 	valueColor := p.Label2
@@ -496,9 +496,9 @@ func switchRow(c *ui.Context, k *card, symbolName string, tint ui.Color, title s
 	return clicked
 }
 
-// channelRow is a channel, after the Mac's SwitchRow for one: the service's mark, its name, and
-// what it takes, which wraps rather than lose its last tag, after its state in orange when the
-// user has something to do about it; then its pause switch. It reports a click elsewhere on it.
+// channelRow is a channel: the service's mark, its name, and what it takes, which wraps rather than
+// lose its last tag, after its state in orange when the user has something to do about it; then its
+// pause switch. It reports a click elsewhere on it.
 func channelRow(c *ui.Context, k *card, channel *model.Channel, change func(bool)) bool {
 	p := colors(c)
 	paused := channel.IsPaused()

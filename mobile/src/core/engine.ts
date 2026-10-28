@@ -1,5 +1,5 @@
 // The phone's side of the core: starts it once with the app's folder and this phone's facts,
-// turns its events into store changes, and offers the screens the same verbs the macOS app has.
+// turns its events into store changes, and offers the screens the same verbs the desktop app has.
 // Every call is one request over the JSON API the desktop app speaks to the CLI; the Rust
 // core does the keys, the relay, jobs, rooms, and questions to Runners.
 
@@ -100,7 +100,7 @@ class Engine {
 
   /// Takes the core's snapshot of the account. The core keeps emitting while it builds one, so
   /// an event can arrive ahead of a snapshot older than it: the relay connecting during launch,
-  /// a reply. Those events wait and are applied after the snapshot, as the macOS app does; each
+  /// a reply. Those events wait and are applied after the snapshot, as the desktop app does; each
   /// says where a thing stands, so one the snapshot already has changes nothing.
   private async bootstrap() {
     this.bootstraps += 1;

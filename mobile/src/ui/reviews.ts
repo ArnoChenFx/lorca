@@ -1,4 +1,4 @@
-// What a bot left for review, in the words the desktop apps use: the permission card's title, the
+// What a bot left for review, in the words the desktop app uses: the permission card's title, the
 // row's line, and how it ended.
 
 import type { Bot, Device, ReviewItem } from "../core/model";

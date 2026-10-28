@@ -10,7 +10,7 @@ import { Row } from "./forms";
 import { Symbol } from "./Symbol";
 import { usePalette } from "./theme";
 
-// The SF Symbol for a Device, the way the Mac sidebar picks it.
+// The SF Symbol for a Device, by its platform and model.
 export function deviceSymbol(os: string, model: string): string {
   switch (os) {
     case "macos":

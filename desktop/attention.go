@@ -13,14 +13,14 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// The account's attention, after the macOS app's AttentionViewController: a flyout under the
-// header's Attention button with each coordinator's latest brief, then what waits on the user,
-// urgent first. A row opens its chat, and an item waiting on a review the inspector lists opens
-// that review's sheet over it; its buttons open another source chat or mark it resolved, and a
-// brief's dismisses it. The ⋯ menu holds the notification switches and the coordinator. Bots keep
-// the list; the CLI sends it whole (attention.changed), and the flyout follows it while it shows.
+// The account's attention: a flyout under the header's Attention button with each coordinator's
+// latest brief, then what waits on the user, urgent first. A row opens its chat, and an item
+// waiting on a review the inspector lists opens that review's sheet over it; its buttons open
+// another source chat or mark it resolved, and a brief's dismisses it. The ⋯ menu holds the
+// notification switches and the coordinator. Bots keep the list; the CLI sends it whole
+// (attention.changed), and the flyout follows it while it shows.
 
-// attentionWidth is the flyout's, as the Mac's popover.
+// attentionWidth is the flyout's width.
 const attentionWidth = 380
 
 type attentionState struct {
@@ -481,7 +481,7 @@ func (m *mainWindow) setAttentionPreference(key string, value any) {
 	store.SetAttentionPreference(key, value, m.attentionFailed)
 }
 
-// attentionFailed says what went wrong in an alert, as the Mac's does.
+// attentionFailed says what went wrong in an alert.
 func (m *mainWindow) attentionFailed(err error) {
 	if err == nil {
 		return

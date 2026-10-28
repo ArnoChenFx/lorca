@@ -12,10 +12,9 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// Cards in the transcript, after the macOS app's PermissionCellView and CommandCellView: a bot
-// asking before a plugin action, an install, a sign-in, or a shell command runs, and a command the
-// bot handed over, with its last lines, an answer field, and Stop. In a group a card sits in the
-// bubbles' column with the bot's avatar beside its bottom edge.
+// Cards in the transcript: a bot asking before a plugin action, an install, a sign-in, or a shell
+// command runs, and a command the bot handed over, with its last lines, an answer field, and Stop.
+// In a group a card sits in the bubbles' column with the bot's avatar beside its bottom edge.
 
 // presentCommandSheet shows the whole command a card asks about, to read or copy before answering.
 func (w *appWindow) presentCommandSheet(title, command string) {
@@ -233,10 +232,10 @@ type secretCardState struct {
 	err    string
 }
 
-// secretCard is a bot asking for a secret, after the macOS app's SecretCellView: who asks and where
-// it goes, why, a field for each value that hides what is typed, Save and Not now, and a note that
-// the value stays on the Runner and the bot never sees it, which a failed save turns into why.
-// Once answered, the answer and what was asked for: "Saved · npm token".
+// secretCard is a bot asking for a secret: who asks and where it goes, why, a field for each value
+// that hides what is typed, Save and Not now, and a note that the value stays on the Runner and the
+// bot never sees it, which a failed save turns into why. Once answered, the answer and what was
+// asked for: "Saved · npm token".
 func (m *mainWindow) secretCard(c *ui.Context, chat *model.Chat, message *model.Message, cardAvatar *avatarContent, groupStart bool) {
 	p := colors(c)
 	request := message.Body.Request
@@ -485,12 +484,12 @@ func beep() { go mygo.Shell.Beep() }
 
 // MARK: - The draft card
 
-// An email or Slack message a bot wrote, after the macOS app's DraftCellView: a card the user
-// edits in place, then sends or discards. While it waits: who drafted it and the account it goes
-// out from, the header rows as Mail's compose window has them (To, Cc, Bcc, Subject), the text,
-// the attachments, and Discard apart on the left from Send. A Slack card also offers Always Send,
-// which sends it and has the bot send its next messages directly. Once sent or discarded the card
-// keeps the message as it went, with how it ended on the title's line.
+// An email or Slack message a bot wrote: a card the user edits in place, then sends or discards.
+// While it waits: who drafted it and the account it goes out from, the header rows as Mail's
+// compose window has them (To, Cc, Bcc, Subject), the text, the attachments, and Discard apart on
+// the left from Send. A Slack card also offers Always Send, which sends it and has the bot send its
+// next messages directly. Once sent or discarded the card keeps the message as it went, with how it
+// ended on the title's line.
 
 // draftRow is one header row: its label and the field it edits.
 type draftRow struct {

@@ -1,7 +1,7 @@
 // A plugin on its Runner, slid in from its row in Details or in a Device's Plugins. A named account
 // (Gmail · Work) has its name, edited in place, and its sign-in, which says how it stands, as the
-// desktop apps' Account card does; any other plugin, its state. Then its call limit, which every bot
-// on the Runner shares, picked from menus. Adding an account and its setup happen in Lorca on a
+// desktop app's Account card does; any other plugin, its state. Then its call limit, which every
+// bot on the Runner shares, picked from menus. Adding an account and its setup happen in Lorca on a
 // computer.
 
 import { Stack, useLocalSearchParams } from "expo-router";

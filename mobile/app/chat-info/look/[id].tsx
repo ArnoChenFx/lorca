@@ -72,7 +72,7 @@ export default function BotLookScreen() {
   );
 }
 
-/// Longest side of a stored profile image, the Mac app's figure too.
+/// Longest side of a stored profile image.
 const AVATAR_SIDE = 512;
 
 async function squareAvatar(asset: ImagePicker.ImagePickerAsset): Promise<PickedFile> {

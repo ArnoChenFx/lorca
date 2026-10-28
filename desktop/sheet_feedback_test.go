@@ -257,7 +257,7 @@ func TestFeedbackInTheDemo(t *testing.T) {
 		t.Fatal("the rejected suggestion stays")
 	}
 
-	// The sheets stand alone over the chat, as the Mac's do.
+	// The sheets stand alone over the chat.
 	m.userWantsInspector = false
 	settle(tt)
 	m.presentFeedbackList("bot-nova")

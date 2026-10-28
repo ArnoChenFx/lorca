@@ -8,10 +8,10 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// browserProfiles is the Browser plugin sheet's Profiles section for one bot, after the macOS app's
-// BrowserProfilesSection: a row per profile with how it stands, + to add one, and on a click or a
-// right-click the profile's menu: open it, take it over or hand it back, record a workflow for the
-// bot to learn, take a screenshot into the chat, close it, or delete it.
+// browserProfiles is the Browser plugin sheet's Profiles section for one bot: a row per profile
+// with how it stands, + to add one, and on a click or a right-click the profile's menu: open it,
+// take it over or hand it back, record a workflow for the bot to learn, take a screenshot into the
+// chat, close it, or delete it.
 type browserProfiles struct {
 	w             *appWindow
 	botID, chatID string

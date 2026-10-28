@@ -7,9 +7,9 @@ import (
 	"time"
 )
 
-// Workflow feedback, after the macOS app's Feedback.swift: what the user says about a bot's
-// messages, the changes to its routines and skills the bot suggests from it, and the changes the
-// user accepted. The bot's Runner keeps all of it and applies every decision; the app asks.
+// Workflow feedback: what the user says about a bot's messages, the changes to its routines and
+// skills the bot suggests from it, and the changes the user accepted. The bot's Runner keeps all of
+// it and applies every decision; the app asks.
 
 // FeedbackTarget is what a note, a suggestion, or a change is about: a routine's task, or a saved
 // skill of the bot's or of a group it is in. The CLI names them; the app sends one back as it

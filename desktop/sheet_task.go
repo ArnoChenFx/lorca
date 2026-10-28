@@ -10,11 +10,10 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// taskSheet is one durable task, after the Mac's task sheet. A card on top says where it stands,
-// why when it is blocked or cancelled, its result and what supports it, and offers the one step
-// that fits: Start, Resume, Mark Complete, or Reopen. Below it the goal, owner, next step, and
-// what done looks like are a form that Save writes back, then the tasks it waits for and its
-// links, when it has them.
+// taskSheet is one durable task. A card on top says where it stands, why when it is blocked or
+// cancelled, its result and what supports it, and offers the one step that fits: Start, Resume,
+// Mark Complete, or Reopen. Below it the goal, owner, next step, and what done looks like are a
+// form that Save writes back, then the tasks it waits for and its links, when it has them.
 //
 // Edits start from the version the sheet showed. A change from elsewhere replaces the form while
 // the user has not touched it. When Save finds the task changed underneath, the sheet takes the

@@ -1,4 +1,4 @@
-// A skill of a bot's or a group's, slid in from its row in Details, after the desktop apps' skill
+// A skill of a bot's or a group's, slid in from its row in Details, after the desktop app's skill
 // sheet: who can use it, its name and when to use it, the instructions and an example, the
 // reference and script files it carries, and how it changed. `new` as the id is the same form for
 // a new skill; a draft a bot proposed or Save as Skill wrote opens here too, and is used once it is

@@ -1,6 +1,6 @@
-// How a routine stands, in the words the Details row and the routine screen use, after the Mac
-// app's Routine and RoutineProblem (Model/Models.swift): what went wrong in a word or two, what
-// happened and how to fix it, the schedule with its timezone, and its last check.
+// How a routine stands, in the words the Details row and the routine screen use, after the desktop
+// app's routine sheet: what went wrong in a word or two, what happened and how to fix it, the
+// schedule with its timezone, and its last check.
 
 import type { Routine, RoutineEvents } from "../core/model";
 import { language, t } from "../i18n";
@@ -172,8 +172,8 @@ function offsetIn(zone: string, at: Date): number | undefined {
 }
 
 /// The routine's timezone, as "New York time", when the phone keeps other hours now or in half a
-/// year; none for an interval, which counts time whatever the zone. The Mac says it after the
-/// schedule; the phone's Schedule section gives it a row's value.
+/// year; none for an interval, which counts time whatever the zone. The desktop app says it after
+/// the schedule; the phone's Schedule section gives it a row's value.
 export function timezoneLabel(routine: Routine, now = new Date()): string | undefined {
   const zone = routine.timezone;
   // Events keep their own times.

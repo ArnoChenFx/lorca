@@ -12,11 +12,11 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// A chat, after the macOS app's ChatViewController and ChatCells: the transcript, which follows new
-// messages while it rests at its end and otherwise holds what the user is reading in place, older
-// pages asked for near the top, the composer floating over it, and the button back to the latest.
-// Bubbles put the user's on the right in the accent color and a bot's on the left; in a group the
-// bot's name sits above its first bubble and its avatar beside the bubble's bottom edge.
+// A chat: the transcript, which follows new messages while it rests at its end and otherwise holds
+// what the user is reading in place, older pages asked for near the top, the composer floating over
+// it, and the button back to the latest. Bubbles put the user's on the right in the accent color
+// and a bot's on the left; in a group the bot's name sits above its first bubble and its avatar
+// beside the bubble's bottom edge.
 
 const (
 	horizontalInset  = 22
@@ -114,10 +114,9 @@ func isOutputCard(message *model.Message) bool {
 	return message.Output != nil && message.Author.Kind != model.AuthorYou
 }
 
-// buildRows lays the transcript out as rows, after the macOS app's rebuildRows: a day separator
-// after fifteen minutes of silence or a new day, the messages (tool calls only as a sent
-// message's marker, a coding agent's, or a command's card while it needs the user), and at the
-// end the working row or a status line.
+// buildRows lays the transcript out as rows: a day separator after fifteen minutes of silence or a
+// new day, the messages (tool calls only as a sent message's marker, a coding agent's, or a
+// command's card while it needs the user), and at the end the working row or a status line.
 func buildRows(chat *model.Chat, working []string, stoppedNotice string) []chatRow {
 	var rows []chatRow
 	var previousAuthor *model.Author
@@ -192,7 +191,7 @@ func (m *mainWindow) chatView(c *ui.Context, chatID string) {
 			chatEmptyState(c, m, chat, members, s, bottom)
 		}
 		if !s.list.AtEnd() && len(rows) > 0 {
-			// A glass disc, as AppKit's glass bezel draws the Mac's.
+			// A glass disc, as AppKit's glass bezel draws one.
 			jump := ui.ButtonBase(c.Key("jump")).Absolute().Right(horizontalInset).Bottom(bottom+14).Size(28, 28).Radius(14).Center().
 				Material(glassButton{p.GlassButton}).Border(1, p.ComposerBorder).Shadow(0, 1, 1.5, -0.5, ui.RGBA(0, 0, 0, 0.08)).TextColor(p.Label).
 				Label(L("Scroll to latest")).Tooltip(L("Scroll to latest (%@)", shortcutText("CmdOrCtrl+J")))
@@ -400,7 +399,7 @@ func (m *mainWindow) messageCell(c *ui.Context, chat *model.Chat, message *model
 					s.flashID = ""
 				}
 			}
-			// Reply, from the bubble, and above Copy from its text, as on the Mac.
+			// Reply, from the bubble, and above Copy from its text.
 			var replyMenu func(menu *ui.Menu)
 			if message.CanBeQuoted() {
 				replyMenu = func(menu *ui.Menu) {
@@ -1195,9 +1194,8 @@ func emptyPrompts(bots []*model.Bot) []string {
 	return []string{L("What should I work on next?"), L("Plan this and delegate the parts")}
 }
 
-// chatEmptyState is a chat with no messages yet, after the macOS app's ChatEmptyStateView: its
-// bots, its title, where it runs, and two prompts to start with, a little above the middle of the
-// room over the composer.
+// chatEmptyState is a chat with no messages yet: its bots, its title, where it runs, and two
+// prompts to start with, a little above the middle of the room over the composer.
 func chatEmptyState(c *ui.Context, m *mainWindow, chat *model.Chat, bots []*model.Bot, s *chatState, bottom float32) {
 	p := colors(c)
 	subtitle := L("No bots in this group yet.")

@@ -7,10 +7,9 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// budgetSheet is what a DM's turns, a task's runs, or a routine's runs may use on the bot's
-// Runner, after the macOS app's BudgetViewController: a form of limits with what the work used
-// beside each, and a card with Resume when the work stopped. The fields are the user's until the
-// sheet closes.
+// budgetSheet is what a DM's turns, a task's runs, or a routine's runs may use on the bot's Runner:
+// a form of limits with what the work used beside each, and a card with Resume when the work
+// stopped. The fields are the user's until the sheet closes.
 type budgetSheet struct {
 	w         *appWindow
 	bot       *model.Bot

@@ -7,9 +7,8 @@ import (
 	"time"
 )
 
-// Wire shapes the CLI sends over 127.0.0.1, and their mapping into the app's model, after the
-// macOS app's Protocol.swift. Keys are snake_case on the wire; a field the CLI may leave out or
-// send as null is a pointer.
+// Wire shapes the CLI sends over 127.0.0.1, and their mapping into the app's model. Keys are
+// snake_case on the wire; a field the CLI may leave out or send as null is a pointer.
 
 // WireRelayProblem is why the last try to connect to the relay failed.
 type WireRelayProblem struct {

@@ -1,4 +1,4 @@
-// What a chat's bots published, after the macOS app's inspector: a row per output in its
+// What a chat's bots published, after the desktop app's inspector: a row per output in its
 // details, and an output's preview. Files come from the core, fetched from the relay when
 // another Device published them; Open shows one in Quick Look on iOS, and Share hands it to the
 // share sheet, which is where the phone saves a copy.

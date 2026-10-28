@@ -11,8 +11,8 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-// One searchable setting, after the macOS app's SettingsSearch. The panes label their rows from
-// these, so the search index and the pages share one spelling.
+// One searchable setting. The panes label their rows from these, so the search index and the pages
+// share one spelling.
 
 type settingsEntry struct {
 	pane model.SettingsPane

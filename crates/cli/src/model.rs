@@ -1,5 +1,5 @@
 //! Plaintext domain model. Lives on Devices; crosses the network only inside encrypted blobs.
-//! Field names match what the macOS app decodes.
+//! Field names match what the apps decode.
 
 use serde::{Deserialize, Serialize};
 

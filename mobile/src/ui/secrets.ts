@@ -1,4 +1,4 @@
-// What a secret request's card and a Runner's saved secrets say, as the Mac app says it.
+// What a secret request's card and a Runner's saved secrets say, as the desktop app says it.
 
 import type { Body, SavedSecret } from "../core/model";
 import { t } from "../i18n";

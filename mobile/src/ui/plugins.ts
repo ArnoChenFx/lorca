@@ -1,4 +1,4 @@
-// A plugin's state in a word or two, as the desktop apps' rows word it. What it needs in full is in
+// A plugin's state in a word or two, as the desktop app's rows word it. What it needs in full is in
 // the plugin's sheet on a computer, or a named account's own screen here.
 
 import type { PluginStatus } from "../core/model";

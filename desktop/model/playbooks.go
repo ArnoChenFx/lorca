@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-// A bot's or a group's skills, after the macOS app's Playbooks.swift. The CLI owns them: the
-// roster lists them without their bodies, and a body is fetched when one opens.
+// A bot's or a group's skills. The CLI owns them: the roster lists them without their bodies, and a
+// body is fetched when one opens.
 
 // PlaybookScope is whose skill it is: one bot's, in every chat it is in, or a group's, for the bots
 // in that group.

@@ -1,4 +1,4 @@
-// Settings › Shared Links, after the desktop apps' pane: the account's links, the newest change
+// Settings › Shared Links, after the desktop app's pane: the account's links, the newest change
 // first, each with its bot and when it was last updated. A row slides in its bot's share screen,
 // which copies, updates, and revokes the link; a bot deleted since keeps its link until it is
 // revoked, and its row offers that.

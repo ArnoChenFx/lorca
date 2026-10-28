@@ -1,4 +1,4 @@
-// A bot's or a group's skills on the phone, after the desktop apps' skill sheet and Save as Skill:
+// A bot's or a group's skills on the phone, after the desktop app's skill sheet and Save as Skill:
 // what the screens word, the name the core takes, and the form the skill screen and its file
 // screen share while a skill is open.
 

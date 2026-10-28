@@ -8,10 +8,9 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// Adding a bot from a template, a link someone shared or a file, after the macOS app's
-// TemplateImportViewController: its name, the Runner it runs on, the provider, and for each plugin
-// it uses one of that Runner's own connections. The new bot shares nothing with the one it came
-// from, and its routines start paused.
+// Adding a bot from a template, a link someone shared or a file: its name, the Runner it runs on,
+// the provider, and for each plugin it uses one of that Runner's own connections. The new bot
+// shares nothing with the one it came from, and its routines start paused.
 
 type templateImportState struct {
 	// from is the From field: a pasted link, or the file Choose File… picked. link and path are

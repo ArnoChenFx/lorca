@@ -34,8 +34,8 @@ func TestMessageSelectsAcrossBlocks(t *testing.T) {
 	}
 }
 
-// A right-click on a message's text offers Reply above Copy and Select All, as the Mac's does:
-// Reply starts a reply to it, and the others act on its text.
+// A right-click on a message's text offers Reply above Copy and Select All: Reply starts a reply to
+// it, and the others act on its text.
 func TestMessageTextMenu(t *testing.T) {
 	m := demoWindow(t)
 	tt := ui.NewTester(m.frame(m.view), 1000, 700)

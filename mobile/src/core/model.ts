@@ -1404,7 +1404,7 @@ export const taskIsFinished = (state: DurableTaskState) => state === "completed"
 /// A run can start: queued or blocked, and not running.
 export const taskCanStart = (task: DurableTask) => (task.state === "queued" || task.state === "blocked") && !task.active_run;
 
-/// The SF Symbol for a state, the same as the desktop apps'.
+/// The SF Symbol for a state, the same as the desktop app's.
 export function taskSymbol(state: DurableTaskState): string {
   switch (state) {
     case "working":
@@ -1469,7 +1469,7 @@ export interface CallLimits {
   service_id: string;
 }
 
-/// A group's shared project context, after the desktop apps' Project section: the briefs, goals,
+/// A group's shared project context, after the desktop app's Project section: the briefs, goals,
 /// constraints, decisions, facts, links (`document`), and files (`asset`) every bot in the group
 /// can read. The core owns scope, revisions, source checks, and sync.
 export type ProjectKind = "brief" | "goal" | "constraint" | "decision" | "fact" | "document" | "asset";

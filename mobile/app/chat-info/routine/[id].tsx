@@ -1,10 +1,10 @@
-// One routine, slid in from its row in the chat's Details, after the Mac app's routine sheet: how
-// it stands, with what happened and how to fix it when something went wrong, Run Now, Pause or
-// Resume, and its Limits; the schedule with its timezone when the phone keeps other hours, the
-// next run, what happens to runs its Runner missed, and its last check and run; the task, the
-// check, and Delete. A routine on events shows what it listens to and its latest event instead
-// of a next run; one with a webhook has its URL, key, and header to copy, and a new key. The bot
-// owns the routine: the user asks it in chat to change one.
+// One routine, slid in from its row in the chat's Details, after the desktop app's routine sheet:
+// how it stands, with what happened and how to fix it when something went wrong, Run Now, Pause or
+// Resume, and its Limits; the schedule with its timezone when the phone keeps other hours, the next
+// run, what happens to runs its Runner missed, and its last check and run; the task, the check, and
+// Delete. A routine on events shows what it listens to and its latest event instead of a next run;
+// one with a webhook has its URL, key, and header to copy, and a new key. The bot owns the routine:
+// the user asks it in chat to change one.
 
 import * as Clipboard from "expo-clipboard";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";

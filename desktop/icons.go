@@ -7,7 +7,7 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// Symbols. Bots, plugins, and the macOS app name their looks by SF Symbol ("sparkles",
+// Symbols. Bots and plugins name their looks by SF Symbol ("sparkles",
 // "chevron.left.forwardslash.chevron.right"); here each name draws the Lucide icon that says the
 // same thing, stroked in the text color.
 

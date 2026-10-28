@@ -1,8 +1,8 @@
-// A bot's browser profiles on its Runner, slid in from the Browser row in Details, as the Mac's
-// Browser sheet lists them: each profile and how it stands, and on a tap its menu. A profile opens
-// in a window on the Runner only, so that is where the user signs in and records a workflow; from
-// here they take the browser over, hand it back, start and stop a recording in a browser open there,
-// take a screenshot into the chat, close it, add, or delete one.
+// A bot's browser profiles on its Runner, slid in from the Browser row in Details, as the desktop
+// app's Browser sheet lists them: each profile and how it stands, and on a tap its menu. A profile
+// opens in a window on the Runner only, so that is where the user signs in and records a workflow;
+// from here they take the browser over, hand it back, start and stop a recording in a browser open
+// there, take a screenshot into the chat, close it, add, or delete one.
 
 import { Host, OutlinedTextField, AlertDialog, Text as ComposeText, TextButton } from "@expo/ui/jetpack-compose";
 import { fillMaxWidth } from "@expo/ui/jetpack-compose/modifiers";

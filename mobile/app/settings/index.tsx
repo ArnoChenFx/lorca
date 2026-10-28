@@ -66,8 +66,8 @@ export default function SettingsScreen() {
   const updates = useUpdates();
   const [dailyChecks, setDailyChecksShown] = useState(() => loadPrefs().update_checks !== false);
 
-  // The Mac app's pop-up: Automatic with the language it resolves to, a separator, then every
-  // language the recognizer knows, by name.
+  // A pop-up of Automatic with the language it resolves to, a separator, then every language the
+  // recognizer knows, by name.
   const dictationLanguages = useSupportedLanguages();
   const automaticDictation = t("Automatic ({language})", { language: languageName(automaticLanguage()) });
   const dictationChoices = [

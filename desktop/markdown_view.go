@@ -10,11 +10,11 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// Message Markdown on screen, after the macOS app's MarkdownRenderer: every block a blank line's
-// worth from the next (a code box sits closer), list items two points apart, a bar for quotes, a
-// grid for a table (inside a list or quote its rows as lines, cells three spaces apart), and a
-// rule as a line of box-drawing characters. A message is one selection: a drag runs across its
-// paragraphs, lists, and code, and Copy joins them a line apart.
+// Message Markdown on screen: every block a blank line's worth from the next (a code box sits
+// closer), list items two points apart, a bar for quotes, a grid for a table (inside a list or
+// quote its rows as lines, cells three spaces apart), and a rule as a line of box-drawing
+// characters. A message is one selection: a drag runs across its paragraphs, lists, and code, and
+// Copy joins them a line apart.
 
 const (
 	paragraphGap = 24

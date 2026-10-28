@@ -1,4 +1,4 @@
-// New Bot from Template, after the desktop apps' sheet: From takes a pasted link to a shared bot,
+// New Bot from Template, after the desktop app's sheet: From takes a pasted link to a shared bot,
 // which opens once it is whole, or a file from Choose File…; Open in Lorca on a link's page opens
 // the sheet on its link (see +native-intent.tsx). What the template sets up shows once it opens:
 // the Name, the Runner, the Provider, a row per plugin with the Runner's connections for it, then
