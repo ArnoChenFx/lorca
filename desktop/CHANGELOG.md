@@ -6,6 +6,9 @@ and the update window shows it.
 
 ## [Unreleased]
 
+- Another Device sees a new version of this app within the hour. Before, it could say Up to date
+  for up to a day after a release.
+
 ## [0.1.21]
 
 - After Compact, the inspector's Context row drops to the compacted size right away, marked ≈ as an

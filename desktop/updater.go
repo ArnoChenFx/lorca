@@ -85,8 +85,10 @@ func checkAppRelease(ctx context.Context) (*appRelease, error) {
 	return &appRelease{version: up.Version, install: func(ctx context.Context) error { return up.Install(ctx, nil) }}, nil
 }
 
-// appCheckInterval is how often the app looks for a newer version for the other Devices to see.
-const appCheckInterval = 24 * time.Hour
+// appCheckInterval is how often the app looks for a newer version for the other Devices to see:
+// hourly, so a release shows on them the day it comes out. The GitHub API allows 60 unsigned
+// requests an hour.
+const appCheckInterval = time.Hour
 
 type appUpdates struct {
 	enabled  func() bool
@@ -116,7 +118,7 @@ type appUpdates struct {
 }
 
 // connected runs each time the app's CLI answers: it says how the app's updates stand, after a
-// check when the last one is a day old, and picks up the relaunch a restarted CLI interrupted.
+// check when the last one is an hour old, and picks up the relaunch a restarted CLI interrupted.
 func (u *appUpdates) connected() {
 	if !u.enabled() || store.IsMock {
 		return
@@ -138,8 +140,8 @@ func (u *appUpdates) connected() {
 	}
 }
 
-// refresh checks the feed for a newer version, says what it found, and checks again a day later.
-// The caller set busy.
+// refresh checks the feed for a newer version, says what it found, and checks again an hour
+// later. The caller set busy.
 func (u *appUpdates) refresh() {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	release, err := u.check(ctx)
@@ -154,17 +156,22 @@ func (u *appUpdates) refresh() {
 	if u.timer != nil {
 		u.timer.Stop()
 	}
-	u.timer = time.AfterFunc(appCheckInterval, func() {
+	var timer *time.Timer
+	timer = time.AfterFunc(appCheckInterval, func() {
 		u.mu.Lock()
 		due := !u.busy && u.state == ""
 		if due {
 			u.busy = true
+		} else if u.timer == timer {
+			// An install runs: look again later, as a failed one leaves the version as it was.
+			timer.Reset(appCheckInterval)
 		}
 		u.mu.Unlock()
 		if due {
 			u.refresh()
 		}
 	})
+	u.timer = timer
 	u.mu.Unlock()
 	u.report()
 }
