@@ -1,18 +1,87 @@
-// Bot avatars: an accent gradient disc with the bot's SF Symbol, or the bot's own image once
-// this phone has it, a breathing green dot while the bot works (as in Grok Bot: 7 px,
-// bottom-right, scale 1 → 0.8 over 2.4 s), a cluster for group chats, and a channel
-// conversation's service mark on its corner.
+// Bot avatars: the bot's character (Grok Bot's, a shape flat in its accent with two white eyes,
+// which acts out short clips while its bot works), or the bot's own image once this phone has it,
+// a breathing green dot while the bot works (as in Grok Bot: 7 px, bottom-right, scale 1 → 0.8
+// over 2.4 s), a cluster for group chats, and a channel conversation's service mark on its corner.
+// The shapes come from the desktop app's outlines as white masks this view tints (shapeMasks.ts).
 
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import { memo, useEffect } from "react";
-import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from "react-native";
-import Animated, { Easing, useAnimatedStyle, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
+import { memo, useEffect, useMemo } from "react";
+import { StyleSheet, Text, View, type ColorValue, type StyleProp, type ViewStyle } from "react-native";
+import Animated, { Easing, useAnimatedStyle, useFrameCallback, useReducedMotion, useSharedValue, withRepeat, withTiming } from "react-native-reanimated";
 import { engine } from "../core/engine";
 import type { Bot } from "../core/model";
-import { useStore } from "../core/store";
+import { useBotIsWorking, useStore } from "../core/store";
+import { t } from "../i18n";
+import { Pressable } from "./Pressable";
+import { BOT_SHAPES, type BotShape, SHAPE_EYES } from "./characters";
+import { bodyScale, clipOrder, eyeAt, fnv, REST_POSE, workingPose } from "./characterMotion";
+import { SHAPE_MASKS } from "./shapeMasks";
 import { Symbol } from "./Symbol";
-import { accentColors, usePalette } from "./theme";
+import { accentColor, usePalette } from "./theme";
+
+/// The bot's shape: the one it was given, or one its id picks (FNV-1a, as the desktop app's
+/// `shapeFor`), so bots told apart by nothing else still look different.
+export function shapeFor(shape: string | undefined, id: string): BotShape {
+  if (shape && (BOT_SHAPES as readonly string[]).includes(shape)) return shape as BotShape;
+  return BOT_SHAPES[fnv(id) % BOT_SHAPES.length];
+}
+
+/// The character `size` across: the shape's mask in `color`, the eyes over it in white. At rest it
+/// stands still; while `working` it acts out its clips (characterMotion.ts), in an order its
+/// `motionKey` (the bot's id) shuffles, unless the phone asks for less motion.
+export const Character = memo(function Character({ shape, color, size, motionKey = shape, working = false, style }: { shape: BotShape; color: string; size: number; motionKey?: string; working?: boolean; style?: StyleProp<ViewStyle> }) {
+  const reduceMotion = useReducedMotion();
+  const moving = working && !reduceMotion;
+  const order = useMemo(() => clipOrder(fnv(motionKey)), [motionKey]);
+  const home = SHAPE_EYES[shape] as [number, number][];
+  const start = useSharedValue(-1);
+  const elapsed = useSharedValue(0);
+  const clock = useFrameCallback((frame) => {
+    if (start.value < 0) start.value = frame.timestamp;
+    elapsed.value = (frame.timestamp - start.value) / 1000;
+  }, false);
+  useEffect(() => {
+    start.value = -1;
+    elapsed.value = 0;
+    clock.setActive(moving);
+  }, [moving, clock, start, elapsed]);
+  const half = size / 2;
+  const body = useAnimatedStyle(() => {
+    const pose = moving ? workingPose(elapsed.value, order) : REST_POSE;
+    const [sx, sy] = bodyScale(pose);
+    return { transform: [{ translateX: pose.x * half }, { translateY: pose.y * half }, { rotate: `${pose.roll}deg` }, { scaleX: sx }, { scaleY: sy }] };
+  });
+  // A blink draws each eye in to its middle, down to a dot; one turned away shrinks out of sight.
+  const eyeStyle = (i: number) => {
+    "worklet";
+    const pose = moving ? workingPose(elapsed.value, order) : REST_POSE;
+    const [x, y, facing] = eyeAt(home, pose, i);
+    const scale = facing * pose.scale;
+    const width = pose.face[1] * (1 - 0.3 * pose.lids) * scale * half;
+    const length = (pose.face[0] - pose.face[1]) * (1 - pose.lids) * scale * half + width;
+    return {
+      opacity: facing > 0 ? 1 : 0,
+      left: half + x * half - width / 2,
+      top: half + y * half - length / 2,
+      width,
+      height: length,
+      borderRadius: width / 2,
+      transform: [{ rotate: `${pose.roll - pose.face[2]}deg` }],
+    };
+  };
+  const left = useAnimatedStyle(() => eyeStyle(0));
+  const right = useAnimatedStyle(() => eyeStyle(1));
+  return (
+    <View style={[{ width: size, height: size }, style]}>
+      <Animated.View style={[{ position: "absolute", width: size, height: size }, body]}>
+        <Image source={SHAPE_MASKS[shape]} tintColor={color} style={{ width: size, height: size }} accessible={false} />
+      </Animated.View>
+      <Animated.View style={[styles.eye, left]} />
+      <Animated.View style={[styles.eye, right]} />
+    </View>
+  );
+});
 
 /// The file URI of the bot's profile image, once this phone has the bytes; asks the core for
 /// them the first time. Undefined while they are on their way or when the bot has none.
@@ -25,10 +94,60 @@ export function useBotAvatarUri(bot: Bot | undefined): string | undefined {
   return avatar ? uri : undefined;
 }
 
-/// The look as a symbol on an accent, or an image; the picker previews a pending choice this way.
-export function AvatarDisc({ symbol, accent, uri, size, style }: { symbol: string; accent: string; uri?: string; size: number; style?: StyleProp<ViewStyle> }) {
+export function shapeTitle(shape: BotShape): string {
+  switch (shape) {
+    case "blob":
+      return t("Blob");
+    case "pebble":
+      return t("Pebble");
+    case "squircle":
+      return t("Squircle");
+    case "cloud":
+      return t("Cloud");
+    case "drop":
+      return t("Drop");
+    case "sparkle":
+      return t("Sparkle");
+    case "clover":
+      return t("Clover");
+    case "flower":
+      return t("Flower");
+    case "heart":
+      return t("Heart");
+    case "hex":
+      return t("Hexagon");
+    case "star":
+      return t("Star");
+    case "cushion":
+      return t("Cushion");
+  }
+}
+
+/// The shapes to pick from, each a character in `accent`, the picked one outlined in it.
+export function ShapePicker({ shape, accent, onPick }: { shape: BotShape; accent: string; onPick: (shape: BotShape) => void }) {
   const p = usePalette();
-  const colors = accentColors(accent, p.dark);
+  const color = accentColor(accent, p.dark);
+  return (
+    <View style={styles.shapeGrid}>
+      {BOT_SHAPES.map((s) => (
+        <Pressable
+          key={s}
+          onPress={() => onPick(s)}
+          style={[styles.shapeCell, { backgroundColor: p.fill, borderColor: s === shape ? color : "transparent" }]}
+          accessibilityLabel={shapeTitle(s)}
+          accessibilityRole="button"
+          accessibilityState={{ selected: s === shape }}
+        >
+          <Character shape={s} color={color} size={30} />
+        </Pressable>
+      ))}
+    </View>
+  );
+}
+
+/// The look as a character, or an image in a circle; the picker previews a pending choice this way.
+export function LookAvatar({ shape, accent, uri, size, motionKey, working, style }: { shape: BotShape; accent: string; uri?: string; size: number; motionKey?: string; working?: boolean; style?: StyleProp<ViewStyle> }) {
+  const p = usePalette();
   if (uri) {
     return (
       <View style={[styles.disc, { width: size, height: size, borderRadius: size / 2, overflow: "hidden", backgroundColor: p.fill }, style]}>
@@ -36,26 +155,25 @@ export function AvatarDisc({ symbol, accent, uri, size, style }: { symbol: strin
       </View>
     );
   }
-  return (
-    <LinearGradient colors={colors} start={{ x: 0.3, y: 0 }} end={{ x: 0.7, y: 1 }} style={[styles.disc, { width: size, height: size, borderRadius: size / 2 }, style]}>
-      <Symbol name={symbol} size={size * 0.5} color="#FFFFFF" weight="semibold" />
-    </LinearGradient>
-  );
+  return <Character shape={shape} color={accentColor(accent, p.dark)} size={size} motionKey={motionKey} working={working} style={style} />;
 }
 
 export const BotAvatar = memo(function BotAvatar({ bot, size = 40, working = false, service, style }: { bot: Bot | undefined; size?: number; working?: boolean; service?: string; style?: StyleProp<ViewStyle> }) {
   const p = usePalette();
   const uri = useBotAvatarUri(bot);
+  // The character moves wherever the bot shows while it has a turn running anywhere: the chat
+  // list, the chat, and its details alike. `working` is where the work is, which the dot marks.
+  const busy = useBotIsWorking(bot?.id);
   return (
     <View style={[{ width: size, height: size }, style]}>
-      <AvatarDisc symbol={bot?.symbol_name ?? "sparkles"} accent={bot?.accent ?? "indigo"} uri={uri} size={size} />
+      <LookAvatar shape={shapeFor(bot?.shape, bot?.id ?? "")} accent={bot?.accent ?? "indigo"} uri={uri} size={size} motionKey={bot?.id} working={working || busy} />
       {service && <ServiceBadge service={service} size={size} ring={p.background} />}
       {working && <PresenceDot size={size} ring={p.background} top={!!service} />}
     </View>
   );
 });
 
-/// The services' real marks as round badges, rendered from the Mac's PluginLogo SVGs:
+/// The services' real marks as round badges, rendered from the plugins' SVG marks:
 /// Telegram's disc as it is, Slack's mark on white.
 const SERVICE_MARKS: Record<string, number> = {
   telegram: require("../../assets/services/telegram.png"),
@@ -131,7 +249,7 @@ export const PresenceDot = memo(function PresenceDot({ size, ring, top = false }
 });
 
 /// One to six members. One shows its avatar; two sit diagonally; more stack the first two
-/// with the rest implied, the way the Mac sidebar clusters them.
+/// with the rest implied.
 /// `service` is a channel conversation's (telegram, slack), whose mark the avatar wears.
 export const AvatarCluster = memo(function AvatarCluster({ bots, size = 40, working = false, service }: { bots: Bot[]; size?: number; working?: boolean; service?: string }) {
   const p = usePalette();
@@ -140,16 +258,37 @@ export const AvatarCluster = memo(function AvatarCluster({ bots, size = 40, work
   return (
     <View style={{ width: size, height: size }}>
       <BotAvatar bot={bots[1]} size={small} style={{ position: "absolute", right: 0, top: 0 }} />
-      <View style={{ position: "absolute", left: 0, bottom: 0, width: small + 4, height: small + 4, borderRadius: (small + 4) / 2, backgroundColor: p.background, alignItems: "center", justifyContent: "center" }}>
-        <BotAvatar bot={bots[0]} size={small} />
-      </View>
+      <RingedAvatar bot={bots[0]} size={small} ring={2} color={p.background} style={{ position: "absolute", left: 0, bottom: 0 }} />
       {working && <PresenceDot size={size} ring={p.background} />}
     </View>
   );
 });
 
+/// A bot's avatar standing off what is behind it by `ring` of `color`: the character's mask a
+/// little larger, or a circle around an image. A mask takes only a plain color, so a semantic
+/// iOS color stands in as the system background it is.
+function RingedAvatar({ bot, size, ring, color, style }: { bot: Bot | undefined; size: number; ring: number; color: ColorValue; style?: StyleProp<ViewStyle> }) {
+  const p = usePalette();
+  const uri = useBotAvatarUri(bot);
+  const outer = size + ring * 2;
+  const tint = typeof color === "string" ? color : p.dark ? "#000000" : "#FFFFFF";
+  return (
+    <View style={[{ width: outer, height: outer, alignItems: "center", justifyContent: "center" }, style]}>
+      {uri ? (
+        <View style={{ position: "absolute", width: outer, height: outer, borderRadius: outer / 2, backgroundColor: color }} />
+      ) : (
+        <Image source={SHAPE_MASKS[shapeFor(bot?.shape, bot?.id ?? "")]} tintColor={tint} style={{ position: "absolute", width: outer, height: outer }} accessible={false} />
+      )}
+      <BotAvatar bot={bot} size={size} />
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   disc: { alignItems: "center", justifyContent: "center" },
   presence: { position: "absolute", alignItems: "center", justifyContent: "center" },
   badge: { position: "absolute", alignItems: "center", justifyContent: "center" },
+  eye: { position: "absolute", backgroundColor: "#FFFFFF" },
+  shapeGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, padding: 14 },
+  shapeCell: { width: 48, height: 44, borderRadius: 10, borderWidth: 2, alignItems: "center", justifyContent: "center" },
 });

@@ -7,8 +7,8 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// The app's colors and type, after the macOS app's Theme: semantic label and fill colors, the
-// system accent colors bots take, and the bubble, code, chip, and composer fills, light and dark.
+// The app's colors and type: semantic label and fill colors, the system accent colors bots take,
+// and the bubble, code, chip, and composer fills, light and dark.
 
 type palette struct {
 	Label, Label2, Label3, Label4 ui.Color
@@ -32,6 +32,8 @@ type palette struct {
 	Selection, SelectionText, SelectionInactive   ui.Color
 	Field, FieldBorder, Popover, Scrim, Sheet     ui.Color
 	SearchBG, RowHover, Shadow, ShadowEdge, White ui.Color
+	// Toast and ToastText are the inverse of the window, as a toast stands out from it.
+	Toast, ToastText ui.Color
 }
 
 var lightPalette = palette{
@@ -93,6 +95,8 @@ var lightPalette = palette{
 	Shadow:            ui.RGBA(0, 0, 0, 0.18),
 	ShadowEdge:        ui.RGBA(0, 0, 0, 0.12),
 	White:             ui.Hex("#ffffff"),
+	Toast:             ui.Hex("#1c1c1e"),
+	ToastText:         ui.Hex("#ffffff"),
 }
 
 var darkPalette = palette{
@@ -154,6 +158,8 @@ var darkPalette = palette{
 	Shadow:            ui.RGBA(0, 0, 0, 0.5),
 	ShadowEdge:        ui.RGBA(255, 255, 255, 0.14),
 	White:             ui.Hex("#ffffff"),
+	Toast:             ui.Hex("#f2f2f7"),
+	ToastText:         ui.Hex("#000000"),
 }
 
 // Text sizes, in DIPs.
@@ -168,8 +174,8 @@ const (
 // monoFont is the system's monospaced family.
 const monoFont = "monospace"
 
-// colors is the palette of the appearance the view draws in, in the desktop's accent color when
-// it has one, as the Mac app follows the system's.
+// colors is the palette of the appearance the view draws in, in the desktop's accent color when it
+// has one.
 func colors(c *ui.Context) *palette {
 	base := &lightPalette
 	if c.Theme().Dark {

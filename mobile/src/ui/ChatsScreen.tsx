@@ -398,9 +398,9 @@ const GroupHeader = memo(function GroupHeader({ group, collapsed, sections, widt
   );
 });
 
-/// A chat's menu items that quiet and file it, after the Mac's: Mute and its spans or Unmute,
-/// Move to Section and the sections (Move to New Section… while there are none), and Hide or
-/// Show in Sidebar.
+/// A chat's menu items that quiet and file it, after the desktop app's: Mute and its spans or
+/// Unmute, Move to Section and the sections (Move to New Section… while there are none), and Hide
+/// or Show in Sidebar.
 function sidebarActions(chat: Chat, sections: Section[]): MenuAction[] {
   const ios = Platform.OS === "ios";
   const current = chat.section_id && sections.some((section) => section.id === chat.section_id) ? chat.section_id : "";

@@ -8,10 +8,10 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// Workflow feedback, after the macOS app's FeedbackViewController: what the user says about a
-// bot's messages, the changes to its routines and skills the bot suggests from it, and the changes
-// the user accepted. The bot's Runner keeps all of it and applies every decision; these sheets
-// only ask. A sheet's fields live in its state, which a closed sheet keeps from late replies.
+// Workflow feedback: what the user says about a bot's messages, the changes to its routines and
+// skills the bot suggests from it, and the changes the user accepted. The bot's Runner keeps all of
+// it and applies every decision; these sheets only ask. A sheet's fields live in its state, which a
+// closed sheet keeps from late replies.
 
 func feedbackKindSymbol(kind string) string {
 	switch kind {

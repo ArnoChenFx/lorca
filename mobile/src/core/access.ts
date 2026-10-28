@@ -1,4 +1,4 @@
-// A bot's Access, after the desktop apps' Access sheet: how far it may use each plugin on its
+// A bot's Access, after the desktop app's Access sheet: how far it may use each plugin on its
 // Runner, down to single tools, and whether it reads or changes files and runs shell commands
 // there. Only the user changes it; here each change saves at once, as iOS Settings does. The
 // plugins and the tools each offered come from the Runner (`bots.permissions`, a sealed request

@@ -1,4 +1,4 @@
-// One thing a bot left for review, slid in from the chat's details, after the desktop apps' review
+// One thing a bot left for review, slid in from the chat's details, after the desktop app's review
 // sheet and the permission card it would have asked with: who wants to do what and why, then the
 // command, call, or draft in one field to edit, and the one decision. Approve, the toolbar's
 // button, runs what the field shows on the bot's Runner, saving an edit first as a new version;

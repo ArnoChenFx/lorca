@@ -6,6 +6,18 @@ when it offers the update.
 
 ## [Unreleased]
 
+- A Device's screen in Settings has that Device look for a newer app and CLI as it opens, so it shows
+  what is out. Before, it could say Up to date for up to a day after a release.
+
+## [1.0.11]
+
+- Bots are little characters now, as in Grok Bot: one of twelve shapes in the bot's color, with two
+  eyes. While a bot works, its character looks around, sways, spins, and flips. Look and New Bot
+  offer the shapes where they offered symbols; a bot you haven't given one gets its own.
+- A working bot's line speaks like Grok Bot's: "Chipping away…", "Mulling it over…", "Digging around…",
+  and in Chinese 愚公移山中…, 冥思苦想中…, 东翻西找….
+- A bot that runs on another Device shows its context and spend.
+
 ## [1.0.10]
 
 - Opening a chat from Bots on iOS slides it in under the list's bar: the buttons fade into the

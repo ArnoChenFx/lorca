@@ -6,8 +6,8 @@ import (
 	"slices"
 )
 
-// Bot templates, after the macOS app's TemplateSharing: the CLI reads and writes the files and
-// checks them, and answers with the contents as the file holds them.
+// Bot templates: the CLI reads and writes the files and checks them, and answers with the contents
+// as the file holds them.
 
 type TemplateProfile struct {
 	Name        string `json:"name"`

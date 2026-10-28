@@ -1,7 +1,7 @@
-// The development relay the dev loops run beside the app (`bun run dev`, `bun run mac:dev`).
+// The development relay the dev loops run beside the app (`bun run dev`).
 import { mkdirSync } from "node:fs"
 import { join } from "node:path"
-import { ROOT, color, log } from "./app.ts"
+import { ROOT, color, log } from "./common.ts"
 
 export const RELAY_PORT = 8787
 

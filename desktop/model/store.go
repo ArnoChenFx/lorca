@@ -12,9 +12,9 @@ import (
 	"time"
 )
 
-// The app's model, after the macOS app's AppStore. Everything comes from the CLI over 127.0.0.1;
-// mutations are applied optimistically and confirmed by the events the CLI sends back.
-// `LORCA_MOCK=1` runs the seeded demo with the in-process reply engine instead.
+// The app's model. Everything comes from the CLI over 127.0.0.1; mutations are applied
+// optimistically and confirmed by the events the CLI sends back. `LORCA_MOCK=1` runs the seeded
+// demo with the in-process reply engine instead.
 //
 // The store lives on the main thread, like the Swift one: the views read it while they build, its
 // methods change it, and its state is read right after it is written. Requests go out on
@@ -1154,7 +1154,7 @@ func (s *Store) CreateChat(kind ChatKind, botIDs []string, title string) string 
 type NewBot struct {
 	Name        string
 	Description string
-	SymbolName  string
+	Shape       string
 	Accent      Accent
 	RunnerID    string
 	Provider    ProviderKind
@@ -1169,7 +1169,7 @@ func (s *Store) CreateBot(options NewBot) string {
 		ID:          ShortID("bot"),
 		Name:        options.Name,
 		Description: options.Description,
-		SymbolName:  options.SymbolName,
+		Shape:       options.Shape,
 		Accent:      options.Accent,
 		RunnerID:    options.RunnerID,
 		Provider:    options.Provider,
@@ -1191,7 +1191,7 @@ func (s *Store) CreateBot(options NewBot) string {
 			"id":          bot.ID,
 			"name":        options.Name,
 			"description": options.Description,
-			"symbol_name": options.SymbolName,
+			"shape":       options.Shape,
 			"accent":      string(options.Accent),
 			"runner_id":   options.RunnerID,
 			"provider":    options.Provider,
@@ -1215,7 +1215,7 @@ func (s *Store) AddBotFromTemplate(template BotTemplate, runnerID string) string
 	botID := s.CreateBot(NewBot{
 		Name:        template.Name,
 		Description: template.Description,
-		SymbolName:  template.SymbolName,
+		Shape:       template.Shape,
 		Accent:      template.Accent,
 		RunnerID:    runnerID,
 		Provider:    s.PreferredProvider(),
@@ -1288,15 +1288,15 @@ func (s *Store) UpdateBotProfile(id, name string, description *string) {
 	s.perform("bots.update", params)
 }
 
-// SetBotLook is the bot's symbol and accent, the look under and behind its image.
-func (s *Store) SetBotLook(id, symbolName string, accent Accent) {
+// SetBotLook is the bot's shape and accent, the look under and behind its image.
+func (s *Store) SetBotLook(id, shape string, accent Accent) {
 	bot := s.Bot(id)
 	if bot == nil {
 		return
 	}
-	bot.SymbolName, bot.Accent = symbolName, accent
+	bot.Shape, bot.Accent = shape, accent
 	s.rosterTouched("")
-	s.perform("bots.update", map[string]any{"id": id, "symbol_name": symbolName, "accent": string(accent)})
+	s.perform("bots.update", map[string]any{"id": id, "shape": shape, "accent": string(accent)})
 }
 
 // AvatarFile is a picture on this computer for SetBotAvatar: a prepared square PNG.
@@ -1344,9 +1344,17 @@ func (s *Store) SetBotRuntime(id string, provider ProviderKind, model, thinking 
 	s.perform("bots.update", map[string]any{"id": id, "provider": provider, "model": model, "thinking": thinking})
 }
 
-// CompactChat summarizes the chat's older part for its bot now, on the Runner.
-func (s *Store) CompactChat(id string) {
-	s.perform("chats.compact", map[string]any{"chat_id": id})
+// CompactChat summarizes the chat's older part for its bot now, on the Runner. It answers once
+// the Runner is done, which waits for a running turn and the memory flush first, or why it did
+// not compact.
+func (s *Store) CompactChat(id string, done func(error)) {
+	if s.IsMock {
+		s.post(func() { done(nil) })
+		return
+	}
+	Async(s, func() (struct{}, error) {
+		return struct{}{}, s.request("chats.compact", map[string]any{"chat_id": id}, nil)
+	}, func(_ struct{}, err error) { done(err) })
 }
 
 // MARK: - Plugins
@@ -3158,6 +3166,13 @@ func (s *Store) UpdateDeviceApp(id string, done func(error)) {
 		return
 	}
 	s.simple(done, "device.update_app", map[string]any{"id": id})
+}
+
+// CheckDeviceUpdates has a Device's CLI and desktop app, or this one's, look for a newer version
+// now. The Device's `machine` blob carries what they find; a Runner too old to know the request
+// keeps what it said.
+func (s *Store) CheckDeviceUpdates(id string) {
+	s.simple(nil, "device.check_updates", map[string]any{"id": id})
 }
 
 // AppUpdateReport is what this app tells its CLI of its own updates, which the CLI puts in this

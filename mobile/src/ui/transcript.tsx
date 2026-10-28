@@ -1,9 +1,9 @@
-// Transcript rows, after the Mac app: bubbles (a group shows the bot's name above and its
-// avatar beside the bubble's bottom edge; a DM shows neither), "Today 4:13 AM" separators after
-// fifteen minutes of silence, the "is working" row, "Chef stopped without replying", and the
-// centered "Message from ◉ Name" / "Messaged ◉ Name" markers, with a coding agent's mark in place
-// of the avatar for the agents a bot runs. Tool calls never render, except a command, which shows
-// as its card while it needs the user, and a coding agent's start and the messages sent to it.
+// Transcript rows: bubbles (a group shows the bot's name above and its avatar beside the bubble's
+// bottom edge; a DM shows neither), "Today 4:13 AM" separators after fifteen minutes of silence,
+// the "is working" row, "Chef stopped without replying", and the centered "Message from ◉ Name" /
+// "Messaged ◉ Name" markers, with a coding agent's mark in place of the avatar for the agents a bot
+// runs. Tool calls never render, except a command, which shows as its card while it needs the user,
+// and a coding agent's start and the messages sent to it.
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Linking, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
@@ -23,7 +23,7 @@ import { AttachmentBlock } from "./attachments";
 import { OutputCard } from "./outputs";
 import { BotAvatar, ContactAvatar } from "./Avatar";
 import { AgentLogo } from "./AgentLogo";
-import { daySeparator, firstLine, workingActivity } from "./format";
+import { daySeparator, firstLine, workingActivity, workingPhrase, workingStep } from "./format";
 import { Markdown } from "./Markdown";
 import { Symbol } from "./Symbol";
 import { usePaneWidth } from "./layout";
@@ -38,7 +38,7 @@ const GUTTER = 8;
 /// A bubble stops growing here in a wide pane.
 const BUBBLE_COLUMN_MAX = 620;
 const INSET = 12;
-/// A notice's line, and its icon, which centers on the first line as on the Mac.
+/// A notice's line, and its icon, which centers on the first line.
 const NOTICE_LINE = 17;
 const NOTICE_ICON = 14;
 
@@ -57,7 +57,7 @@ export type Row =
   | { key: string; type: "working"; bots: Bot[] }
   | { key: string; type: "status"; text: string };
 
-/// Builds the rows for a chat, the way the Mac app's ChatViewController does.
+/// Builds the rows for a chat, the way the desktop app does.
 export function buildRows(chat: Chat, bots: Map<string, Bot>, workingBotIds: string[], isWorking: boolean, status: string | null): Row[] {
   const rows: Row[] = [];
   let previous: Message | null = null;
@@ -467,10 +467,11 @@ export const PermissionRow = memo(function PermissionRow({ row, isGroup, onDecid
   return <AskRow row={row} isGroup={isGroup} onDecide={onDecide} />;
 });
 
-/// A bot asking for a secret, as the Mac's card: who asks and where it goes, why, Fill In, which
-/// opens `SecretSheet` with a field for each value, and Not now, then that the value stays on the
-/// Runner and the bot never sees it. Once answered, the answer and what was asked for: "Saved · npm
-/// token". In a group the card sits in the bubbles' column, the bot's avatar beside its bottom edge.
+/// A bot asking for a secret, as the desktop app's card: who asks and where it goes, why, Fill In,
+/// which opens `SecretSheet` with a field for each value, and Not now, then that the value stays on
+/// the Runner and the bot never sees it. Once answered, the answer and what was asked for: "Saved ·
+/// npm token". In a group the card sits in the bubbles' column, the bot's avatar beside its bottom
+/// edge.
 function SecretRow({ row, isGroup, onDecide, onFill }: { row: Extract<Row, { type: "permission" }>; isGroup: boolean; onDecide: (message: Message, decision: "allow" | "always" | "deny") => void; onFill: (message: Message) => void }) {
   useLanguage();
   const p = usePalette();
@@ -970,17 +971,18 @@ export const StatusRow = memo(function StatusRow({ text }: { text: string }) {
   );
 });
 
-/// "Working…" in a DM and "Chef is working…" in a group, or what the one bot at work is doing,
-/// the words shimmering while a turn runs.
+/// One of Grok Bot's phrases in a DM ("Chipping away…") and "Chef is working…" in a group, or what
+/// the one bot at work is doing, the words shimmering while a turn runs.
 export const WorkingRow = memo(function WorkingRow({ chatId, bots, isGroup }: { chatId: string; bots: Bot[]; isGroup: boolean }) {
   useLanguage();
   const p = usePalette();
   const activity = useStore((s) => workingActivity(s, chatId));
+  const step = useStore((s) => workingStep(chatId, s.chats.find((c) => c.id === chatId)?.messages));
   const names = bots.map((b) => b.name);
   const label =
     names.length > 1
       ? t("{names} and {last} are working…", { names: names.slice(0, -1).join(language === "zh" ? "、" : ", "), last: names[names.length - 1] })
-      : (activity ?? (isGroup && names.length === 1 ? t("{name} is working…", { name: names[0] }) : t("Working…")));
+      : (activity ?? (isGroup && names.length === 1 ? t("{name} is working…", { name: names[0] }) : workingPhrase(step)));
   return (
     <View style={[styles.messageRow, styles.messageRowBot, { paddingTop: 14, alignItems: "center" }]}>
       <View style={{ width: AVATAR + GUTTER }}>{bots[0] && <BotAvatar bot={bots[0]} size={AVATAR} />}</View>

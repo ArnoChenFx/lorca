@@ -39,9 +39,8 @@ func secretPlace(secret model.SavedSecret) string {
 	return L("Commands")
 }
 
-// secrets is the picked Runner's secrets for its bots, after the macOS app's
-// SecretsSettingsViewController: what each is, whose it is, and where it goes, never its value. A
-// row opens it to type a new value or delete it; its menu does either.
+// secrets is the picked Runner's secrets for its bots: what each is, whose it is, and where it
+// goes, never its value. A row opens it to type a new value or delete it; its menu does either.
 func (s settingsPane) secrets(c *ui.Context, m *mainWindow) {
 	device := store.Device(m.settingsDeviceID)
 	title := L("Secrets")
@@ -67,7 +66,7 @@ func (s settingsPane) secrets(c *ui.Context, m *mainWindow) {
 				for _, secret := range state.list {
 					bot := store.Bot(secret.BotID)
 					owner := L("A deleted bot")
-					shown := &model.Bot{ID: secret.BotID, Name: owner, SymbolName: "lock", Accent: "indigo"}
+					shown := &model.Bot{ID: secret.BotID, Name: owner, Accent: "indigo"}
 					if bot != nil {
 						owner, shown = bot.Name, bot
 					}
@@ -99,9 +98,9 @@ func secretOwner(secret model.SavedSecret) string {
 	return L("The bot")
 }
 
-// presentSecret is one of a Runner's secrets, after the macOS app's SecretViewController: what it
-// is and where its bot uses it, a field for a new value, and Delete apart from Replace. The value
-// is never shown; a new one goes sealed to the Runner.
+// presentSecret is one of a Runner's secrets: what it is and where its bot uses it, a field for a
+// new value, and Delete apart from Replace. The value is never shown; a new one goes sealed to the
+// Runner.
 func (w *appWindow) presentSecret(secret model.SavedSecret, device *model.Device, list *settingsSecretsState) {
 	var value, failure string
 	busy := false

@@ -10,13 +10,12 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// The provider sheets, after the macOS app's ConnectProviderViewController,
-// CustomProviderViewController, and APIKeyField. A built-in provider connects with a pasted key, or
-// signs in through the browser, driven by the CLI. A custom provider is any server that speaks
-// OpenAI's Chat Completions or Responses API, or Anthropic's Messages API, or a decision API
-// (System One, OpenAI Decisions) whose models Auto-review can run: the sheet loads the models the
-// server lists as the user fills it in, and the user picks the ones to offer, adding any the server
-// does not list. Either credential reaches every paired Device encrypted with the account key.
+// The provider sheets. A built-in provider connects with a pasted key, or signs in through the
+// browser, driven by the CLI. A custom provider is any server that speaks OpenAI's Chat Completions
+// or Responses API, or Anthropic's Messages API, or a decision API (System One, OpenAI Decisions)
+// whose models Auto-review can run: the sheet loads the models the server lists as the user fills
+// it in, and the user picks the ones to offer, adding any the server does not list. Either
+// credential reaches every paired Device encrypted with the account key.
 
 // providerFetching is a sheet's saved key being fetched before it opens, so a second click waits.
 var providerFetching bool
@@ -55,7 +54,7 @@ func providerNote(c *ui.Context, text string, tint *ui.Color) ui.Element {
 }
 
 // mcpFormLabelWidth is a form's label column: as wide as the widest of its labels, whichever show,
-// as the Mac sheets' fixed label width is, so switching fields moves none.
+// so switching fields moves none.
 func mcpFormLabelWidth(c *ui.Context, labels ...string) float32 {
 	width := float32(0)
 	for _, label := range labels {
@@ -95,9 +94,9 @@ type providerKeyState struct {
 	shown bool
 }
 
-// providerKeyField is a provider's API key, after the macOS app's APIKeyField: masked by default,
-// with an eye inside the field that shows or hides the key and keeps the selection while it
-// switches. `autoFocus` makes it the field a sheet starts in.
+// providerKeyField is a provider's API key: masked by default, with an eye inside the field that
+// shows or hides the key and keeps the selection while it switches. `autoFocus` makes it the field
+// a sheet starts in.
 func providerKeyField(c *ui.Context, value *string, placeholder string, disabled, autoFocus bool) ui.Element {
 	var field ui.Element
 	box := ui.Box(c).MinWidth(0)
@@ -625,8 +624,8 @@ func (s *providerCustomSheet) modelsView(c *ui.Context) {
 	})
 }
 
-// providerModelRow is a model to pick: a click anywhere on it toggles it, as the Mac's checklist
-// does. Change runs after the view is built with the new choice.
+// providerModelRow is a model to pick: a click anywhere on it toggles it. Change runs after the
+// view is built with the new choice.
 func providerModelRow(c *ui.Context, each model.CustomModel, checked, disabled bool, change func()) {
 	p := colors(c)
 	ui.Box(c.Key(each.ID)).Children(func() {

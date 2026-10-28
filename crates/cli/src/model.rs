@@ -1,9 +1,19 @@
 //! Plaintext domain model. Lives on Devices; crosses the network only inside encrypted blobs.
-//! Field names match what the macOS app decodes.
+//! Field names match what the apps decode.
 
 use serde::{Deserialize, Serialize};
 
 pub const MAX_GROUP_BOTS: usize = 6;
+
+/// The bodies a bot's character takes, after Grok Bot's. The apps draw each one and pick one from
+/// the bot's id when `Bot::shape` is empty.
+pub const BOT_SHAPES: [&str; 12] = [
+    "blob", "pebble", "squircle", "cloud", "drop", "sparkle", "clover", "flower", "heart", "hex", "star", "cushion",
+];
+
+pub fn default_symbol() -> String {
+    "sparkles".into()
+}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct ProviderStatus {
@@ -152,11 +162,17 @@ pub struct Bot {
     pub name: String,
     /// What the bot does and how it should work, shown in its profile and used in its prompt.
     pub description: String,
-    /// SF Symbol drawn on the accent gradient; the look when there is no image.
+    /// The SF Symbol apps from before characters draw on the accent; every bot carries one so
+    /// they keep reading the roster.
+    #[serde(default = "default_symbol")]
     pub symbol_name: String,
+    /// The character's body, one of `BOT_SHAPES`, drawn flat in the accent with two eyes: the
+    /// look when there is no image. Empty picks one from the id (`shapeFor` in the apps).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub shape: String,
     pub accent: String,
     /// A custom profile image, a `file` blob like a message attachment, shown in place of the
-    /// symbol and accent wherever the bot's avatar appears.
+    /// character wherever the bot's avatar appears.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub avatar: Option<Attachment>,
     pub runner_id: String,
@@ -961,12 +977,51 @@ pub struct Chat {
     pub meta: ChatMeta,
     #[serde(default)]
     pub unread_count: u32,
-    /// What the turns run here used. Kept on this Runner, never synced.
+    /// What the turns run here used. This Runner uploads it as a `ChatBlob::Usage`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub usage: Option<ChatUsage>,
     /// Summaries standing in for the older part of the chat, one per bot. Kept on this Runner.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub compactions: Vec<Compaction>,
+    /// What the turns other Runners ran here used, by Runner id, as each last reported it.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub runner_usage: std::collections::BTreeMap<String, ChatUsage>,
+}
+
+impl Chat {
+    /// The chat's usage as the apps show it: the context of `runner_id`, the Runner the chat's
+    /// bot (a group's owner) runs on, and what the turns on every Runner spent. `this_device` is
+    /// the Device answering. Until that Runner reports, the context is the latest report's.
+    pub fn shown_usage(&self, runner_id: Option<&str>, this_device: Option<&str>) -> Option<ChatUsage> {
+        let mut reports: Vec<(&str, &ChatUsage)> =
+            self.runner_usage.iter().filter(|(id, _)| Some(id.as_str()) != this_device).map(|(id, usage)| (id.as_str(), usage)).collect();
+        if let Some(usage) = &self.usage {
+            reports.push((this_device.unwrap_or_default(), usage));
+        }
+        let (base_runner, base) = reports
+            .iter()
+            .find(|(id, _)| Some(*id) == runner_id)
+            .or_else(|| reports.iter().max_by(|a, b| a.1.updated_at.total_cmp(&b.1.updated_at)))
+            .copied()?;
+        let mut shown = base.clone();
+        for (_, usage) in reports.iter().filter(|(id, _)| *id != base_runner) {
+            shown.input_tokens += usage.input_tokens;
+            shown.output_tokens += usage.output_tokens;
+            shown.cache_read_tokens += usage.cache_read_tokens;
+            shown.cost_usd += usage.cost_usd;
+            shown.api_cost_usd += usage.api_cost_usd;
+            shown.subscription_estimate_usd += usage.subscription_estimate_usd;
+            shown.unknown_price_calls += usage.unknown_price_calls;
+            shown.turns += usage.turns;
+            shown.updated_at = shown.updated_at.max(usage.updated_at);
+            for pricing in &usage.pricing_kinds {
+                if !shown.pricing_kinds.contains(pricing) {
+                    shown.pricing_kinds.push(*pricing);
+                }
+            }
+        }
+        Some(shown)
+    }
 }
 
 /// The tokens and money the turns in a chat used. `context_tokens` and `context_window` are
@@ -974,6 +1029,9 @@ pub struct Chat {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct ChatUsage {
     pub context_tokens: u64,
+    /// `context_tokens` is an estimate after a Compact, until the next turn counts it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub context_estimated: bool,
     pub context_window: u64,
     pub input_tokens: u64,
     pub output_tokens: u64,
@@ -1154,13 +1212,16 @@ pub enum ChatBlob {
     Upsert { message: Message },
     Remove { chat_id: String, message_id: String },
     ClearUnread { chat_id: String },
+    /// What the turns `runner_id` ran in the chat used so far, as `Chat::usage` holds it there.
+    Usage { chat_id: String, runner_id: String, usage: ChatUsage },
 }
 
 impl ChatBlob {
     /// Versions of a message share a slot, and so does its removal, which leaves the relay
     /// nothing of the message but the removal. A chat's read marks share another. A tool row
     /// goes up while its call runs, for the status line on other Devices, and the finished row
-    /// replaces it outright, so the relay keeps one version of each call.
+    /// replaces it outright, so the relay keeps one version of each call. A Runner's usage of a
+    /// chat keeps its latest report.
     pub fn slot(&self) -> crate::app::Slot {
         match self {
             // A command's card shows in the transcript, so like a message it keeps the place it
@@ -1169,6 +1230,7 @@ impl ChatBlob {
             ChatBlob::Upsert { message } => crate::app::Slot::first_and_latest(relay_name(&message.id)),
             ChatBlob::Remove { message_id, .. } => crate::app::Slot::latest(relay_name(message_id)),
             ChatBlob::ClearUnread { chat_id } => crate::app::Slot::latest(relay_name(&format!("read-{chat_id}"))),
+            ChatBlob::Usage { chat_id, runner_id, .. } => crate::app::Slot::latest(relay_name(&format!("usage-{chat_id}-{runner_id}"))),
         }
     }
 
@@ -1176,7 +1238,7 @@ impl ChatBlob {
     pub fn group(&self) -> String {
         match self {
             ChatBlob::Upsert { message } => relay_name(&message.chat_id),
-            ChatBlob::Remove { chat_id, .. } | ChatBlob::ClearUnread { chat_id } => relay_name(chat_id),
+            ChatBlob::Remove { chat_id, .. } | ChatBlob::ClearUnread { chat_id } | ChatBlob::Usage { chat_id, .. } => relay_name(chat_id),
         }
     }
 }
@@ -1542,6 +1604,24 @@ mod app_view_tests {
     }
 
     #[test]
+    fn a_bot_keeps_the_symbol_released_apps_read_beside_its_shape() {
+        // Apps from before characters require `symbol_name` in the roster.
+        let bot: Bot = serde_json::from_value(serde_json::json!({
+            "id": "bot", "name": "Scout", "description": "", "accent": "teal", "runner_id": "runner",
+            "provider": "deepseek", "created_at": 1.0
+        }))
+        .unwrap();
+        assert_eq!((bot.symbol_name.as_str(), bot.shape.as_str()), ("sparkles", ""));
+        let value = serde_json::to_value(&bot).unwrap();
+        assert_eq!(value["symbol_name"], "sparkles");
+        assert!(value.get("shape").is_none(), "an empty shape stays off the wire");
+
+        let shaped = Bot { shape: "cloud".into(), ..bot };
+        let value = serde_json::to_value(&shaped).unwrap();
+        assert_eq!((value["symbol_name"].as_str(), value["shape"].as_str()), (Some("sparkles"), Some("cloud")));
+    }
+
+    #[test]
     fn the_apps_get_a_tool_row_without_its_payload() {
         let tool = Message::new("c", Author::Bot { bot_id: "b".into() }, Body::Tool {
             name: "read".into(), summary: "Read a file".into(), detail: "x".repeat(5000), is_running: false,
@@ -1609,5 +1689,35 @@ mod runner_tests {
             let device = Device { id: "d".into(), name: "D".into(), os: os.into(), ..Default::default() };
             assert_eq!(device.is_runner(), case["runner"].as_bool().unwrap(), "{case}");
         }
+    }
+}
+
+#[cfg(test)]
+mod usage_tests {
+    use super::*;
+
+    fn used(context_tokens: u64, cost_usd: f64, turns: u64, updated_at: f64) -> ChatUsage {
+        ChatUsage { context_tokens, context_window: 100_000, cost_usd, turns, input_tokens: turns * 10, model: format!("m{context_tokens}"), updated_at, ..Default::default() }
+    }
+
+    #[test]
+    fn the_context_is_the_bots_runners_and_the_spend_every_runners() {
+        let mut chat: Chat = serde_json::from_value(serde_json::json!({ "id": "c", "kind": "group", "bot_ids": ["b"], "created_at": 0.0 })).unwrap();
+        assert_eq!(chat.shown_usage(Some("far"), Some("here")), None);
+
+        chat.runner_usage.insert("far".into(), used(5_000, 0.5, 2, 20.0));
+        chat.runner_usage.insert("near".into(), used(9_000, 0.25, 1, 30.0));
+        let shown = chat.shown_usage(Some("far"), Some("here")).unwrap();
+        assert_eq!((shown.context_tokens, shown.model.as_str(), shown.cost_usd, shown.turns, shown.input_tokens, shown.updated_at), (5_000, "m5000", 0.75, 3, 30, 30.0));
+
+        // This Device's own turns count as its own report; a stale echo of it is ignored.
+        chat.usage = Some(used(7_000, 1.0, 4, 10.0));
+        chat.runner_usage.insert("here".into(), used(1, 100.0, 100, 99.0));
+        let shown = chat.shown_usage(Some("here"), Some("here")).unwrap();
+        assert_eq!((shown.context_tokens, shown.cost_usd, shown.turns), (7_000, 1.75, 7));
+
+        // Until the bot's Runner reports, the context is the latest report's.
+        let shown = chat.shown_usage(Some("new"), Some("here")).unwrap();
+        assert_eq!((shown.context_tokens, shown.cost_usd), (9_000, 1.75));
     }
 }

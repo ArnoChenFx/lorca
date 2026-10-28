@@ -11,9 +11,9 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// The app's commands, after the macOS app's menu bar: one table that becomes the windows' native
-// menu bars (whose items keep their titles and enabled state as the selection changes) and the
-// words and enabled state of the command palette's actions.
+// The app's commands: one table that becomes the windows' native menu bars (whose items keep their
+// titles and enabled state as the selection changes) and the words and enabled state of the command
+// palette's actions.
 
 type command struct {
 	id    string
@@ -129,7 +129,7 @@ var commandTable = []command{
 	}},
 	{id: "stopResponding", title: func() string { return L("Stop Responding") }, accelerator: "CmdOrCtrl+.", enabled: chatSelected},
 	{
-		// The Mac's ⌃B has no counterpart here: Ctrl+B toggles the sidebar.
+		// No shortcut: Ctrl+B toggles the sidebar.
 		id: "runInBackground", title: func() string { return L("Run Command in Background") },
 		enabled: func() bool { return chatSelected() && len(store.ForegroundCommands(app.main.selection.ChatID)) > 0 },
 	},
@@ -331,8 +331,8 @@ func submenu(label string, items ...*mygo.MenuItem) *mygo.MenuItem {
 	return &mygo.MenuItem{Label: label, Submenu: items}
 }
 
-// windowMenuBar is the menu bar, in the order the macOS app's has it. On a Mac the app menu holds
-// About, Check for Updates, Settings, and Quit; on Windows and Linux they sit in File and Help.
+// windowMenuBar is the menu bar. On a Mac the app menu holds About, Check for Updates, Settings,
+// and Quit; on Windows and Linux they sit in File and Help.
 func windowMenuBar(kind windowKind) *mygo.Menu {
 	at := func(id string) *mygo.MenuItem { return menuItem(id, kind) }
 	sep := mygo.Separator

@@ -933,9 +933,16 @@ pub async fn compact_now(app: &Arc<App>, chat_id: &str, bot_id: Option<&str>) ->
     let chat = app.chat(chat_id).ok_or("Unknown chat")?;
     let mut settings = compaction_settings(provider.model_info().map(|i| i.context_window).unwrap_or(0));
     settings.enabled = true;
+    let workdir = bot.working_directory(&app.config.home);
+    let before = estimate_context_tokens(&transcript_for(app, &chat, &bot, &workdir)).tokens;
     let tokens_before = compact_chat(app, &chat, &bot, &provider, &settings, &CancellationToken::new())
         .await?
         .ok_or_else(|| "Nothing to compact yet".to_string())?;
+    // The Context row shows the last turn's count, which the summary just made stale.
+    if let Some(chat) = app.chat(chat_id) {
+        let after = estimate_context_tokens(&transcript_for(app, &chat, &bot, &workdir)).tokens;
+        app.record_compacted_context(chat_id, before, after);
+    }
     app.notice(chat_id, format!("Compacted {}'s context: {} tokens summarized.", bot.name, format_tokens(tokens_before)));
     Ok(tokens_before)
 }
@@ -3072,6 +3079,7 @@ impl Tool for CreateBot {
             name: name.clone(),
             description,
             symbol_name,
+            shape: String::new(),
             accent,
             avatar: None,
             runner_id: runner.as_ref().map_or_else(|| caller.runner_id.clone(), |runner| runner.id.clone()),
@@ -4066,6 +4074,7 @@ mod tests {
             name: name.into(),
             description: String::new(),
             symbol_name: String::new(),
+            shape: String::new(),
             accent: String::new(),
             avatar: None,
             runner_id: "dev".into(),
@@ -4085,6 +4094,7 @@ mod tests {
             unread_count: 0,
             usage: None,
             compactions: Vec::new(),
+            runner_usage: Default::default(),
         }
     }
 
@@ -5395,6 +5405,88 @@ mod tests {
             message: AgentMessage::Assistant(AssistantMessage::empty("deepseek", "model")),
             assistant_message_event: AssistantEvent::ThinkingStart { index: 0 },
         }
+    }
+
+    #[test]
+    fn a_chats_usage_goes_up_from_its_runner_and_shows_on_other_devices() {
+        let scratch = scratch_app();
+        let app = &scratch.0;
+        crate::identity::create(app, Some("Runner".into())).unwrap();
+        let runner_id = app.this_device_id().unwrap();
+        let mut chef = bot("b1", "Chef");
+        chef.runner_id = runner_id.clone();
+        {
+            let mut state = app.state.lock().unwrap();
+            state.bots.push(chef.clone());
+            state.chats.push(chat("chat", "dm", None, &["b1"]));
+        }
+        let usage = lorca_agent::Usage { input: 1_000, output: 200, total_tokens: 1_200, ..Default::default() };
+        app.record_usage("chat", "deepseek-chat", &usage, 128_000);
+        app.record_usage("chat", "deepseek-chat", &usage, 128_000);
+
+        // The Runner's latest report stands in one slot of the chat's group.
+        let dek = app.dek().unwrap();
+        let reports: Vec<_> = app
+            .store
+            .outbox()
+            .unwrap()
+            .into_iter()
+            .filter(|item| item.kind == "chat")
+            .filter_map(|item| match crate::crypto::decrypt_json::<ChatBlob>(&dek, "chat", &item.ciphertext).unwrap() {
+                ChatBlob::Usage { chat_id, runner_id, usage } => Some((chat_id, runner_id, usage, item.slot.unwrap(), item.group)),
+                _ => None,
+            })
+            .collect();
+        let [(chat_id, from, reported, slot, group)] = reports.try_into().unwrap();
+        assert_eq!((chat_id.as_str(), from.as_str(), group.as_deref()), ("chat", runner_id.as_str(), Some("chat")));
+        assert!(!slot.keep_first);
+        assert_eq!((reported.context_tokens, reported.context_window, reported.turns, reported.input_tokens), (1_200, 128_000, 2, 2_000));
+
+        // A Device the bot does not run on shows the Runner's report, and its updates.
+        let other = scratch_app();
+        let phone = &other.0;
+        {
+            let mut state = phone.state.lock().unwrap();
+            state.bots.push(chef);
+            state.chats.push(chat("chat", "dm", None, &["b1"]));
+        }
+        assert!(phone.snapshot()["chats"][0]["usage"].is_null());
+        let mut events = phone.events.subscribe();
+        phone.set_runner_usage("chat", &runner_id, reported.clone());
+        assert_eq!(phone.snapshot()["chats"][0]["usage"]["context_tokens"], 1_200);
+        let Ok(Event::ChatUsageChanged { chat_id, usage }) = events.try_recv() else { panic!("a usage event") };
+        assert_eq!((chat_id.as_str(), usage), ("chat", reported.clone()));
+        let crate::events::Event::RosterChanged { chats, .. } = phone.roster_summary() else { panic!() };
+        assert_eq!(chats[0].usage.as_ref(), Some(&reported));
+        // The same report again changes nothing.
+        phone.set_runner_usage("chat", &runner_id, reported);
+        assert!(events.try_recv().is_err());
+    }
+
+    #[test]
+    fn a_compact_lowers_the_context_until_the_next_turn_counts_it() {
+        let scratch = scratch_app();
+        let app = &scratch.0;
+        crate::identity::create(app, Some("Runner".into())).unwrap();
+        app.state.lock().unwrap().chats.push(chat("chat", "dm", None, &["b1"]));
+        // No turn has counted the context yet: nothing to lower.
+        app.record_compacted_context("chat", 100_000, 20_000);
+        assert!(app.chat("chat").unwrap().usage.is_none());
+
+        let usage = lorca_agent::Usage { input: 140_000, output: 1_000, total_tokens: 141_000, ..Default::default() };
+        app.record_usage("chat", "deepseek-chat", &usage, 1_000_000);
+        let mut events = app.events.subscribe();
+        // The system prompt and tools the count carries stay; the summarized messages leave.
+        app.record_compacted_context("chat", 120_000, 25_000);
+        let shown = app.chat("chat").unwrap().usage.unwrap();
+        assert_eq!((shown.context_tokens, shown.context_estimated, shown.turns, shown.input_tokens), (46_000, true, 1, 140_000));
+        assert!(matches!(events.try_recv(), Ok(Event::ChatUsageChanged { usage, .. }) if usage.context_tokens == 46_000));
+        // An estimate past the count never shows less than the transcript left.
+        app.record_compacted_context("chat", 200_000, 30_000);
+        assert_eq!(app.chat("chat").unwrap().usage.unwrap().context_tokens, 30_000);
+        // The next turn's count replaces the estimate.
+        app.record_usage("chat", "deepseek-chat", &usage, 1_000_000);
+        assert!(!app.chat("chat").unwrap().usage.unwrap().context_estimated);
     }
 
     #[test]

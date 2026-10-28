@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// The demo's stand-in for the CLI's setups, as the macOS app's MockWorkflows: the same answers,
-// from the demo roster, with a sample that finishes a moment after it starts.
+// The demo's stand-in for the CLI's setups: the same answers, from the demo roster, with a sample
+// that finishes a moment after it starts.
 
 func demoWorkflowPacks() []WorkflowPack {
 	return []WorkflowPack{
@@ -105,7 +105,7 @@ func (s *Store) demoWorkflow(method string, data json.RawMessage) (WorkflowProgr
 			setup.botID = id
 		}
 		if setup.botID == "" {
-			setup.botID = s.CreateBot(NewBot{Name: demoWorkflowSpecialists[setup.packID], SymbolName: "eye.fill", Accent: "purple", RunnerID: setup.runnerID, Provider: s.PreferredProvider()})
+			setup.botID = s.CreateBot(NewBot{Name: demoWorkflowSpecialists[setup.packID], Shape: "drop", Accent: "purple", RunnerID: setup.runnerID, Provider: s.PreferredProvider()})
 		}
 		setup.phase = "connections"
 	case "connection":

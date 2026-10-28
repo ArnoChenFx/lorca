@@ -1,4 +1,4 @@
-// Save a skill from this chat, after the desktop apps' Save as Skill and Save as Standing
+// Save a skill from this chat, after the desktop app's Save as Skill and Save as Standing
 // Instruction, which hang off a message's menu there: on the phone a message's long press selects
 // its text, so Details' Add Skill opens this instead. A bot's reply picked makes a workflow from
 // how it was done; two or more of the user's own messages make a standing instruction from the

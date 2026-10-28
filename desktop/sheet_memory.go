@@ -7,9 +7,9 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// Edits a bot's MEMORY.md, the notes that open every turn, after the macOS app's
-// MemoryViewController. A save carries the hash of the text that was opened, so it is refused when
-// the bot wrote in between; the user then reloads the bot's version or overwrites it knowingly.
+// Edits a bot's MEMORY.md, the notes that open every turn. A save carries the hash of the text that
+// was opened, so it is refused when the bot wrote in between; the user then reloads the bot's
+// version or overwrites it knowingly.
 
 type memoryState struct {
 	bot *model.Bot

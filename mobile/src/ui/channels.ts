@@ -1,5 +1,5 @@
 // Channels in the phone's words: what a channel takes, where it listens, and its state, as the
-// desktop apps' channel rows and sheet say them.
+// desktop app's channel rows and sheet say them.
 
 import type { ChannelListen, ChannelStatus, ChatRequest } from "../core/model";
 import { t, tc } from "../i18n";

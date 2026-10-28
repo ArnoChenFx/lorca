@@ -70,7 +70,7 @@ import {
   type ProviderStatus,
 } from "./model";
 import { parsePairingString } from "./pairing";
-import { daySeparator, joinDictation, preview, stamp, time, workingActivity, type WorkState } from "../ui/format";
+import { daySeparator, joinDictation, preview, stamp, time, workingActivity, workingPhrase, workingStep, type WorkState } from "../ui/format";
 
 let nextId = 0;
 const uuid = () => `m-${++nextId}`;
@@ -608,8 +608,8 @@ describe("attachments", () => {
 
 describe("format", () => {
   const bots = new Map<string, Bot>([
-    ["b1", { id: "b1", name: "Chef", description: "", symbol_name: "sparkles", accent: "indigo", runner_id: "r", provider: "deepseek", created_at: 0 }],
-    ["b2", { id: "b2", name: "Scout", description: "", symbol_name: "magnifyingglass", accent: "teal", runner_id: "r", provider: "deepseek", created_at: 0 }],
+    ["b1", { id: "b1", name: "Chef", description: "", accent: "indigo", runner_id: "r", provider: "deepseek", created_at: 0 }],
+    ["b2", { id: "b2", name: "Scout", description: "", accent: "teal", runner_id: "r", provider: "deepseek", created_at: 0 }],
   ]);
   const chat = (kind: "dm" | "group", messages: Chat["messages"]): Chat => ({ id: "c", kind, bot_ids: ["b1", "b2"], is_pinned: false, created_at: 0, messages, unread_count: 0 });
   const msg = (author: Chat["messages"][number]["author"], body: Body): Chat["messages"][number] => ({ id: uuid(), chat_id: "c", author, body, state: { kind: "complete" }, created_at: 1 });
@@ -661,23 +661,30 @@ describe("format", () => {
     expect(activity([you])).toBeNull();
     expect(activity([you, tool("bash", { description: "Install dependencies" })])).toBe("Running command: Install dependencies…");
     // Between calls the row keeps the last one.
-    expect(activity([you, tool("bash", { is_running: false })])).toBe("Running commands…");
+    expect(activity([you, tool("bash", { is_running: false })])).toBe("Running a few commands…");
     expect(activity([you, tool("memory_update")])).toBe("Taking a note…");
     expect(activity([you, tool("coding_agent")])).toBe("Writing some code…");
-    expect(activity([you, tool("message_bot", { target_bot_id: "b2" })])).toBe("Messaging Scout…");
+    expect(activity([you, tool("message_bot", { target_bot_id: "b2" })])).toBe("Checking with Scout…");
     expect(activity([you, tool("message_bot", { summary: "Messaged Scout", is_running: false })])).toBeNull();
     expect(activity([you, tool("github__create_issue")])).toBe("Using Github…");
     const runner = { id: "r", name: "Mac", model: "", os: "macos", os_version: "", machine_key: "", is_this_device: false, status: "online" as const, last_seen: 0, plugins: [{ id: "github", name: "GitHub", state: "ready" as const }] };
     expect(activity([you, tool("github__create_issue")], { devices: [runner] })).toBe("Using GitHub…");
-    expect(activity([you, tool("routines")])).toBe("Working…");
+    // A call with nothing more particular to say reads as one of the working phrases, kept for its
+    // step and drawn again at the next.
+    const working = ["Getting it done…", "Making progress…", "Working on it…", "Handling it…", "Chipping away…"];
+    const routines = tool("routines");
+    expect(working).toContain(activity([you, routines]));
+    expect(activity([you, routines])).toBe(workingPhrase(workingStep("c", [you, routines])));
+    const drawn = new Set(Array.from({ length: 40 }, (_, i) => workingPhrase(`c/${i}`)));
+    expect(drawn.size).toBe(working.length);
     // A script reads as the plugin its latest call used, which the CLI puts in its description.
-    expect(activity([you, tool("codemode")])).toBe("Working…");
+    expect(working).toContain(activity([you, tool("codemode")]));
     expect(activity([you, tool("codemode", { description: "Linear", is_running: false })])).toBe("Using Linear…");
     // Or as the command it runs, which the CLI names apart from the plugin.
     expect(activity([you, tool("codemode", { description: "Linear", script_command: "Run the tests" })])).toBe("Running command: Run the tests…");
     // What the bot said since is the news; its thinking and a retry outrank the last call.
     expect(activity([you, tool("read"), msg({ kind: "bot", bot_id: "b1" }, { kind: "text", text: "Done" })])).toBeNull();
-    expect(activity([you, tool("read")], { thinking: { c: "b1" } })).toBe("Thinking…");
+    expect(["Thinking it through…", "Mulling it over…", "Putting it together…"]).toContain(activity([you, tool("read")], { thinking: { c: "b1" } }));
     expect(activity([you], { thinking: { c: "b1" }, retries: { c: { attempt: 2, max_attempts: 3, delay_ms: 3600 } } })).toBe("Retrying (2 of 3) in 4 s…");
     // Two bots at work read as their names.
     expect(activity([you, tool("read")], { running: { a: { chatId: "c", botId: "b1" }, b: { chatId: "c", botId: "b2" } } })).toBeNull();

@@ -8,10 +8,9 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// A group's project context, after the macOS app's Project section and ProjectEntryViewController:
-// a row per entry in the inspector, which opens it, and a + menu that adds one. The sheet is the
-// entry's title, text, and source link, or its file; Save writes a new version every bot in the
-// group reads from its next turn.
+// A group's project context: a row per entry in the inspector, which opens it, and a + menu that
+// adds one. The sheet is the entry's title, text, and source link, or its file; Save writes a new
+// version every bot in the group reads from its next turn.
 
 // projectInspectorState is each group's context as the CLI last listed it, fetched when the group
 // shows and again when it changes; the fetches on their way, and the groups that changed during

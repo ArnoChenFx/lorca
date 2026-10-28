@@ -6,8 +6,7 @@ import (
 )
 
 // callLimitSheet is how often, and how many at once, all bots on a Runner may call one plugin
-// account, after the macOS app's ConnectorLimitsViewController. An account of a service with
-// several accounts can also set the limit they share.
+// account. An account of a service with several accounts can also set the limit they share.
 type callLimitSheet struct {
 	w         *appWindow
 	pluginID  string

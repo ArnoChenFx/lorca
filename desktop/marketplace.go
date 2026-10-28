@@ -10,9 +10,8 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// The marketplace, after the macOS app's MarketplaceViewController and its pages: workflows,
-// featured plugins and bots, everything else by category, one search over all of them, and a page
-// for each workflow, plugin, and bot.
+// The marketplace: workflows, featured plugins and bots, everything else by category, one search
+// over all of them, and a page for each workflow, plugin, and bot.
 // A sheet with a way back: the home page leads to a plugin, a bot, a full list, or the plugins the
 // Runner has. Plugins install on the Runner picked in the top bar, for every bot there; a bot is
 // added to that Runner, and the sheet closes on the new bot's chat, where the bot sets itself up.
@@ -218,15 +217,6 @@ type marketPage struct {
 	workflow *workflowPage
 }
 
-// marketNotice is the line at the foot of the sheet for what an install did, gone after a few
-// seconds.
-type marketNotice struct {
-	text    string
-	isError bool
-	// at is when it showed, set by the frame that first draws it.
-	at time.Time
-}
-
 type marketplace struct {
 	w *appWindow
 	// openChat takes the window to a chat once the sheet closes on one.
@@ -243,7 +233,7 @@ type marketplace struct {
 	serials   int
 	// runnerID is where plugins install and bots are added.
 	runnerID string
-	notice   marketNotice
+	notice   toast
 	// width and height are the sheet's, sized to the window as it opens.
 	width, height float32
 	// stopWatch ends the workflow pages' following of the store.
@@ -415,10 +405,6 @@ func (mk *marketplace) goBack() {
 	}
 }
 
-func (mk *marketplace) showNotice(text string, isError bool) {
-	mk.notice = marketNotice{text: text, isError: isError}
-}
-
 func marketNextStep(plugin model.InstalledPlugin, on *model.Device) string {
 	switch plugin.State {
 	case model.PluginReady:
@@ -446,11 +432,11 @@ func (mk *marketplace) install(plugin *model.MarketplacePlugin) {
 	store.InstallPlugin(id, on.ID, func(status model.InstalledPlugin, err error) {
 		delete(mk.installing, id)
 		if err != nil {
-			mk.showNotice(L("Couldn't install %@: %@", name, model.ErrorText(err)), true)
+			mk.notice.show(L("Couldn't install %@: %@", name, model.ErrorText(err)), true)
 			return
 		}
 		mk.remember(on.ID, status)
-		mk.showNotice(marketNextStep(status, on), false)
+		mk.notice.show(marketNextStep(status, on), false)
 	})
 }
 
@@ -479,7 +465,7 @@ func (mk *marketplace) addAccount(plugin *model.MarketplacePlugin) {
 		store.InstallPluginAccount(id, runnerID, strings.TrimSpace(value), func(status model.InstalledPlugin, err error) {
 			delete(mk.installing, id)
 			if err != nil {
-				mk.showNotice(L("Couldn't install %@: %@", name, model.ErrorText(err)), true)
+				mk.notice.show(L("Couldn't install %@: %@", name, model.ErrorText(err)), true)
 				return
 			}
 			mk.remember(runnerID, status)
@@ -537,7 +523,7 @@ func (mk *marketplace) view(c *ui.Context, s *sheet) {
 			content.Children(func() { mk.pageView(c, page) })
 		})
 		mk.bar(c, s)
-		mk.noticeView(c)
+		mk.notice.view(c, mk.width-96)
 	})
 	// Escape closes the sheet from any page, wherever the keyboard is, the search field too.
 	if panel.OverlayShortcut(0, ui.KeyEscape) {
@@ -571,38 +557,6 @@ func (mk *marketplace) bar(c *ui.Context, s *sheet) {
 		if hoverButton(c, hoverButtonOptions{Symbol: "xmark", Size: 14, Tooltip: L("Close")}).Clicked() {
 			s.dismiss()
 		}
-	})
-}
-
-func (mk *marketplace) noticeView(c *ui.Context) {
-	n := &mk.notice
-	if n.text == "" {
-		return
-	}
-	if n.at.IsZero() {
-		n.at = c.Now()
-	}
-	shown := 4 * time.Second
-	if n.isError {
-		shown = 7 * time.Second
-	}
-	elapsed := c.Now().Sub(n.at)
-	if elapsed >= shown {
-		// Its last frame fades out as it goes.
-		*n = marketNotice{}
-		return
-	}
-	c.After(shown - elapsed)
-	p := colors(c)
-	tint := p.Label
-	if n.isError {
-		tint = p.Red
-	}
-	box := ui.Box(c.Key("notice")).Attach(ui.AnchorBottom, ui.AnchorBottom).Bottom(18).MaxWidth(mk.width-96).Padding(9, 14).Radius(10).
-		Border(1, p.Separator).Background(p.Window).Shadow(0, 2, 12, 0, ui.RGBA(0, 0, 0, 0.18)).Role(ui.RoleStatus).
-		Transition(ui.ElementTransition{Exit: &ui.Motion{}, Duration: 250 * time.Millisecond})
-	box.Children(func() {
-		ui.Text(c, n.text).FontSize(12.5).LineHeight(1.35).MaxLines(2).TextColor(tint)
 	})
 }
 
@@ -746,7 +700,7 @@ func (mk *marketplace) itemRow(c *ui.Context, item marketItem) {
 		byline = L("by %@", template.Author)
 	}
 	media := func() {
-		avatar(c, avatarContent{Kind: avatarBot, SymbolName: template.SymbolName, Accent: template.Accent}, 40, false)
+		avatar(c, templateAvatar(*template), 40, false)
 	}
 	accessory := func() {
 		on := mk.runner()

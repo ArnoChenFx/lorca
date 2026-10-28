@@ -20,7 +20,7 @@
 import { copyFileSync, chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
-import { CLI_NAME, ROOT, buildCLI, color, log } from "./app.ts"
+import { CLI_NAME, ROOT, buildCLI, color, log } from "./common.ts"
 import { extractReleaseNotes } from "./changelog.ts"
 
 const DESKTOP = join(ROOT, "desktop")
@@ -107,8 +107,8 @@ function keygenDirectory(): string {
   return join(config, "mygo", "update-keys")
 }
 
-/** The Developer ID that signs the macOS app, as `bun run release-mac` signs the Mac app: a partial
- * name matches while the keychain holds one Developer ID Application certificate. */
+/** The Developer ID that signs the macOS app: a partial name matches while the keychain holds one
+ * Developer ID Application certificate. */
 const SIGN_IDENTITY = process.env.SIGN_IDENTITY ?? "Developer ID Application"
 /** The notarytool profile (`xcrun notarytool store-credentials`) that notarizes the macOS app. */
 const NOTARY_PROFILE = process.env.NOTARY_PROFILE ?? "NOTARY"
@@ -157,7 +157,7 @@ async function desktopVersion(): Promise<string> {
 
 async function build(platforms: string[], options: { upload?: boolean } = {}): Promise<number> {
   let env: Record<string, string> = {}
-  // The desktop app's own version, apart from the Mac app's.
+  // The desktop app's own version, apart from the root package.json's.
   const version = await desktopVersion()
   if (options.upload) {
     const release = releaseEnv(platforms)

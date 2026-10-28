@@ -7,9 +7,9 @@ import (
 	"time"
 )
 
-// Stands in for the CLI's agent loop in the demo, after the macOS app's ReplyEngine: bots work for
-// a moment, run fake tools, hand off between each other, and post whole replies. Each step waits
-// on a timer and runs on the main thread, as the rest of the store does.
+// Stands in for the CLI's agent loop in the demo: bots work for a moment, run fake tools, hand off
+// between each other, and post whole replies. Each step waits on a timer and runs on the main
+// thread, as the rest of the store does.
 
 type stepKind int
 

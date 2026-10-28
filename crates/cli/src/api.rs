@@ -20,6 +20,16 @@ fn opt_string(params: &Value, key: &str) -> Option<String> {
     params[key].as_str().map(str::to_string).filter(|s| !s.is_empty())
 }
 
+/// A bot's `shape` when the request names one: one of `BOT_SHAPES`, or empty for the one its id
+/// picks.
+fn parse_shape(params: &Value) -> Result<Option<String>, String> {
+    let Some(shape) = params["shape"].as_str() else { return Ok(None) };
+    if !shape.is_empty() && !crate::model::BOT_SHAPES.contains(&shape) {
+        return Err(format!("unknown shape {shape}"));
+    }
+    Ok(Some(shape.to_string()))
+}
+
 fn parse_permissions(params: &Value) -> Result<Option<crate::permissions::BotPermissions>, String> {
     let Some(value) = params.get("permissions") else { return Ok(None) };
     let policy: crate::permissions::BotPermissions = serde_json::from_value(value.clone())
@@ -209,6 +219,21 @@ pub async fn dispatch(app: &Arc<App>, method: &str, params: Value) -> Result<Val
             };
             crate::requests::ask(app, &id, "app.update.install", json!({})).await
         }
+        // Another Device's CLI and desktop app by id, or this one's: they look for a newer
+        // version now, so the pane that shows the Device shows what is out. Answers at once;
+        // the Device's `machine` blob carries what they find.
+        "device.check_updates" => {
+            let id = opt_string(&params, "id").filter(|id| app.this_device_id().as_deref() != Some(id.as_str()));
+            let Some(id) = id else {
+                #[cfg(feature = "cli")]
+                {
+                    crate::update::check_soon(app);
+                    crate::app_update::check(app);
+                }
+                return Ok(Value::Null);
+            };
+            crate::requests::ask(app, &id, "updates.check", json!({})).await
+        }
         "identity.forget" => {
             crate::sync::revoke_self(app).await;
             app.forget_identity().map_err(|e| e.to_string())?;
@@ -279,6 +304,7 @@ pub async fn dispatch(app: &Arc<App>, method: &str, params: Value) -> Result<Val
                 name: opt_string(&params, "name").or_else(|| from_template(|t| &t.name)).ok_or("missing name")?,
                 description: opt_string(&params, "description").or_else(|| from_template(|t| &t.description)).unwrap_or_default(),
                 symbol_name: opt_string(&params, "symbol_name").or_else(|| from_template(|t| &t.symbol_name)).unwrap_or_else(|| "sparkles".into()),
+                shape: parse_shape(&params)?.filter(|s| !s.is_empty()).or_else(|| from_template(|t| &t.shape)).unwrap_or_default(),
                 accent: opt_string(&params, "accent").or_else(|| from_template(|t| &t.accent)).unwrap_or_else(|| "indigo".into()),
                 avatar: store_avatar(app, &params)?.flatten(),
                 runner_id: string(&params, "runner_id")?,
@@ -306,9 +332,11 @@ pub async fn dispatch(app: &Arc<App>, method: &str, params: Value) -> Result<Val
             // The image is copied and queued before the roster names it, so every Device can
             // fetch the blob by the time it reads the profile.
             let avatar = store_avatar(app, &params)?;
+            let shape = parse_shape(&params)?;
             let bot = app.update_bot(&id, |bot| {
                 if let Some(v) = opt_string(&params, "name") { bot.name = v; }
                 if let Some(v) = opt_string(&params, "symbol_name") { bot.symbol_name = v; }
+                if let Some(v) = shape.clone() { bot.shape = v; }
                 if let Some(v) = opt_string(&params, "accent") { bot.accent = v; }
                 if let Some(v) = avatar { bot.avatar = v; }
                 if let Some(v) = params["description"].as_str() {
@@ -445,11 +473,22 @@ pub async fn dispatch(app: &Arc<App>, method: &str, params: Value) -> Result<Val
             }
             requests::ask(app, &bot.runner_id, "chats.send_now", json!({ "chat_id": chat_id, "message_id": message_id })).await
         }
-        #[cfg(feature = "runner")]
+        // Compacts the chat for one bot (the DM's bot, the group's owner, or the bot named) on
+        // that bot's Runner: here, or through a sealed request.
         "chats.compact" => {
             let chat_id = string(&params, "chat_id")?;
-            let tokens_before = crate::turns::compact_now(app, &chat_id, opt_string(&params, "bot_id").as_deref()).await?;
-            Ok(json!({ "tokens_before": tokens_before }))
+            let chat = app.chat(&chat_id).ok_or("Unknown chat")?;
+            let bot_id = opt_string(&params, "bot_id")
+                .or_else(|| chat.meta.owner_bot_id.clone())
+                .or_else(|| chat.meta.bot_ids.first().cloned())
+                .ok_or("The chat has no bot")?;
+            let bot = app.bot(&bot_id).ok_or("Unknown bot")?;
+            if app.this_device_id().as_deref() == Some(bot.runner_id.as_str()) {
+                #[cfg(feature = "runner")]
+                return crate::turns::compact_now(app, &chat_id, Some(&bot_id)).await.map(|tokens_before| json!({ "tokens_before": tokens_before }));
+            }
+            let body = json!({ "chat_id": chat_id, "bot_id": bot_id });
+            requests::ask_within(app, &bot.runner_id, "chats.compact", body, requests::COMPACT_TIMEOUT).await
         }
         // A bot's memory lives on its Runner: read and written here for the bots this Device
         // runs, and through a sealed request to the Runner for the others.

@@ -7,9 +7,8 @@ import (
 	"time"
 )
 
-// Wire shapes the CLI sends over 127.0.0.1, and their mapping into the app's model, after the
-// macOS app's Protocol.swift. Keys are snake_case on the wire; a field the CLI may leave out or
-// send as null is a pointer.
+// Wire shapes the CLI sends over 127.0.0.1, and their mapping into the app's model. Keys are
+// snake_case on the wire; a field the CLI may leave out or send as null is a pointer.
 
 // WireRelayProblem is why the last try to connect to the relay failed.
 type WireRelayProblem struct {
@@ -114,7 +113,7 @@ type WireBot struct {
 	ID          string          `json:"id"`
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
-	SymbolName  string          `json:"symbol_name"`
+	Shape       string          `json:"shape"`
 	Accent      string          `json:"accent"`
 	RunnerID    string          `json:"runner_id"`
 	Provider    string          `json:"provider"`
@@ -309,6 +308,7 @@ type WireMessage struct {
 
 type WireChatUsage struct {
 	ContextTokens           int      `json:"context_tokens"`
+	ContextEstimated        bool     `json:"context_estimated"`
 	ContextWindow           int      `json:"context_window"`
 	InputTokens             int      `json:"input_tokens"`
 	OutputTokens            int      `json:"output_tokens"`
@@ -575,7 +575,7 @@ type WireBotTemplate struct {
 	Name        string                `json:"name"`
 	Summary     *string               `json:"summary"`
 	Description string                `json:"description"`
-	SymbolName  *string               `json:"symbol_name"`
+	Shape       *string               `json:"shape"`
 	Accent      *string               `json:"accent"`
 	Category    *string               `json:"category"`
 	Featured    *bool                 `json:"featured"`
@@ -832,7 +832,7 @@ func ToBot(wire WireBot) *Bot {
 		ID:          wire.ID,
 		Name:        wire.Name,
 		Description: wire.Description,
-		SymbolName:  wire.SymbolName,
+		Shape:       wire.Shape,
 		Accent:      "indigo",
 		RunnerID:    wire.RunnerID,
 		Provider:    "deepseek",
@@ -1004,6 +1004,7 @@ func ToMessage(wire WireMessage) *Message {
 func ToUsage(wire WireChatUsage) *ChatUsage {
 	return &ChatUsage{
 		ContextTokens:           wire.ContextTokens,
+		ContextEstimated:        wire.ContextEstimated,
 		ContextWindow:           wire.ContextWindow,
 		InputTokens:             wire.InputTokens,
 		OutputTokens:            wire.OutputTokens,
@@ -1263,7 +1264,7 @@ func ToBotTemplate(wire WireBotTemplate) BotTemplate {
 		Name:        wire.Name,
 		Summary:     str(wire.Summary),
 		Description: wire.Description,
-		SymbolName:  cmp.Or(str(wire.SymbolName), "sparkles"),
+		Shape:       str(wire.Shape),
 		Accent:      "indigo",
 		Category:    str(wire.Category),
 		IsFeatured:  flag(wire.Featured),

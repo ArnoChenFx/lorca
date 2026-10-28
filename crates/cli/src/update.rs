@@ -1,13 +1,13 @@
-//! Keeps a CLI installed with the site's script current, as Sparkle and MyGo's updater keep the
-//! apps and the CLI they carry. Only the builds `release-cli.yml` makes replace themselves
+//! Keeps a CLI installed with the site's script current, as MyGo's updater keeps the desktop
+//! app and the CLI it carries. Only the builds `release-cli.yml` makes replace themselves
 //! ([`SELF_UPDATING`]); the apps' bundles, the dev loop's builds, and `cargo build`'s never do.
 //!
 //! Each `cli-v` release carries `lorca-cli.json`, the version and each build's archive with its
 //! SHA-256 and size, and `lorca-cli.json.sig`, an Ed25519 signature of that file by a key in
 //! [`KEYS`]. `lorca serve` reads both from the repo's latest release (`LORCA_DOWNLOAD_URL` stands
 //! for the releases page, as it does for the install scripts) a few minutes after it starts and
-//! then once a day, at once when the relay refuses the protocol it speaks, and when a Device asks
-//! (`update.install`). With automatic updates on, the default, a newer release goes in beside the
+//! then once a day, at once when the relay refuses the protocol it speaks, when a Device asks
+//! (`update.install`), and when a Device shows this one (`updates.check`). With automatic updates on, the default, a newer release goes in beside the
 //! running binary: the archive has to match the signed manifest, the binary in it has to start
 //! here and name the manifest's version, and a rename puts it in the old one's place, which stays
 //! beside it for a rollback. The CLI then restarts into it once no bot is at work on this Runner
@@ -53,6 +53,8 @@ const TARGET: &str = if cfg!(all(target_os = "macos", target_arch = "aarch64")) 
 };
 
 const DAY: u64 = 24 * 60 * 60;
+/// How long after a check a Device that shows this one leaves the answer as it is.
+const RECHECK_SECS: i64 = 5 * 60;
 /// How many times a new release may start without staying up before it goes back.
 const MAX_STARTS: u32 = 3;
 /// How long a new release has to stay up, or how soon it has to reach the relay, to stay.
@@ -277,6 +279,21 @@ pub async fn install_now(app: &Arc<App>) -> Result<Value, String> {
         let _ = check(&worker, true, true).await;
     });
     Ok(json!({ "version": VERSION, "latest": manifest.version, "installing": true }))
+}
+
+/// `updates.check`, from a Device that shows this one: checks now, as the daily check does,
+/// unless one went through in the last minutes. The `machine` blob carries what it finds.
+pub fn check_soon(app: &Arc<App>) {
+    if !SELF_UPDATING || app.updates.status().is_none() || config::now_unix() - read(app).checked_at < RECHECK_SECS {
+        return;
+    }
+    let app = app.clone();
+    tokio::spawn(async move {
+        let install = auto(&app);
+        if let Err(error) = check(&app, install, false).await {
+            tracing::warn!(%error, "checking for a newer lorca");
+        }
+    });
 }
 
 /// `update.auto`: turns automatic updates on or off; on checks now.

@@ -8,10 +8,10 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// The marketplace's workflows, after the macOS app's MarketplaceWorkflowPage: a section of them on
-// the home page, the list onboarding opens, and a workflow's setup on the picked Runner, with its
-// questions and its bot, the accounts it needs, a sample run to read, and its schedule, which stays
-// off until the user turns it on. The CLI keeps the setup, so leaving the page keeps it too.
+// The marketplace's workflows: a section of them on the home page, the list onboarding opens, and a
+// workflow's setup on the picked Runner, with its questions and its bot, the accounts it needs, a
+// sample run to read, and its schedule, which stays off until the user turns it on. The CLI keeps
+// the setup, so leaving the page keeps it too.
 
 // workflowMatchingPacks is the workflows whose name, outcome, or description has every word of the
 // query; all of them for none.
@@ -140,7 +140,7 @@ func (mk *marketplace) performWorkflow(wp *workflowPage, steps []workflowStep, t
 			}
 			if err != nil {
 				wp.busy = false
-				mk.showNotice(model.ErrorText(err), true)
+				mk.notice.show(model.ErrorText(err), true)
 				mk.afterWorkflowRequest(wp)
 				return
 			}
@@ -274,9 +274,9 @@ func (mk *marketplace) cancelWorkflow(wp *workflowPage) {
 	mk.performWorkflow(wp, []workflowStep{{"cancel", func(*model.WorkflowProgress) map[string]any { return map[string]any{"id": setup.ID} }}},
 		func(model.WorkflowProgress) {
 			if wasOn {
-				mk.showNotice(L("%@ is off.", wp.pack.Name), false)
+				mk.notice.show(L("%@ is off.", wp.pack.Name), false)
 			} else {
-				mk.showNotice(L("Setup cancelled. Your answers are kept for next time."), false)
+				mk.notice.show(L("Setup cancelled. Your answers are kept for next time."), false)
 			}
 			wp.closed = true
 			mk.goBack()

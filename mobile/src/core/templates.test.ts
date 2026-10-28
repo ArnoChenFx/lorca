@@ -107,7 +107,7 @@ describe("templates", () => {
     expect(allPicked(selection, "skill_ids", [])).toBe(false);
   });
 
-  test("rows read as the desktop apps word them", () => {
+  test("rows read as the desktop app words them", () => {
     expect(memoryLines("## Work\n- Ships on Fridays\n\n1. Reviews on Mondays")).toEqual({ title: "Work", detail: "Ships on Fridays Reviews on Mondays" });
     expect(routineLine({ name: "Morning", schedule: "0 9 * * *", prompt: "Read the inbox", schedule_text: "Every day at 9:00" })).toBe("Every day at 9:00 · Read the inbox");
     expect(routineLine({ name: "Morning", schedule: "0 9 * * *", prompt: "" })).toBe("0 9 * * *");

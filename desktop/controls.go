@@ -7,9 +7,9 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// The app's controls, after the macOS app's Controls.swift: borderless symbol buttons that fill
-// under the pointer, push buttons, switches, pop-up buttons whose menu is the system's, fields,
-// the search field, and a button that says it copied.
+// The app's controls: borderless symbol buttons that fill under the pointer, push buttons,
+// switches, pop-up buttons whose menu is the system's, fields, the search field, and a button that
+// says it copied.
 
 func firstNonEmpty(values ...string) string {
 	for _, value := range values {

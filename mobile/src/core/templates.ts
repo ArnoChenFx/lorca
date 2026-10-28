@@ -1,6 +1,6 @@
-// Bot templates, after the macOS app's TemplateSharing: a bot shared as a link or a file, from
-// which anyone makes a bot of their own. The core builds, encrypts, and reads them
-// (`templates.*`); these are its answers and what the screens work out from them.
+// Bot templates: a bot shared as a link or a file, from which anyone makes a bot of their own. The
+// core builds, encrypts, and reads them (`templates.*`); these are its answers and what the screens
+// work out from them.
 
 import { t } from "../i18n";
 

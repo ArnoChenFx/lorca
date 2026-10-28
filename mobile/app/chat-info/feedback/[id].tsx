@@ -1,4 +1,4 @@
-// Everything a bot keeps from the user's feedback, after the desktop apps' feedback sheet: the
+// Everything a bot keeps from the user's feedback, after the desktop app's feedback sheet: the
 // changes it suggests, how often it looks for them, the changes accepted, and the notes. A
 // suggestion or a change slides in its own screen; a note's actions are a tap away.
 

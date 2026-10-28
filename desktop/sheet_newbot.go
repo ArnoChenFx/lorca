@@ -8,25 +8,24 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// A new bot, after the macOS app's NewBotViewController: its name, what it does, a look, the Runner
-// it runs on, and the provider, model, and thinking level. Every bot gets a direct chat, which opens
-// when it is made.
+// A new bot: its name, what it does, a look, the Runner it runs on, and the provider, model, and
+// thinking level. Every bot gets a direct chat, which opens when it is made.
 
 // newBotLook is one of the looks a new bot starts with.
 type newBotLook struct {
-	symbolName string
-	accent     model.Accent
+	shape  string
+	accent model.Accent
 }
 
 var newBotLooks = []newBotLook{
-	{"sparkles", "indigo"},
-	{"chevron.left.forwardslash.chevron.right", "blue"},
-	{"binoculars.fill", "teal"},
-	{"pencil.and.scribble", "pink"},
-	{"bolt.horizontal.fill", "orange"},
-	{"leaf.fill", "green"},
-	{"wand.and.stars", "purple"},
-	{"flame.fill", "red"},
+	{"blob", "indigo"},
+	{"cushion", "blue"},
+	{"cloud", "teal"},
+	{"heart", "pink"},
+	{"star", "orange"},
+	{"clover", "green"},
+	{"sparkle", "purple"},
+	{"flower", "red"},
 }
 
 type newBotState struct {
@@ -105,7 +104,7 @@ func (st *newBotState) create(s *sheet, onCreate func(botID string)) {
 	botID := store.CreateBot(model.NewBot{
 		Name:        name,
 		Description: strings.TrimSpace(st.description),
-		SymbolName:  look.symbolName,
+		Shape:       look.shape,
 		Accent:      look.accent,
 		RunnerID:    host.ID,
 		Provider:    st.provider,
@@ -152,12 +151,12 @@ func (st *newBotState) view(c *ui.Context, s *sheet, onCreate func(botID string)
 		formRow(c, L("Look"), false, func() {
 			ui.Row(c).Gap(8).Children(func() {
 				for i, look := range newBotLooks {
-					b := ui.ButtonBase(c).Size(26, 26).Radius(13).Label(look.symbolName).Role(ui.RoleToggleButton).Checked(i == st.look).Cursor(ui.CursorPointer)
+					b := ui.ButtonBase(c).Size(26, 26).Radius(13).Label(shapeTitle(look.shape)).Role(ui.RoleToggleButton).Checked(i == st.look).Cursor(ui.CursorPointer)
 					if i != st.look {
 						b.Opacity(0.35)
 					}
 					b.Children(func() {
-						avatar(c, avatarContent{Kind: avatarBot, SymbolName: look.symbolName, Accent: look.accent}, 26, false)
+						avatar(c, avatarContent{Kind: avatarBot, Shape: look.shape, Key: look.shape, Accent: look.accent}, 26, false)
 					})
 					if b.Clicked() {
 						st.look = i

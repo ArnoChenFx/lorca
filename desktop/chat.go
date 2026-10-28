@@ -12,11 +12,11 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// A chat, after the macOS app's ChatViewController and ChatCells: the transcript, which follows new
-// messages while it rests at its end and otherwise holds what the user is reading in place, older
-// pages asked for near the top, the composer floating over it, and the button back to the latest.
-// Bubbles put the user's on the right in the accent color and a bot's on the left; in a group the
-// bot's name sits above its first bubble and its avatar beside the bubble's bottom edge.
+// A chat: the transcript, which follows new messages while it rests at its end and otherwise holds
+// what the user is reading in place, older pages asked for near the top, the composer floating over
+// it, and the button back to the latest. Bubbles put the user's on the right in the accent color
+// and a bot's on the left; in a group the bot's name sits above its first bubble and its avatar
+// beside the bubble's bottom edge.
 
 const (
 	horizontalInset  = 22
@@ -114,10 +114,9 @@ func isOutputCard(message *model.Message) bool {
 	return message.Output != nil && message.Author.Kind != model.AuthorYou
 }
 
-// buildRows lays the transcript out as rows, after the macOS app's rebuildRows: a day separator
-// after fifteen minutes of silence or a new day, the messages (tool calls only as a sent
-// message's marker, a coding agent's, or a command's card while it needs the user), and at the
-// end the working row or a status line.
+// buildRows lays the transcript out as rows: a day separator after fifteen minutes of silence or a
+// new day, the messages (tool calls only as a sent message's marker, a coding agent's, or a
+// command's card while it needs the user), and at the end the working row or a status line.
 func buildRows(chat *model.Chat, working []string, stoppedNotice string) []chatRow {
 	var rows []chatRow
 	var previousAuthor *model.Author
@@ -192,7 +191,7 @@ func (m *mainWindow) chatView(c *ui.Context, chatID string) {
 			chatEmptyState(c, m, chat, members, s, bottom)
 		}
 		if !s.list.AtEnd() && len(rows) > 0 {
-			// A glass disc, as AppKit's glass bezel draws the Mac's.
+			// A glass disc, as AppKit's glass bezel draws one.
 			jump := ui.ButtonBase(c.Key("jump")).Absolute().Right(horizontalInset).Bottom(bottom+14).Size(28, 28).Radius(14).Center().
 				Material(glassButton{p.GlassButton}).Border(1, p.ComposerBorder).Shadow(0, 1, 1.5, -0.5, ui.RGBA(0, 0, 0, 0.08)).TextColor(p.Label).
 				Label(L("Scroll to latest")).Tooltip(L("Scroll to latest (%@)", shortcutText("CmdOrCtrl+J")))
@@ -248,7 +247,7 @@ func (m *mainWindow) chatRowView(c *ui.Context, chat *model.Chat, row chatRow, s
 				bots = append(bots, bot)
 			}
 		}
-		workingCell(c, bots, workingActivity(row.botIDs, chat), chat.IsGroup())
+		workingCell(c, bots, workingActivity(row.botIDs, chat), chat.IsGroup(), workingStep(chat))
 	case rowMessage:
 		message := row.message
 		showsAvatar := chat.ShowsSpeakers() && (message.Author.Kind == model.AuthorBot || message.Author.Kind == model.AuthorContact)
@@ -400,7 +399,7 @@ func (m *mainWindow) messageCell(c *ui.Context, chat *model.Chat, message *model
 					s.flashID = ""
 				}
 			}
-			// Reply, from the bubble, and above Copy from its text, as on the Mac.
+			// Reply, from the bubble, and above Copy from its text.
 			var replyMenu func(menu *ui.Menu)
 			if message.CanBeQuoted() {
 				replyMenu = func(menu *ui.Menu) {
@@ -845,28 +844,28 @@ func attachmentTiles(c *ui.Context, chatID string, message *model.Message, onUse
 // toolActivity is what a tool row means while it runs, in the words of the status line.
 // `pluginName` is the plugin behind a `<plugin>__<tool>` row, so the line reads "Using GitHub"
 // between two calls as well as during one.
-func toolActivity(tool *model.ToolInvocation, targetName, pluginName string) string {
+func toolActivity(tool *model.ToolInvocation, targetName, pluginName, step string) string {
 	switch tool.Name {
 	case "read":
-		return L("Reading a file")
+		return L("Reading the file")
 	case "write", "edit":
-		return L("Drafting a file")
+		return L("Jotting it down")
 	case "bash":
 		if tool.Description != "" {
 			return L("Running command: %@", tool.Description)
 		}
-		return L("Running commands")
+		return L("Running a few commands")
 	case "web_search":
-		return L("Searching the web")
+		return L("Digging around")
 	case "web_fetch":
-		return L("Reading the web")
+		return L("Doing some reading")
 	case "grep", "find", "ls":
 		return L("Searching files")
 	case "message_bot":
 		if targetName != "" {
-			return L("Messaging %@", targetName)
+			return L("Checking with %@", targetName)
 		}
-		return L("Messaging another bot")
+		return L("Checking with another bot")
 	case "coding_agent":
 		return L("Writing some code")
 	case "list_teammates":
@@ -884,7 +883,7 @@ func toolActivity(tool *model.ToolInvocation, targetName, pluginName string) str
 	case "bash_input":
 		return L("Answering a command")
 	case "bash_output":
-		return L("Waiting on a command")
+		return L("Waiting on results")
 	case "codemode":
 		// A codemode script: its latest command, else the plugin of its latest plugin call, which
 		// the CLI names.
@@ -894,7 +893,7 @@ func toolActivity(tool *model.ToolInvocation, targetName, pluginName string) str
 		if tool.Description != "" {
 			return L("Using %@", tool.Description)
 		}
-		return L("Working")
+		return workingPhrase(step)
 	}
 	if pluginName != "" {
 		return L("Using %@", pluginName)
@@ -902,7 +901,43 @@ func toolActivity(tool *model.ToolInvocation, targetName, pluginName string) str
 	if strings.Contains(tool.Name, "__") && strings.HasPrefix(tool.Summary, "Using ") {
 		return strings.TrimSuffix(tool.Summary, "…")
 	}
-	return L("Working")
+	return workingPhrase(step)
+}
+
+// Grok Bot's words for a bot at work with nothing more particular to say: thinking draws from
+// three phrases and working from five. The draw is by the step (`step`, the chat and its latest
+// message), so a step keeps its words and the next one may change them.
+
+func thinkingPhrase(step string) string {
+	switch motionSeed(step+"thinking") % 3 {
+	case 0:
+		return L("Thinking it through")
+	case 1:
+		return L("Mulling it over")
+	}
+	return L("Putting it together")
+}
+
+func workingPhrase(step string) string {
+	switch motionSeed(step) % 5 {
+	case 0:
+		return L("Getting it done")
+	case 1:
+		return L("Making progress")
+	case 2:
+		return L("Working on it")
+	case 3:
+		return L("Handling it")
+	}
+	return L("Chipping away")
+}
+
+// workingStep names the step a chat's work is on: its latest message.
+func workingStep(chat *model.Chat) string {
+	if n := len(chat.Messages); n > 0 {
+		return chat.ID + "/" + chat.Messages[n-1].ID
+	}
+	return chat.ID
 }
 
 // pluginNameOf is the plugin behind a `<plugin>__<tool>` row, by name, from the bot's Runner.
@@ -946,11 +981,11 @@ func workingActivity(botIDs []string, chat *model.Chat) string {
 					target = bot.Name
 				}
 			}
-			words = toolActivity(tool, target, pluginNameOf(tool.Name, only))
+			words = toolActivity(tool, target, pluginNameOf(tool.Name, only), workingStep(chat))
 		}
 	}
 	if only != "" && store.IsThinking(only, chat.ID) {
-		words = Lc("Thinking", "status")
+		words = thinkingPhrase(workingStep(chat))
 	}
 	if note := store.RetryNote(chat.ID); note != "" {
 		words = note
@@ -958,7 +993,7 @@ func workingActivity(botIDs []string, chat *model.Chat) string {
 	return words
 }
 
-func workingText(names []string, activity string, showsName bool) string {
+func workingText(names []string, activity string, showsName bool, step string) string {
 	switch {
 	case len(names) > 1:
 		return L("%@ and %@ are working…", strings.Join(names[:len(names)-1], L(", ")), names[len(names)-1])
@@ -967,18 +1002,19 @@ func workingText(names []string, activity string, showsName bool) string {
 	case showsName && len(names) > 0:
 		return L("%@ is working…", names[0])
 	}
-	return L("Working") + "…"
+	return workingPhrase(step) + "…"
 }
 
 // workingCell is "Chef is working…" after the last message, its words shimmering while a turn
-// runs. A DM reads "Working…"; with one bot at work the line says what it is doing.
-func workingCell(c *ui.Context, bots []*model.Bot, activity string, showsName bool) {
+// runs. A DM reads one of Grok Bot's phrases ("Chipping away…"); with one bot at work the line says
+// what it is doing.
+func workingCell(c *ui.Context, bots []*model.Bot, activity string, showsName bool, step string) {
 	p := colors(c)
 	names := make([]string, 0, len(bots))
 	for _, bot := range bots {
 		names = append(names, bot.Name)
 	}
-	text := workingText(names, activity, showsName)
+	text := workingText(names, activity, showsName, step)
 	label := text
 	if len(bots) == 1 {
 		label = L("%@ is working", bots[0].Name)
@@ -1158,9 +1194,8 @@ func emptyPrompts(bots []*model.Bot) []string {
 	return []string{L("What should I work on next?"), L("Plan this and delegate the parts")}
 }
 
-// chatEmptyState is a chat with no messages yet, after the macOS app's ChatEmptyStateView: its
-// bots, its title, where it runs, and two prompts to start with, a little above the middle of the
-// room over the composer.
+// chatEmptyState is a chat with no messages yet: its bots, its title, where it runs, and two
+// prompts to start with, a little above the middle of the room over the composer.
 func chatEmptyState(c *ui.Context, m *mainWindow, chat *model.Chat, bots []*model.Bot, s *chatState, bottom float32) {
 	p := colors(c)
 	subtitle := L("No bots in this group yet.")

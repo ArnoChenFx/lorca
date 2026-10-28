@@ -8,10 +8,9 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// One installed plugin on a Runner, after the macOS app's PluginViewController: its state, the
-// sign-in for a remote server, its variables (a secret is written, never read back), the skills it
-// brought, and Remove. It also shows the Always allowed rules for its tools, and for Browser opened
-// from a bot's inspector, the bot's profiles.
+// One installed plugin on a Runner: its state, the sign-in for a remote server, its variables (a
+// secret is written, never read back), the skills it brought, and Remove. It also shows the Always
+// allowed rules for its tools, and for Browser opened from a bot's inspector, the bot's profiles.
 
 // pluginSheetWatch holds the sheets that follow the store while they are up.
 var pluginSheetWatch struct {

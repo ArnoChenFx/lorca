@@ -1,4 +1,4 @@
-// Workflow feedback in the words the desktop apps use: what the user said about a bot's messages,
+// Workflow feedback in the words the desktop app uses: what the user said about a bot's messages,
 // the changes to its routines and skills the bot suggests from it, and the changes accepted. The
 // calls are in `src/core/feedback.ts`.
 

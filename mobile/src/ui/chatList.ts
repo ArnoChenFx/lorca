@@ -1,7 +1,7 @@
-// What the chat list shows, after the Mac's sidebar: the pinned chats; each section under its
-// header with its chats, then the chats in no section under Chats; and the hidden chats under
-// Hidden. Without sections the chats are one list with no header, and without hidden chats there
-// is no Hidden. A folded group shows its header alone.
+// What the chat list shows, after the desktop app's sidebar: the pinned chats; each section under
+// its header with its chats, then the chats in no section under Chats; and the hidden chats under
+// Hidden. Without sections the chats are one list with no header, and without hidden chats there is
+// no Hidden. A folded group shows its header alone.
 
 import type { Chat, Section } from "../core/model";
 

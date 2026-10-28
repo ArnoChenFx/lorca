@@ -115,7 +115,7 @@ jobs:
           # MyGo builds Windows and Linux from Linux without cgo, and zig, through cargo-zigbuild,
           # builds the CLI inside each app as the CLI releases do: static (musl) for Linux. The
           # macOS app needs a Mac, which signs it, notarizes it, and makes its disk image; it is
-          # for Apple silicon, as the Mac app and the CLI's macOS release are.
+          # for Apple silicon, as the CLI's macOS release is.
           - { platform: windows/amd64, target: x86_64-pc-windows-gnu, os: ubuntu-latest }
           - { platform: linux/amd64, target: x86_64-unknown-linux-musl, os: ubuntu-latest }
           - { platform: linux/arm64, target: aarch64-unknown-linux-musl, os: ubuntu-latest }
@@ -147,8 +147,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends nsis
-      # The Developer ID Application certificate, alone in a keychain of its own as in
-      # release-mac.yml, so release-desktop's partial name "Developer ID Application" matches exactly
+      # The Developer ID Application certificate, alone in a keychain of its own,
+      # so release-desktop's partial name "Developer ID Application" matches exactly
       # one identity, and the notarytool profile NOTARY, signed in with the App Store Connect API
       # key, in the same keychain, where mygo.config.ts finds it through NOTARY_KEYCHAIN.
       - name: Add the signing identity and the notary profile
@@ -162,7 +162,7 @@ jobs:
         run: |
           for name in ASC_KEY ASC_KEY_ID ASC_ISSUER_ID IDENTITY IDENTITY_PASSWORD; do
             if [[ -z ${!name} ]]; then
-              echo "::error::a secret for $name is missing: docs/releasing-mac.md"
+              echo "::error::a secret for $name is missing: docs/releasing-desktop.md"
               exit 1
             fi
           done

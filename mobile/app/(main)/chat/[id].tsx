@@ -68,7 +68,7 @@ import {
   type Row,
 } from "../../../src/ui/transcript";
 
-/// Breathing room between the last message and the composer, as on the Mac.
+/// Breathing room between the last message and the composer.
 const COMPOSER_GAP = 14;
 /// How much taller the composer gets when it expands on focus, until it has been seen to.
 const FOCUS_GROWTH_GUESS = 36;
@@ -760,7 +760,7 @@ export default function ChatScreen() {
   // A channel's conversation shows its speakers by name, as a group does.
   const speakers = chat ? showsSpeakers(chat) : false;
   const title = chat ? chatTitle(chat) : t("Chat");
-  // After the Mac app: "Message Chef", or the group's title with a hint that @ addresses one bot.
+  // "Message Chef", or the group's title with a hint that @ addresses one bot.
   const placeholder =
     !isGroup && members[0]
       ? t("Message {name}", { name: members[0].name })

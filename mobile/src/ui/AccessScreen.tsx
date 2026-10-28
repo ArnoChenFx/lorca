@@ -1,7 +1,7 @@
 // A bot's Access, slid in from its Access row in Details, or opened from a "needs more access"
 // card: the plugins on its Runner, each with how far the bot may use it and a screen of its own
 // for that and its tools, whether its messages wait as drafts, then Files and Shell commands under
-// the Runner's name. Each change saves at once. The desktop apps' Access sheet holds the same.
+// the Runner's name. Each change saves at once. The desktop app's Access sheet holds the same.
 
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect } from "react";

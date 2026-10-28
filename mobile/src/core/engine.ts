@@ -1,5 +1,5 @@
 // The phone's side of the core: starts it once with the app's folder and this phone's facts,
-// turns its events into store changes, and offers the screens the same verbs the macOS app has.
+// turns its events into store changes, and offers the screens the same verbs the desktop app has.
 // Every call is one request over the JSON API the desktop app speaks to the CLI; the Rust
 // core does the keys, the relay, jobs, rooms, and questions to Runners.
 
@@ -100,7 +100,7 @@ class Engine {
 
   /// Takes the core's snapshot of the account. The core keeps emitting while it builds one, so
   /// an event can arrive ahead of a snapshot older than it: the relay connecting during launch,
-  /// a reply. Those events wait and are applied after the snapshot, as the macOS app does; each
+  /// a reply. Those events wait and are applied after the snapshot, as the desktop app does; each
   /// says where a thing stands, so one the snapshot already has changes nothing.
   private async bootstrap() {
     this.bootstraps += 1;
@@ -623,7 +623,7 @@ class Engine {
     await core.request("projects.asset", { chat_id: chatId, file: { path: pathOf(file.uri), name: file.name, mime: file.mime } });
   }
 
-  async createBot(input: { name: string; description: string; symbol_name: string; accent: string; runner_id: string; provider: string; model?: string; thinking?: string }): Promise<{ bot: Bot; chatId: string }> {
+  async createBot(input: { name: string; description: string; shape?: string; accent: string; runner_id: string; provider: string; model?: string; thinking?: string }): Promise<{ bot: Bot; chatId: string }> {
     const { bot, chat_id } = await core.request<{ bot: Bot; chat_id: string }>("bots.create", input);
     return { bot, chatId: chat_id };
   }
@@ -647,8 +647,8 @@ class Engine {
     });
   }
 
-  /// The bot's symbol and accent, the look under and behind its image.
-  async setBotLook(id: string, look: { symbol_name?: string; accent?: string }): Promise<void> {
+  /// The bot's shape and accent, the look under and behind its image.
+  async setBotLook(id: string, look: { shape?: string; accent?: string }): Promise<void> {
     await core.request("bots.update", { id, ...look });
   }
 
@@ -1219,6 +1219,12 @@ class Engine {
     if (!answer.installing || !answer.latest) return;
     const latest = answer.latest;
     useStore.setState((s) => ({ devices: s.devices.map((d) => (d.id === id && d.app ? { ...d, app: { ...d.app, latest, state: "installing", error: undefined } } : d)) }));
+  }
+
+  /// Has a Device's CLI and desktop app look for a newer version now. Its `machine` blob carries
+  /// what they find; a Runner too old to know the request keeps what it said.
+  checkDeviceUpdates(id: string) {
+    core.request("device.check_updates", { id }).catch(() => {});
   }
 
   /// Whether `lorca service` keeps a Runner's CLI running, asked of the Runner through the core.

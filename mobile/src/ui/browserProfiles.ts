@@ -1,6 +1,6 @@
-// A bot's browser profiles as the Mac's Profiles section words them: a state in a word or two, and
-// the menu a tap on a profile opens. The phone is never a Runner, so a profile never opens here:
-// its menu names the Runner where it does, and records only in a browser open on that screen.
+// A bot's browser profiles as the desktop app's Profiles section words them: a state in a word or
+// two, and the menu a tap on a profile opens. The phone is never a Runner, so a profile never opens
+// here: its menu names the Runner where it does, and records only in a browser open on that screen.
 
 import type { BrowserProfile } from "../core/model";
 import { t, tc } from "../i18n";
@@ -19,7 +19,7 @@ export function profileStateWord(profile: BrowserProfile): string {
   }
 }
 
-/// What the state means for the bot, as the Mac's tooltip says it.
+/// What the state means for the bot, as the desktop app's tooltip says it.
 export function profileExplanation(profile: BrowserProfile, bot: string, runner: string): string {
   if (profile.recording) return t("Do the task in this browser on {runner}, then choose Stop Recording. Passwords aren't recorded.", { runner });
   switch (profile.state) {

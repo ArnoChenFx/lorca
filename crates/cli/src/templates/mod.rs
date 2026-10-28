@@ -573,6 +573,7 @@ pub async fn import_text(app: &Arc<App>, text: &str, params: &Value) -> Result<V
         name,
         description: profile.description,
         symbol_name: profile.symbol_name,
+        shape: String::new(),
         accent: profile.accent,
         avatar: None,
         runner_id: runner_id.into(),

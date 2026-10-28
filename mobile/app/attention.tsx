@@ -1,4 +1,4 @@
-// What waits on the user across chats, after the Mac's Attention popover: each coordinator's
+// What waits on the user across chats, after the desktop app's Attention flyout: each coordinator's
 // latest brief, then the items, urgent first. A tap opens the chat an item came from, and when
 // the item waits on a review the chat's details list, that review's screen over it; a long
 // press opens another of its chats or marks it resolved, and on a brief dismisses it. The ⋯ menu holds the notification

@@ -1,12 +1,11 @@
-// The pieces the template screens share, after the macOS app's TemplateItemViews: a row per
-// piece of the bot, as the template holds it, with what to look at before sharing it, and the
-// contents of a template read-only.
+// The pieces the template screens share: a row per piece of the bot, as the template holds it, with
+// what to look at before sharing it, and the contents of a template read-only.
 
 import { Checkbox, Host as ComposeHost } from "@expo/ui/jetpack-compose";
 import { Platform, PlatformColor, StyleSheet, Text, View } from "react-native";
 import { flagWords, memoryLines, routineLine, type TemplateDocument, type TemplateProfile } from "../core/templates";
 import { t } from "../i18n";
-import { AvatarDisc } from "./Avatar";
+import { LookAvatar, shapeFor } from "./Avatar";
 import { Section } from "./forms";
 import { Pressable } from "./Pressable";
 import { Symbol } from "./Symbol";
@@ -58,14 +57,16 @@ export function TemplateItemRow({ title, detail, flags = [], titleLines = 1, lea
   );
 }
 
-/// The profile, which every template holds: the look, the name, and what the bot is for.
+/// The profile, which every template holds: the look, the name, and what the bot is for. A
+/// template carries no shape: it shows the one its name picks, and the bot made from it gets its
+/// own id's.
 export function TemplateProfileRow({ profile, flags }: { profile: TemplateProfile; flags?: readonly string[] }) {
   return (
     <TemplateItemRow
       title={profile.name}
       detail={profile.description}
       flags={flags}
-      leading={<AvatarDisc symbol={profile.symbol_name || "sparkles"} accent={profile.accent || "indigo"} size={36} />}
+      leading={<LookAvatar shape={shapeFor(undefined, profile.name)} accent={profile.accent || "indigo"} size={36} />}
     />
   );
 }

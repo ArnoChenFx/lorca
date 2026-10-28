@@ -92,6 +92,14 @@ pub fn install(app: &Arc<App>) -> Result<Value, String> {
     Ok(json!({ "version": status.version, "latest": status.update.latest, "installing": true }))
 }
 
+/// `updates.check`, from a Device that shows this one: has the app look at its feed, when it is
+/// connected and updates itself. The `machine` blob carries what it finds.
+pub fn check(app: &Arc<App>) {
+    if app.app_updates.status().is_some() {
+        app.emit(Event::AppUpdateCheck);
+    }
+}
+
 /// `app.relaunch_when_idle`: answers once no bot is at work on this Runner and what it queued
 /// for the relay went up, so the app can relaunch into the version it installed. Turns that
 /// would begin after it answers wait ([`turn_may_start`]). The wait ends with the connection that
@@ -150,6 +158,9 @@ mod tests {
         assert!(report(app, 7, &open, json!({ "auto": true })).is_err(), "no version");
 
         let mut events = app.events.subscribe();
+        // A Device that shows this one has the app look at its feed.
+        check(app);
+        assert!(matches!(events.try_recv(), Ok(Event::AppUpdateCheck)));
         assert_eq!(install(app).unwrap(), json!({ "version": "0.1.14", "latest": "0.1.15", "installing": true }));
         assert!(matches!(events.try_recv(), Ok(Event::AppUpdateInstall)));
         // While it installs, another request is answered without asking the app again.
@@ -162,6 +173,9 @@ mod tests {
         assert!(app.local_device().unwrap().app.is_some());
         disconnected(app, 7);
         assert_eq!(app.local_device().unwrap().app, None);
+        // With no app to ask, a check asks nothing.
+        check(app);
+        assert!(std::iter::from_fn(|| events.try_recv().ok()).all(|event| !matches!(event, Event::AppUpdateCheck)));
 
         // A report that lands after its connection closed does not bring the status back.
         let closed = CancellationToken::new();

@@ -7,10 +7,10 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// botAccessSheet is a bot's Access, after the Mac's BotAccessViewController: how far it may use
-// each plugin on its Runner, down to single tools, and whether it reads or changes files and runs
-// shell commands there. Only the user changes it; a chat's access request opens this sheet too.
-// The choices live here, across frames, until Save.
+// botAccessSheet is a bot's Access: how far it may use each plugin on its Runner, down to single
+// tools, and whether it reads or changes files and runs shell commands there. Only the user changes
+// it; a chat's access request opens this sheet too. The choices live here, across frames, until
+// Save.
 type botAccessSheet struct {
 	botID, botName string
 	runner         *model.Device
@@ -216,8 +216,8 @@ func (st *botAccessSheet) view(c *ui.Context, s *sheet) {
 	}
 }
 
-// pluginRow is a plugin, after the Mac's PluginAccessRow: its mark and name, how many of its tools
-// the bot may use, and how far. A click on the row shows the tools under it.
+// pluginRow is a plugin: its mark and name, how many of its tools the bot may use, and how far. A
+// click on the row shows the tools under it.
 func (st *botAccessSheet) pluginRow(c *ui.Context, k *card, plugin model.AccessPlugin) {
 	p := colors(c)
 	level := st.levels[plugin.ID]

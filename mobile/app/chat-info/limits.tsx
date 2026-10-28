@@ -1,6 +1,7 @@
 // What a DM's turns, a task's runs, or a routine's runs may use on the bot's Runner, pushed from
-// the Limits row of Details, a task, or a routine, after the Mac's Limits sheet: work that stopped
-// at a limit first, with Resume; the limits, empty for none; then what the work used of them.
+// the Limits row of Details, a task, or a routine, after the desktop app's Limits sheet: work that
+// stopped at a limit first, with Resume; the limits, empty for none; then what the work used of
+// them.
 
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";

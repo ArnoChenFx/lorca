@@ -165,10 +165,11 @@ export interface Bot {
   name: string;
   /** What the bot does and how it should work. */
   description: string;
-  /** SF Symbol on the accent gradient: the look when there is no image. */
-  symbol_name: string;
+  /** The character's body, one of BOT_SHAPES, flat in the accent with two eyes: the look when
+   *  there is no image. Absent, the bot's id picks one (`shapeFor`). */
+  shape?: string;
   accent: Accent | string;
-  /** A custom profile image, a `file` blob like a message attachment; shown in place of the symbol and accent. */
+  /** A custom profile image, a `file` blob like a message attachment; shown in place of the shape and accent. */
   avatar?: Attachment;
   runner_id: string;
   provider: string;
@@ -1403,7 +1404,7 @@ export const taskIsFinished = (state: DurableTaskState) => state === "completed"
 /// A run can start: queued or blocked, and not running.
 export const taskCanStart = (task: DurableTask) => (task.state === "queued" || task.state === "blocked") && !task.active_run;
 
-/// The SF Symbol for a state, the same as the desktop apps'.
+/// The SF Symbol for a state, the same as the desktop app's.
 export function taskSymbol(state: DurableTaskState): string {
   switch (state) {
     case "working":
@@ -1468,7 +1469,7 @@ export interface CallLimits {
   service_id: string;
 }
 
-/// A group's shared project context, after the desktop apps' Project section: the briefs, goals,
+/// A group's shared project context, after the desktop app's Project section: the briefs, goals,
 /// constraints, decisions, facts, links (`document`), and files (`asset`) every bot in the group
 /// can read. The core owns scope, revisions, source checks, and sync.
 export type ProjectKind = "brief" | "goal" | "constraint" | "decision" | "fact" | "document" | "asset";

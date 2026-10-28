@@ -9,7 +9,7 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// A secret request reads from the CLI's shape, as the macOS app reads it.
+// A secret request reads from the CLI's shape.
 func TestSecretRequestDecodes(t *testing.T) {
 	var wire model.WireMessage
 	raw := `{"id":"msg-1","chat_id":"chat-1","author":{"kind":"bot","bot_id":"bot-1"},"state":{"kind":"complete"},"created_at":1,

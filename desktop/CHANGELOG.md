@@ -6,6 +6,29 @@ and the update window shows it.
 
 ## [Unreleased]
 
+- A Device's pane in Settings has that Device look for a newer app and CLI as it opens, so it shows
+  what is out. Before, it could say Up to date for up to a day after a release.
+
+## [0.1.21]
+
+- After Compact, the inspector's Context row drops to the compacted size right away, marked ≈ as an
+  estimate until the bot's next turn counts it. Before, it kept the old size until then.
+
+## [0.1.20]
+
+- Bots are little characters now, as in Grok Bot: one of twelve shapes in the bot's color, with two
+  eyes. While a bot works, its character looks around, sways, spins, and flips. Look offers the
+  shapes where it offered symbols; a bot you haven't given one gets its own.
+- A working bot's line speaks like Grok Bot's: "Chipping away…", "Mulling it over…", "Digging around…",
+  and in Chinese 愚公移山中…, 冥思苦想中…, 东翻西找….
+- Compact in the inspector shows its progress: Compacting… while it runs, then Compacted, or a
+  toast saying why it failed.
+- A bot that runs on another Device shows its context and spend in the inspector, and Compact runs
+  on that Device.
+- Right-click a bot in the sidebar and choose Change Look… to change its look. Right-clicking a
+  row opens its menu without opening the chat.
+- Rows in the sidebar light up under the pointer.
+
 ## [0.1.19]
 
 - Opening Lorca on a Device that was away no longer deletes bots, chats, or routines made on another

@@ -11,9 +11,9 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// The sidebars, after the macOS app's: the chats (a search field that opens the command palette,
-// a row per chat, and a footer with Settings, this computer, and the marketplace) and, while
-// Settings is up, the settings panes (a search over the panes and their settings, and Back).
+// The sidebars: the chats (a search field that opens the command palette, a row per chat, and a
+// footer with Settings, this computer, and the marketplace) and, while Settings is up, the settings
+// panes (a search over the panes and their settings, and Back).
 
 // MARK: - Chats
 
@@ -72,10 +72,10 @@ func (r sidebarRow) key() any {
 	return *r.group
 }
 
-// sidebarRows are what the chats sidebar lists, after the Mac's SidebarLayout: the pinned chats;
-// each section with its chats, then the chats in no section under Chats; and the hidden chats
-// under Hidden. Without sections the chats are one list with no header, and without hidden chats
-// there is no Hidden. A folded group lists its header alone. `chats` are in the store's order.
+// sidebarRows are what the chats sidebar lists: the pinned chats; each section with its chats, then
+// the chats in no section under Chats; and the hidden chats under Hidden. Without sections the
+// chats are one list with no header, and without hidden chats there is no Hidden. A folded group
+// lists its header alone. `chats` are in the store's order.
 func sidebarRows(chats []*model.Chat, sections []*model.Section, showsHidden, collapsesOthers bool) []sidebarRow {
 	var rows []sidebarRow
 	var listed, hidden []*model.Chat
@@ -357,7 +357,7 @@ func dropSidebarRows(rows []sidebarRow, dragged []int, to int) {
 	}
 }
 
-// groupHeader is a group's header, after the Mac's source-list group row: its name in small bold
+// groupHeader is a group's header, as a source list draws a group row: its name in small bold
 // secondary text, a chevron that folds it while the pointer is over the row, and its menu.
 func (m *mainWindow) groupHeader(c *ui.Context, group sidebarGroup, collapsed bool) {
 	p := colors(c)
@@ -415,8 +415,8 @@ func (m *mainWindow) groupHeader(c *ui.Context, group sidebarGroup, collapsed bo
 // show their shortcuts, so a quick Cmd+C leaves the stamps alone.
 const shortcutHintDelay = 250 * time.Millisecond
 
-// shortcutHints is whether the first nine chats show their shortcuts in place of their stamps:
-// Cmd held alone for a moment while the window takes keys and no sheet is up, as on the Mac.
+// shortcutHints is whether the first nine chats show their shortcuts in place of their stamps: Cmd
+// held alone for a moment while the window takes keys and no sheet is up.
 func (m *mainWindow) shortcutHints(c *ui.Context) bool {
 	if c.Modifiers() != ui.Cmd || m.hasSheet() {
 		m.cmdHeldAt = time.Time{}
@@ -469,19 +469,20 @@ func (m *mainWindow) chatRow(c *ui.Context, chat *model.Chat, selected, listFocu
 			row.Background(p.SelectionInactive)
 			backdrop = p.SelectionInactive.Over(p.Sidebar)
 		}
+	} else if row.Hovered() {
+		row.Background(p.Hover)
+		backdrop = p.Hover.Over(p.Sidebar)
 	}
-	// A row is chosen as the pointer goes down, as the Mac's are; assistive technology presses
-	// it instead.
+	// A row is chosen as the pointer goes down; assistive technology presses it instead.
 	if (row.Pressed() || row.Clicked()) && !selected {
 		m.selectChat(chat.ID)
 	}
 	if row.DoubleClicked() && chat.IsGroup() {
-		m.renameChat()
+		m.renameChat(chat.ID)
 	}
 	chatID := chat.ID
 	row.ContextMenu(func(menu *ui.Menu) {
-		// Acting on the clicked row means selecting it first; the commands read the selection.
-		m.selectChat(chatID)
+		// The menu acts on the clicked row and leaves the selection where it is.
 		pin := L("Pin")
 		if chat.IsPinned {
 			pin = L("Unpin")
@@ -493,13 +494,18 @@ func (m *mainWindow) chatRow(c *ui.Context, chat *model.Chat, selected, listFocu
 		menu.Separator()
 		if chat.IsGroup() {
 			if menu.Item(L("Rename…")).Chosen() {
-				m.renameChat()
+				m.renameChat(chatID)
 			}
 			if menu.Item(L("Add Bot…")).Disabled(len(botsAvailableToAdd(chatID)) == 0).Chosen() {
 				m.addBotToChat(chatID)
 			}
-		} else if menu.Item(L("Share as Template…")).Chosen() {
-			runCommand("shareBotTemplate")
+		} else if bots := store.BotsIn(chat); len(bots) > 0 {
+			if menu.Item(L("Change Look…")).Chosen() {
+				m.presentBotLook(bots[0].ID)
+			}
+			if menu.Item(L("Share as Template…")).Chosen() {
+				m.presentTemplateShare(bots[0].ID)
+			}
 		}
 		menu.Separator()
 		remove := L("Delete Chat")
@@ -507,7 +513,7 @@ func (m *mainWindow) chatRow(c *ui.Context, chat *model.Chat, selected, listFocu
 			remove = L("Delete Bot")
 		}
 		if menu.Item(remove).Chosen() {
-			m.deleteChat()
+			m.deleteChat(chatID)
 		}
 	})
 	row.Children(func() {
@@ -552,9 +558,9 @@ func (m *mainWindow) chatRow(c *ui.Context, chat *model.Chat, selected, listFocu
 	})
 }
 
-// chatSidebarItems are a chat's items that quiet and file it, after the Mac's: Mute and its spans
-// or Unmute, Move to Section and the sections (Move to New Section… while there are none), and
-// Hide or Show in Sidebar.
+// chatSidebarItems are a chat's items that quiet and file it: Mute and its spans or Unmute, Move to
+// Section and the sections (Move to New Section… while there are none), and Hide or Show in
+// Sidebar.
 func (m *mainWindow) chatSidebarItems(menu *ui.Menu, chat *model.Chat) {
 	chatID := chat.ID
 	if chat.IsMuted(time.Now()) {
@@ -832,6 +838,8 @@ func (m *mainWindow) settingsSidebar(c *ui.Context) {
 				} else {
 					e.Background(p.SelectionInactive)
 				}
+			} else if e.Hovered() {
+				e.Background(p.Hover)
 			}
 			if (e.Pressed() || e.Clicked()) && !on {
 				pick(row)

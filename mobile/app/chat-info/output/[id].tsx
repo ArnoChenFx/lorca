@@ -1,4 +1,4 @@
-// One output, slid in inside the chat's details, after the macOS app's output sheet: a preview of
+// One output, slid in inside the chat's details, after the desktop app's output sheet: a preview of
 // the file or the link, what the bot checked, and its versions, any of which the screen can
 // show. Open shows the file in Quick Look (iOS) or the link in the browser; Share hands either to
 // the share sheet.

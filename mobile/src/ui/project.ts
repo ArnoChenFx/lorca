@@ -1,4 +1,4 @@
-// A group's project context in its details, after the desktop apps' Project section: the words
+// A group's project context in its details, after the desktop app's Project section: the words
 // for each kind, who saved an entry, and what a row says needs the user.
 
 import { isSuggestion, otherVersions, projectHost, type ProjectContext, type ProjectEntry, type ProjectKind } from "../core/model";

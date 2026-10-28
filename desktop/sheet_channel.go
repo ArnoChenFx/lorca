@@ -7,11 +7,11 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// One channel's details, after the macOS app's ChannelViewController: whether it listens, and what
-// holds it when a message's turn didn't finish or the account can't be read; where it listens and
-// what it takes; the chats asking to be allowed; the task the bot does with each message; and its
-// conversations, each a click away. The bot sets a channel up and changes it when asked in chat;
-// here the user pauses it, allows or ignores a chat, settles a held message, or removes it.
+// One channel's details: whether it listens, and what holds it when a message's turn didn't finish
+// or the account can't be read; where it listens and what it takes; the chats asking to be allowed;
+// the task the bot does with each message; and its conversations, each a click away. The bot sets a
+// channel up and changes it when asked in chat; here the user pauses it, allows or ignores a chat,
+// settles a held message, or removes it.
 
 // presentChannel is a channel's details; openChat opens one of its conversations.
 func (w *appWindow) presentChannel(channelID string, bot *model.Bot, openChat func(chatID string)) {

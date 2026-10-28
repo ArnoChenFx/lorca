@@ -1,4 +1,4 @@
-// Durable tasks in the chat's details, after the desktop apps' Tasks section: a row per task
+// Durable tasks in the chat's details, after the desktop app's Tasks section: a row per task
 // with its state as a symbol, colored only where the task waits on the user. (The Running tasks
 // of `app/tasks` are a chat's terminal commands, not these.)
 

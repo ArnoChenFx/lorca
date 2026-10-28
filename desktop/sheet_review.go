@@ -8,12 +8,11 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// A draft or an exact call a bot left for the user, after the macOS app's ReviewViewController and
-// the permission card it would have asked with: who wants to do what and why, the command, call,
-// or draft, editable, and one decision. Approve runs what the editor shows on the bot's Runner,
-// saving an edit first as a new version; Reject drops it. A change from another Device shows here
-// as it lands, unless the user is editing, and then Approve offers the new version instead. Once
-// decided, the sheet shows how it went.
+// A draft or an exact call a bot left for the user, after the permission card it would have asked
+// with: who wants to do what and why, the command, call, or draft, editable, and one decision.
+// Approve runs what the editor shows on the bot's Runner, saving an edit first as a new version;
+// Reject drops it. A change from another Device shows here as it lands, unless the user is editing,
+// and then Approve offers the new version instead. Once decided, the sheet shows how it went.
 
 // reviewSheet is what one review sheet keeps across build passes: the item as shown, the editor's
 // text, and whether a decision is on its way.

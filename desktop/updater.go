@@ -11,12 +11,11 @@ import (
 	"github.com/egoist/mygo/plugins/updater"
 )
 
-// useUpdater gives the app MyGo's update window, as Sparkle gives the macOS app its own: a daily
-// check in the background, the release notes of a new version with Install Update, Remind Me
-// Later and Skip This Version, the download's progress, and the offer to relaunch. It installs
-// signed updates, by delta from the running version when the release has one. The user's choices
-// are this computer's, in updater.json. The window speaks the language picked in Settings, else
-// the system's.
+// useUpdater gives the app MyGo's update window: a daily check in the background, the release notes
+// of a new version with Install Update, Remind Me Later and Skip This Version, the download's
+// progress, and the offer to relaunch. It installs signed updates, by delta from the running
+// version when the release has one. The user's choices are this computer's, in updater.json. The
+// window speaks the language picked in Settings, else the system's.
 func useUpdater() {
 	mygo.Use(updater.New(updater.Options{Language: prefs.get().AppLanguage}))
 	// A check that went through, the update window's checkbox, or a switch: General shows it,
@@ -86,8 +85,13 @@ func checkAppRelease(ctx context.Context) (*appRelease, error) {
 	return &appRelease{version: up.Version, install: func(ctx context.Context) error { return up.Install(ctx, nil) }}, nil
 }
 
-// appCheckInterval is how often the app looks for a newer version for the other Devices to see.
+// appCheckInterval is how often the app looks for a newer version for the other Devices to see,
+// besides when one of them shows this Device.
 const appCheckInterval = 24 * time.Hour
+
+// appRecheckGap is how long after a check a Device that shows this one leaves the answer as it
+// is, so panes opened again and again stay within the GitHub API's 60 requests an hour.
+const appRecheckGap = 5 * time.Minute
 
 type appUpdates struct {
 	enabled  func() bool
@@ -139,6 +143,23 @@ func (u *appUpdates) connected() {
 	}
 }
 
+// checkNow is the `app.update.check` of a Device that shows this one: the app looks at its feed
+// now, unless it did in the last minutes or a check or an install runs.
+func (u *appUpdates) checkNow() {
+	if !u.enabled() || store.IsMock {
+		return
+	}
+	u.mu.Lock()
+	due := !u.busy && u.state == "" && u.now().Sub(u.checked) >= appRecheckGap
+	if due {
+		u.busy = true
+	}
+	u.mu.Unlock()
+	if due {
+		u.refresh()
+	}
+}
+
 // refresh checks the feed for a newer version, says what it found, and checks again a day later.
 // The caller set busy.
 func (u *appUpdates) refresh() {
@@ -155,17 +176,22 @@ func (u *appUpdates) refresh() {
 	if u.timer != nil {
 		u.timer.Stop()
 	}
-	u.timer = time.AfterFunc(appCheckInterval, func() {
+	var timer *time.Timer
+	timer = time.AfterFunc(appCheckInterval, func() {
 		u.mu.Lock()
 		due := !u.busy && u.state == ""
 		if due {
 			u.busy = true
+		} else if u.timer == timer {
+			// An install runs: look again later, as a failed one leaves the version as it was.
+			timer.Reset(appCheckInterval)
 		}
 		u.mu.Unlock()
 		if due {
 			u.refresh()
 		}
 	})
+	u.timer = timer
 	u.mu.Unlock()
 	u.report()
 }

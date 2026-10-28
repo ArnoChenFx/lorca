@@ -51,8 +51,8 @@ func toRoutineHealth(wire *WireRoutineHealth) RoutineHealth {
 	return health
 }
 
-// RoutineProblem is what went wrong with a routine, in the words the inspector row and the
-// routine sheet use, after the macOS app's RoutineProblem.
+// RoutineProblem is what went wrong with a routine, in the words the inspector row and the routine
+// sheet use.
 type RoutineProblem int
 
 const (

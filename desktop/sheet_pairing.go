@@ -8,10 +8,9 @@ import (
 	"rsc.io/qr"
 )
 
-// Pairing another Device, after the macOS app's PairingSheetViewController: a pairing string for the
-// other Device to scan or paste. The CLI runs the handshake and wraps the account key to the joining
-// machine; this sheet only polls for the outcome. Done keeps the code good for ten minutes; Cancel
-// retires it.
+// Pairing another Device: a pairing string for the other Device to scan or paste. The CLI runs the
+// handshake and wraps the account key to the joining machine; this sheet only polls for the
+// outcome. Done keeps the code good for ten minutes; Cancel retires it.
 
 // pairingPollInterval is how often the sheet asks the CLI whether the other Device joined.
 const pairingPollInterval = 1500 * time.Millisecond

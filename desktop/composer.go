@@ -12,11 +12,11 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// The composer, after the macOS app's ComposerView: a pill floating over the transcript with the
-// + button, the text, and Stop and Send. One line of text sits beside the controls; longer text
-// or attachments open it up, the chips above the text and the controls in a row under it.
-// Return sends (Shift-Return breaks the line) unless Settings reserves sending for Ctrl-Return.
-// `@` offers the bots, and a name picked from the menu goes out with the message by id.
+// The composer: a pill floating over the transcript with the + button, the text, and Stop and Send.
+// One line of text sits beside the controls; longer text or attachments open it up, the chips above
+// the text and the controls in a row under it. Return sends (Shift-Return breaks the line) unless
+// Settings reserves sending for Ctrl-Return. `@` offers the bots, and a name picked from the menu
+// goes out with the message by id.
 
 const (
 	maxAttachmentBytes = 100 * 1024 * 1024
@@ -143,7 +143,7 @@ func (m *mainWindow) pasteAttachments(s *composerState, text string) bool {
 }
 
 // frostedGlass is the composer's material: Liquid Glass over a blur of what scrolls under it, so
-// the messages behind it frost to faint lines, as under the Mac's NSGlassEffectView.
+// the messages behind it frost to faint lines.
 type frostedGlass struct{}
 
 func (frostedGlass) PaintMaterial(p *ui.Painter, box ui.Rect, radii [4]float32) {
@@ -495,8 +495,8 @@ type mentionRun struct {
 	bot        *model.Bot
 }
 
-// mentionRuns are the `@Name` runs of a draft for the bots it can address, in runes, whatever
-// their case, as the Mac's composer tints them; where two names start alike, the longer wins.
+// mentionRuns are the `@Name` runs of a draft for the bots it can address, in runes, whatever their
+// case; where two names start alike, the longer wins.
 func mentionRuns(runes []rune, bots []*model.Bot) []mentionRun {
 	lower := func(rs []rune) []rune {
 		out := make([]rune, len(rs))

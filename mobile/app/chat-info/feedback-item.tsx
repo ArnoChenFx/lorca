@@ -1,4 +1,4 @@
-// One suggestion or one change, after the desktop apps' sheet for either: why, the change as the
+// One suggestion or one change, after the desktop app's sheet for either: why, the change as the
 // lines it takes out and puts in, and for a suggestion the notes it is based on. Accept, the
 // toolbar's button, applies a suggestion on the bot's Runner; Reject sits apart at the bottom. A
 // change can be undone while the routine or skill still reads as the change left it.

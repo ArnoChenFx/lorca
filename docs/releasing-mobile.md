@@ -73,3 +73,11 @@ base64 -w0 lorca-release.keystore  # 输出填进 secret
   分支上跑）
 - 合并冲突：`sync-upstream` 遇到冲突会直接失败并报错，你在本地把
   `mobile-apk` 分支解完冲突 push 上去即可，下次定时任务会继续。
+
+### 1. App Store Connect API key
+
+本 fork 的 `release-mobile-apk` 只打 Android，不需要 ASC key。若还要跑上游的 iOS
+/TestFlight 或 desktop 公证 workflow，按
+[egoist/lorca 的 Releasing the phone app](https://github.com/egoist/lorca/blob/main/docs/releasing-mobile.md#1-app-store-connect-api-key)
+配 `ASC_KEY`、`ASC_KEY_ID`、`ASC_ISSUER_ID` 等 Secrets（与
+[releasing-desktop.md](releasing-desktop.md) 共用）。

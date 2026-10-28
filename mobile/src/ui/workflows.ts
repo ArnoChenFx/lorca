@@ -1,6 +1,6 @@
-// A workflow's setup as the core's `workflows.*` answers it, and what the pack's screen shows of it,
-// in the Mac's words and by its rules: the account a service uses, each account row's state or the
-// one thing to do about it, and the next step.
+// A workflow's setup as the core's `workflows.*` answers it, and what the pack's screen shows of
+// it, in the desktop app's words and by its rules: the account a service uses, each account row's
+// state or the one thing to do about it, and the next step.
 
 import type { ChannelListen, ChannelStatus, PluginStatus } from "../core/model";
 import { t } from "../i18n";

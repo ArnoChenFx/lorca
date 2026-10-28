@@ -78,6 +78,10 @@ pub enum Event {
     /// relaunch into it once no bot is at work here.
     #[serde(rename = "app.update.install")]
     AppUpdateInstall,
+    /// A Device that shows this one asked the desktop app that runs this CLI to look at its feed
+    /// for a newer version.
+    #[serde(rename = "app.update.check")]
+    AppUpdateCheck,
 }
 
 /// Why this Device's last try to connect to the relay failed.

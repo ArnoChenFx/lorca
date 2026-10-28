@@ -10,11 +10,10 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// The main window, after the macOS app's MainWindowController and RootSplitViewController: the
-// panes' headers (the sidebar and create buttons, back and forward in Settings, the title, the
-// Device picker on the Device panes, the chat's running tasks, and the inspector's toggle) over a
-// split of the sidebar, the content, and the inspector. The content is a chat, a settings pane, or
-// with nothing selected, a state.
+// The main window: the panes' headers (the sidebar and create buttons, back and forward in
+// Settings, the title, the Device picker on the Device panes, the chat's running tasks, and the
+// inspector's toggle) over a split of the sidebar, the content, and the inspector. The content is a
+// chat, a settings pane, or with nothing selected, a state.
 
 // contentMinWidth is the narrowest the content gets before the side panes give way.
 const contentMinWidth = 460
@@ -252,8 +251,7 @@ func (m *mainWindow) toggleSidebar() {
 	}
 }
 
-// toggleInspector goes by what is on screen, as the Mac app's split view's does: an inspector that
-// stepped aside for room comes back.
+// toggleInspector goes by what is on screen: an inspector that stepped aside for room comes back.
 func (m *mainWindow) toggleInspector() {
 	if !m.selection.IsChat() || !store.IsConnected {
 		mygo.Shell.Beep()
@@ -373,7 +371,7 @@ func (m *mainWindow) run(id string) {
 	case "addBot":
 		m.addBotToChat(m.selection.ChatID)
 	case "renameChat":
-		m.renameChat()
+		m.renameChat(m.selection.ChatID)
 	case "pinChat":
 		if id := m.selection.ChatID; id != "" {
 			store.TogglePin(id)
@@ -410,7 +408,7 @@ func (m *mainWindow) run(id string) {
 			}
 		}
 	case "deleteChat":
-		m.deleteChat()
+		m.deleteChat(m.selection.ChatID)
 	}
 	m.invalidate()
 }
@@ -431,13 +429,12 @@ func botsAvailableToAdd(chatID string) []*model.Bot {
 	return out
 }
 
-func (m *mainWindow) renameChat() {
-	chat := store.Chat(m.selection.ChatID)
+func (m *mainWindow) renameChat(chatID string) {
+	chat := store.Chat(chatID)
 	if chat == nil || !chat.IsGroup() {
 		mygo.Shell.Beep()
 		return
 	}
-	chatID := chat.ID
 	value := store.Title(chat)
 	m.showAlert(alertOptions{
 		Message:     L("Rename Chat"),
@@ -504,13 +501,12 @@ func (m *mainWindow) deleteSection(id string) {
 	})
 }
 
-func (m *mainWindow) deleteChat() {
-	chat := store.Chat(m.selection.ChatID)
+func (m *mainWindow) deleteChat(chatID string) {
+	chat := store.Chat(chatID)
 	if chat == nil {
 		mygo.Shell.Beep()
 		return
 	}
-	chatID := chat.ID
 	deletesBot := chat.IsBotDM() && len(chat.BotIDs) > 0 && store.Bot(chat.BotIDs[0]) != nil
 	informative := L("The transcript is removed from this Device and from paired Devices.")
 	confirm := L("Delete")
@@ -660,7 +656,7 @@ func (m *mainWindow) view(c *ui.Context) {
 	sidebar, inspector := m.panes(width)
 
 	m.shortcuts(c)
-	// Where the window shows its material, the sidebar is transparent over it, as the Mac's.
+	// Where the window shows its material, the sidebar is transparent over it.
 	vibrant := c.Vibrancy()
 	if vibrant {
 		c.Root().Background(ui.Transparent)
@@ -689,8 +685,7 @@ func (m *mainWindow) view(c *ui.Context) {
 				ui.Box(c).Width(1).Background(p.ToolbarLine)
 			}
 			ui.Column(c).Grow(1).MinWidth(0).Background(p.Content).Children(func() {
-				// A chat runs under the header, as the Mac's transcript runs under the titlebar; the
-				// other panes start below it.
+				// A chat runs under the header; the other panes start below it.
 				underHeader := chatID != "" && !m.isSettings()
 				body := ui.Column(c).Grow(1).MinHeight(0)
 				if !underHeader {
@@ -722,6 +717,7 @@ func (m *mainWindow) view(c *ui.Context) {
 							m.inspectorView(c, chatID)
 						}
 					})
+					m.inspector.toast.view(c, inspector-24)
 				})
 			}
 		})
@@ -812,8 +808,7 @@ func (m *mainWindow) leadingButtons(c *ui.Context, inContent bool) {
 		if hoverButton(c, hoverButtonOptions{Symbol: "sidebar.leading", Tooltip: L("Toggle Sidebar (%@)", shortcutText("CmdOrCtrl+B")), Label: L("Toggle Sidebar")}).Clicked() {
 			m.toggleSidebar()
 		}
-		// Creating bots and chats belongs to the chats; Settings hides it. A press opens its
-		// menu, as the Mac button's own does.
+		// Creating bots and chats belongs to the chats; Settings hides it. A press opens its menu.
 		if !m.isSettings() {
 			create := hoverButton(c, hoverButtonOptions{Symbol: "plus", Tooltip: L("Create")})
 			create.Menu(func(menu *ui.Menu) {

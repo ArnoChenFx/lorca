@@ -11,11 +11,10 @@ import (
 	"github.com/egoist/mygo/ui"
 )
 
-// Bot templates, after the macOS app's TemplateShareViewController and TemplateItemViews.
-// Sharing: the user picks what goes in a bot's template besides its profile (routines, plugins,
-// memories), sees each as the template will hold it, and shares a link, which the CLI puts on the
-// relay encrypted with a key only the link carries, or saves a file. A bot shared before updates
-// its link, which keeps its address.
+// Bot templates. Sharing: the user picks what goes in a bot's template besides its profile
+// (routines, plugins, memories), sees each as the template will hold it, and shares a link, which
+// the CLI puts on the relay encrypted with a key only the link carries, or saves a file. A bot
+// shared before updates its link, which keeps its address.
 
 // templateItem is a piece of a template as the sheets list it.
 type templateItem struct {
@@ -47,7 +46,9 @@ func templateMemory(id, text string, flags []string) templateItem {
 }
 
 func templateProfile(profile model.TemplateProfile, flags []string) templateItem {
-	look := avatarContent{Kind: avatarBot, SymbolName: firstNonEmpty(profile.SymbolName, "sparkles"), Accent: model.Accent(firstNonEmpty(profile.Accent, "indigo"))}
+	// A template carries no shape: it shows the one its name picks, and the bot made from it gets
+	// its own id's.
+	look := avatarContent{Kind: avatarBot, Shape: shapeFor("", profile.Name), Key: profile.Name, Accent: model.Accent(firstNonEmpty(profile.Accent, "indigo"))}
 	return templateItem{id: "profile", title: profile.Name, detail: profile.Description, flags: flags, look: &look, lines: 1}
 }
 

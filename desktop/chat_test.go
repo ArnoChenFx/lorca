@@ -111,3 +111,26 @@ func TestHandoffReportReadsAsMessageFrom(t *testing.T) {
 	}
 	renderBoth(t, tt, "handoff-report-group")
 }
+
+// The working row's words, after Grok Bot's: a step keeps its phrase, and the steps draw every one.
+func TestWorkingRowDrawsGrokBotPhrases(t *testing.T) {
+	working := map[string]bool{}
+	thinking := map[string]bool{}
+	for i := range 60 {
+		step := fmt.Sprintf("chat/%d", i)
+		if workingPhrase(step) != workingPhrase(step) {
+			t.Fatal("a step changed its words")
+		}
+		working[workingPhrase(step)] = true
+		thinking[thinkingPhrase(step)] = true
+	}
+	if len(working) != 5 || len(thinking) != 3 {
+		t.Fatalf("drew %d working and %d thinking phrases", len(working), len(thinking))
+	}
+	if got := workingText([]string{"Chef"}, "", false, "chat/1"); got != workingPhrase("chat/1")+"…" {
+		t.Fatalf("a DM reads %q", got)
+	}
+	if got := workingText([]string{"Chef"}, "", true, "chat/1"); got != L("%@ is working…", "Chef") {
+		t.Fatalf("a group reads %q", got)
+	}
+}

@@ -1,5 +1,5 @@
-// Lorca for Windows and Linux: a MyGo app of native UI whose Go code launches and talks to the
-// local CLI and draws the chat UI. It follows the macOS app (macos/) screen for screen.
+// Lorca for macOS, Windows, and Linux: a MyGo app of native UI whose Go code launches and talks to
+// the local CLI and draws the chat UI.
 package main
 
 import (

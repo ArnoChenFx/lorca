@@ -68,6 +68,9 @@ func TestSpentKeepsAPISpendingEstimatesAndUnknownPricesApart(t *testing.T) {
 		{ChatUsage{Turns: 1, UnknownPriceCalls: 2, PricingKinds: []string{"unknown"}}.SpendSummary(), "Price unknown · 1 turn"},
 		{ChatUsage{Turns: 3}.SpendSummary(), "Price unknown · 3 turns"},
 		{ChatUsage{Turns: 3, APICostUSD: 0.1, UnknownPriceCalls: 1, PricingKinds: []string{"api", "unknown"}}.SpendSummary(), "$0.10 + unknown · 3 turns"},
+		{ChatUsage{ContextTokens: 140_000, ContextWindow: 1_000_000}.ContextSummary(), "140k of 1.0M · 14%"},
+		{ChatUsage{ContextTokens: 40_000, ContextEstimated: true, ContextWindow: 1_000_000}.ContextSummary(), "≈ 40k of 1.0M · 4%"},
+		{ChatUsage{ContextTokens: 40_000, ContextEstimated: true}.ContextSummary(), "≈ 40k"},
 		{BudgetLimits{}.Summary(), "None"},
 		{BudgetLimits{MaxUSD: &usd, MaxTokens: &tokens}.Summary(), "$2.00 · 200k tokens"},
 	} {
