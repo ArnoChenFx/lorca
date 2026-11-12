@@ -59,6 +59,14 @@ Attachments go to the bucket because a deploy replaces the container's disk. The
 | `LORCA_RELAY_APNS_TOPIC` | The phone app's bundle id; `app.lorca` by default. |
 | `LORCA_RELAY_FCM_SERVICE_ACCOUNT` | The JSON of a key from Firebase console › Project settings › Service accounts. |
 
+For Dokploy and other environment editors, encode the complete Firebase JSON as base64 and prefix it with `base64:` in the same variable. Generate the environment line locally (replace the filename with your downloaded service-account file):
+
+```bash
+printf 'LORCA_RELAY_FCM_SERVICE_ACCOUNT=base64:%s\n' "$(base64 < firebase-service-account.json | tr -d '\r\n')"
+```
+
+Paste the generated line into Dokploy's environment editor and redeploy an image containing base64 support. The relay decodes standard base64 to UTF-8 before parsing JSON, preserving the quotes and private-key escapes. Wrapped base64 is accepted too. `LORCA_RELAY_APNS_KEY` and `LORCA_RELAY_GITHUB_PRIVATE_KEY` also accept `base64:` followed by their encoded PEM text.
+
 Both keys go in as text, so the service needs no volume and the Postgres setup keeps its deploys without a gap. A key with `\n` in place of its line breaks works too. Either variable also takes the path of a file (`/data/apns.p8`), for a relay that has a volume anyway. The relay's first log line shows `push=apns`, `push=fcm`, or `push=apns+fcm`.
 
 ### Optional
@@ -73,6 +81,37 @@ Both keys go in as text, so the service needs no volume and the Postgres setup k
 | `LORCA_RELAY_INACTIVE_DAYS` | `365` | An identity with no machine seen, no blob written, and no socket open for this many days is deleted with its attachments. Its Devices keep what they hold and register again if they come back. `0` keeps every identity. |
 | `LORCA_RELAY_METRICS_TOKEN` | unset | Serves `GET /metrics` in Prometheus' text format to a scraper that sends this as a bearer token: `openssl rand -hex 32`. Unset, the route answers `404`. With more than one replica a scrape reaches one of them; request, push, and sweep counters carry its `instance`, and the totals are the same from each. |
 | `RUST_LOG` | `info` | `info,lorca_relay=debug` also logs each rate-limited request with the address it counted against. |
+
+## Published image
+
+Pushing a `relay-vX.Y.Z` tag runs [Release relay](../../.github/workflows/release-relay.yml), which builds `crates/relay/Dockerfile` from the tagged commit and publishes `ghcr.io/egoist/lorca-relay` for Linux amd64 and arm64. It uses the workflow's `GITHUB_TOKEN` with `packages: write`; no registry secret is needed.
+
+The build matrix compiles each architecture on its native GitHub runner: `ubuntu-24.04` for amd64 and `ubuntu-24.04-arm` for arm64. Each pushes an image by digest with a separate build cache; after both succeed, the publish job combines their digests into one multi-platform image under the release tags. Dokploy deployment follows publication of that combined image.
+
+```bash
+git tag relay-v1.0.0
+git push origin relay-v1.0.0
+```
+
+That release publishes `:1.0.0`, `:sha-<full commit SHA>`, and `:latest`. `latest` follows the last successfully published release, including a release of an older version. Use a version or image digest for a manually pinned deployment, or `:latest` for the workflow's automatic deployment.
+
+In Dokploy, use the Docker image source with `ghcr.io/egoist/lorca-relay:1.0.0`, route the domain to port `8787`, and check `/v1/health`. Set `LORCA_RELAY_DB` to the Postgres connection URL and copy the relay, bucket, push, and receiver settings. Railway's `${{Postgres.DATABASE_URL}}` interpolation is specific to Railway; use the actual connection URL on another host. The `RAILWAY_*` variables configure Railway and are not needed by the image. Give the container at least 10 seconds to stop gracefully.
+
+GHCR packages initially have private visibility. For anonymous pulls, make the package public in GitHub's package settings after the first publication; for private pulls, configure the host's registry credentials with a token that has `read:packages`.
+
+### Automatic Dokploy deployment
+
+Configure the Dokploy application with Docker image source `ghcr.io/egoist/lorca-relay:latest`. After publication succeeds, the workflow's separate `deploy` job calls [`POST /api/application.deploy`](https://docs.dokploy.com/docs/core/auto-deploy#api-method). The request queues a deployment; its success does not mean the rollout is healthy. Check Dokploy's deployment logs and the relay's health endpoint. The workflow triggers deployment directly, so keep repository-push deployment triggers off for this application.
+
+Create an API key in Dokploy's profile settings and copy the relay application's id. Set these repository secrets (`DOKPLOY_URL` is the Dokploy dashboard's base URL, not the relay URL):
+
+```bash
+gh secret set DOKPLOY_URL --repo egoist/lorca --body 'https://dokploy.example.com'
+gh secret set DOKPLOY_APPLICATION_ID --repo egoist/lorca --body 'your-application-id'
+gh secret set DOKPLOY_API_KEY --repo egoist/lorca
+```
+
+The last command prompts for the key. All three secrets are required by the deployment job. GitHub-hosted runners need network access to the Dokploy API, and Dokploy needs access to GHCR. A failed deployment job can be rerun without rebuilding the successfully published image; it deploys whatever `:latest` points at then.
 
 ## Run the image elsewhere
 
