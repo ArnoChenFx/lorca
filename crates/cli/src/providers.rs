@@ -8,8 +8,9 @@ use async_trait::async_trait;
 
 use lorca_agent::models::{ModelInfo, Rates, ThinkingMode, Wire};
 use lorca_agent::providers::anthropic::ANTHROPIC_BASE_URL;
+use lorca_agent::providers::gemini::GEMINI_BASE_URL;
 use lorca_agent::providers::{
-    AnthropicProvider, ChatGptProvider, ChatGptTokens, GrokProvider, GrokTokenSource, GrokTokens, OpenAiCompatProvider,
+    AnthropicProvider, ChatGptProvider, ChatGptTokens, GeminiProvider, GrokProvider, GrokTokenSource, GrokTokens, OpenAiCompatProvider,
     OpenAiResponsesProvider, TokenSource,
 };
 use lorca_agent::{models, AssistantEventStream, ModelRequest, Provider, ThinkingLevel};
@@ -21,6 +22,7 @@ use crate::decisions::{Decider, Shape};
 
 pub const OPENCODE_BASE_URL: &str = "https://opencode.ai/zen";
 pub const OPENCODE_GO_BASE_URL: &str = "https://opencode.ai/zen/go";
+const OPENCODE_GO_GEMINI_URL: &str = "https://opencode.ai/inference/go/google/v1beta";
 
 const USER_AGENT: &str = concat!("lorca/", env!("CARGO_PKG_VERSION"));
 
@@ -113,7 +115,7 @@ fn built_in_vision(kind: &str, model: Option<&str>) -> bool {
     }
     let model = model.to_ascii_lowercase();
     match kind {
-        "chatgpt" | "anthropic" | "grok" => true,
+        "chatgpt" | "anthropic" | "gemini" | "grok" => true,
         "deepseek" => model.contains("vl") || model.contains("vision"),
         "opencode" | "opencode-go" => {
             model.contains("claude")
@@ -273,6 +275,20 @@ fn unmetered_provider_for(app: &Arc<App>, kind: &str, model: Option<&str>, think
             let base_url = key.base_url.clone().unwrap_or_else(anthropic_base_url);
             Ok(Arc::new(AnthropicProvider::anthropic(&key.api_key, Some(model.as_str())).with_base_url(&base_url).with_thinking(thinking)))
         }
+        "gemini" => {
+            let key = app
+                .credentials
+                .lock()
+                .unwrap()
+                .gemini
+                .clone()
+                .ok_or_else(|| "Gemini is not connected".to_string())?;
+            let model = model.or_else(|| std::env::var("LORCA_GEMINI_MODEL").ok()).unwrap_or_else(|| default_model(kind).into());
+            let base_url = key.base_url.clone().unwrap_or_else(gemini_base_url);
+            let mut provider = GeminiProvider::new(&base_url, &key.api_key, Some(model.as_str())).with_thinking(thinking);
+            provider.supports_images = built_in_vision(kind, Some(model.as_str()));
+            Ok(Arc::new(provider))
+        }
         "opencode" => {
             let key = app
                 .credentials
@@ -331,9 +347,10 @@ enum OpenCodeWire {
     ChatCompletions,
     Messages,
     Responses,
+    /// Google's `generateContent`, which OpenCode serves Gemini on.
+    Gemini,
     /// A decision model, which Auto-review asks and no bot runs.
     Decides,
-    Unsupported,
 }
 
 /// OpenCode publishes the wire protocol beside every model, and the catalog carries it. A model
@@ -345,21 +362,22 @@ fn opencode_wire(kind: &str, model: &str) -> OpenCodeWire {
         Some(Wire::ChatCompletions) => return OpenCodeWire::ChatCompletions,
         Some(Wire::Messages) => return OpenCodeWire::Messages,
         Some(Wire::Responses) => return OpenCodeWire::Responses,
+        Some(Wire::Gemini) => return OpenCodeWire::Gemini,
         Some(Wire::SystemOne) => return OpenCodeWire::Decides,
         None => {}
     }
     let model = model.to_ascii_lowercase();
-    if model.starts_with("jev-") {
+    if model.starts_with("jev-") || model.ends_with("-decision") || model.contains("-decision-") {
         return OpenCodeWire::Decides;
     }
-    if kind == "opencode" && model.starts_with("gemini-") {
-        return OpenCodeWire::Unsupported;
+    if model.starts_with("gemini-") {
+        return OpenCodeWire::Gemini;
     }
-    if model.starts_with("gpt-") || model.starts_with("grok-") || model.starts_with("muse-spark-") {
+    if model.starts_with("gpt-") || model.starts_with("grok-") || model.starts_with("muse-") {
         return OpenCodeWire::Responses;
     }
     let qwen = model.starts_with("qwen") && !(kind == "opencode" && model == "qwen3.8-max");
-    if qwen || (kind == "opencode-go" && model.starts_with("minimax-")) || model.starts_with("claude-") {
+    if qwen || (kind == "opencode-go" && model == "minimax-m3") || model.starts_with("claude-") {
         return OpenCodeWire::Messages;
     }
     OpenCodeWire::ChatCompletions
@@ -369,6 +387,16 @@ fn opencode_wire(kind: &str, model: &str) -> OpenCodeWire {
 /// protocol needs.
 fn opencode_root(root: &str) -> &str {
     root.trim_end_matches('/').strip_suffix("/v1").unwrap_or_else(|| root.trim_end_matches('/'))
+}
+
+/// Where OpenCode serves Gemini's `models/`: Zen under its `/v1`; Go only at the inference
+/// route it publishes, not under `/zen/go`. A root of the user's own mirrors Zen's.
+fn opencode_gemini_url(root: &str) -> String {
+    if root == OPENCODE_GO_BASE_URL {
+        OPENCODE_GO_GEMINI_URL.to_string()
+    } else {
+        format!("{root}/v1")
+    }
 }
 
 fn opencode_provider(
@@ -397,11 +425,13 @@ fn opencode_provider(
             provider.supports_images = built_in_vision(kind, Some(model));
             Arc::new(provider)
         }
+        OpenCodeWire::Gemini => {
+            let mut provider = GeminiProvider::at(kind, &opencode_gemini_url(root), api_key, model).with_thinking(thinking);
+            provider.supports_images = built_in_vision(kind, Some(model));
+            Arc::new(provider)
+        }
         OpenCodeWire::Decides => {
             return Err(format!("{model} is a decision model: it can review actions, not chat"));
-        }
-        OpenCodeWire::Unsupported => {
-            return Err(format!("{model} uses an OpenCode endpoint Lorca does not support"));
         }
     };
     Ok(opencode_headers(provider))
@@ -517,6 +547,12 @@ fn anthropic_base_url() -> String {
     env_url("LORCA_ANTHROPIC_BASE_URL").unwrap_or_else(|| ANTHROPIC_BASE_URL.to_string())
 }
 
+/// Gemini's API root when the credential has none: `LORCA_GEMINI_BASE_URL` (a proxy or a test
+/// server) or Google's.
+fn gemini_base_url() -> String {
+    env_url("LORCA_GEMINI_BASE_URL").unwrap_or_else(|| GEMINI_BASE_URL.to_string())
+}
+
 fn env_url(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|s| !s.trim().is_empty()).map(|s| s.trim_end_matches('/').to_string())
 }
@@ -552,21 +588,25 @@ mod tests {
         assert_eq!(opencode_wire("opencode", "deepseek-v4.1-flash"), OpenCodeWire::ChatCompletions);
         assert_eq!(opencode_wire("opencode", "minimax-m3"), OpenCodeWire::ChatCompletions);
         assert_eq!(opencode_wire("opencode", "qwen3.8-max"), OpenCodeWire::ChatCompletions);
-        assert_eq!(opencode_wire("opencode", "gemini-3.8-flash"), OpenCodeWire::Unsupported);
+        assert_eq!(opencode_wire("opencode", "gemini-3.8-flash"), OpenCodeWire::Gemini);
+        assert_eq!(opencode_wire("opencode-go", "gemini-4-argon"), OpenCodeWire::Gemini);
+        assert_eq!(opencode_wire("opencode", "gemini-9-unlisted"), OpenCodeWire::Gemini);
+        assert_eq!(opencode_gemini_url(OPENCODE_BASE_URL), "https://opencode.ai/zen/v1");
+        assert_eq!(opencode_gemini_url(OPENCODE_GO_BASE_URL), "https://opencode.ai/inference/go/google/v1beta");
         assert_eq!(opencode_wire("opencode-go", "minimax-m3"), OpenCodeWire::Messages);
         assert_eq!(opencode_wire("opencode-go", "qwen3.8-max"), OpenCodeWire::Messages);
         assert_eq!(opencode_wire("opencode-go", "grok-4.7"), OpenCodeWire::Responses);
-        // Every model the catalog offers on OpenCode has a wire Lorca speaks.
+        // Every Gemini model the catalog offers on OpenCode goes on Gemini's own wire.
         for kind in ["opencode", "opencode-go"] {
-            for model in models::for_provider(kind) {
-                assert_ne!(opencode_wire(kind, model.id), OpenCodeWire::Unsupported, "{kind}/{}", model.id);
+            for model in models::for_provider(kind).into_iter().filter(|m| m.id.starts_with("gemini-") && !m.decides()) {
+                assert_eq!(opencode_wire(kind, model.id), OpenCodeWire::Gemini, "{kind}/{}", model.id);
             }
         }
     }
 
     #[test]
     fn every_opencode_route_takes_images_when_the_runner_sends_pixels() {
-        for model in ["gpt-6.1-sol", "grok-4.7", "muse-spark-1.3", "claude-sonnet-5-5", "kimi-k3"] {
+        for model in ["gpt-6.1-sol", "grok-4.7", "muse-spark-1.3", "claude-sonnet-5-5", "kimi-k3", "gemini-4-hydrogen"] {
             assert!(opencode_provider("opencode", OPENCODE_BASE_URL, "k", model, None).unwrap().supports_images(), "{model}");
         }
         // A Responses model the catalog lacks, which the Runner sends no pixels, gets notes for
@@ -577,7 +617,7 @@ mod tests {
 
     #[test]
     fn every_provider_has_a_default_and_roots_accept_v1() {
-        for kind in ["deepseek", "anthropic", "chatgpt", "grok", "opencode", "opencode-go"] {
+        for kind in crate::credentials::PROVIDER_KINDS {
             assert!(models::find(kind, default_model(kind)).is_some(), "{kind}");
         }
         assert_eq!(default_model("custom:lab"), "");
@@ -613,11 +653,13 @@ mod tests {
     fn auto_review_runs_a_small_model_that_thinks_least() {
         let scratch = scratch_app();
         let app = &scratch.0;
-        for kind in ["deepseek", "anthropic", "chatgpt", "grok", "opencode", "opencode-go"] {
+        for kind in crate::credentials::PROVIDER_KINDS {
             assert!(models::find(kind, &small_model(app, kind).0).is_some(), "{kind}");
         }
         assert_eq!(small_model(app, "deepseek"), ("deepseek-flash".into(), Some(ThinkingLevel::Off)));
         assert_eq!(small_model(app, "anthropic"), ("claude-haiku-4-5".into(), Some(ThinkingLevel::Off)));
+        // Gemini cannot stop thinking: its review model runs at its lowest level.
+        assert_eq!(small_model(app, "gemini"), ("gemini-3.5-flash-lite".into(), Some(ThinkingLevel::Minimal)));
         assert_eq!(small_model(app, "chatgpt"), ("gpt-6-luna".into(), Some(ThinkingLevel::Low)));
         assert_eq!(small_model(app, "grok"), ("grok-4.7".into(), Some(ThinkingLevel::Low)));
         assert_eq!(small_model(app, "opencode-go"), ("deepseek-v4.1-flash".into(), Some(ThinkingLevel::Low)));
