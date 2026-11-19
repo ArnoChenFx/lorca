@@ -6,6 +6,17 @@ and the update window shows it.
 
 ## [Unreleased]
 
+## [0.1.24]
+
+- A message to a bot on another computer no longer says that computer is offline while it is
+  online and about to answer; the app checks with the relay before saying so.
+
+## [0.1.23]
+
+- A routine set up in a group or a channel conversation runs and reports there instead of in the
+  bot's DM. A group's details list its routines, and each routine names the chat it posts in. A
+  routine whose chat is gone, or no longer has the bot, posts in the bot's DM.
+
 ## [0.1.22]
 
 - Gemini is a built-in provider: connect it in Settings › Providers with an API key from

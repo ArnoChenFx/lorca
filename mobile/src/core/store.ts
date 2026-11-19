@@ -403,6 +403,17 @@ export function removeChat(chatId: string) {
   }));
 }
 
+/// A deleted bot takes its DMs and routines with it and leaves the groups it was in.
+export function removeBot(botId: string) {
+  const dms = useStore.getState().chats.filter((c) => c.kind === "dm" && c.bot_ids.includes(botId));
+  for (const chat of dms) removeChat(chat.id);
+  useStore.setState((s) => ({
+    bots: s.bots.filter((bot) => bot.id !== botId),
+    routines: s.routines.filter((routine) => routine.bot_id !== botId),
+    chats: s.chats.map((c) => (c.bot_ids.includes(botId) ? { ...c, bot_ids: c.bot_ids.filter((id) => id !== botId) } : c)),
+  }));
+}
+
 export function setChatUsage(chatId: string, usage: ChatUsage) {
   useStore.setState((s) => ({ chats: s.chats.map((c) => (c.id === chatId ? { ...c, usage } : c)) }));
 }
@@ -557,7 +568,16 @@ export function useWorkingBotIds(): Set<string> {
 /// A bot's routines, oldest first. One whose run is among the turns in flight is running,
 /// wherever the run was started.
 export function useRoutines(botId: string | undefined): Routine[] {
-  const routines = useStore(useShallow((s) => s.routines.filter((r) => r.bot_id === botId).sort((a, b) => a.created_at - b.created_at)));
+  return useRoutinesWhere((r) => r.bot_id === botId);
+}
+
+/// The routines whose runs post in a group or channel conversation, oldest first.
+export function useRoutinesIn(chatId: string | undefined): Routine[] {
+  return useRoutinesWhere((r) => !!chatId && r.chat_id === chatId);
+}
+
+function useRoutinesWhere(keep: (routine: Routine) => boolean): Routine[] {
+  const routines = useStore(useShallow((s) => s.routines.filter(keep).sort((a, b) => a.created_at - b.created_at)));
   const running = useStore(useShallow((s) => Object.values(s.running).flatMap((r) => (r.routineId ? [r.routineId] : []))));
   return useMemo(() => routines.map((r) => (r.is_running || !running.includes(r.id) ? r : { ...r, is_running: true })), [routines, running]);
 }
